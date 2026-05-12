@@ -18,9 +18,15 @@
 ## 安装
 
 1. 安装 Tampermonkey。
-2. 打开脚本文件：
-   <https://github.com/iMoonDay/steam-family-fit-analyzer/raw/main/steam-family-fit-analyzer.user.js>
+2. 打开 GreasyFork 页面安装：
+   <https://greasyfork.org/zh-CN/scripts/577825-steam-%E5%AE%B6%E5%BA%AD%E5%BA%93%E5%88%86%E6%9E%90%E5%99%A8>
 3. Tampermonkey 会弹出安装页面，确认安装即可。
+
+也可以直接从 GitHub 安装：
+
+1. 打开脚本文件：
+   <https://github.com/iMoonDay/steam-family-fit-analyzer/raw/main/steam-family-fit-analyzer.user.js>
+2. Tampermonkey 会弹出安装页面，确认安装即可。
 
 ## 使用
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.2
+// @version      0.1.3
 // @description  基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
 // @match        https://store.steampowered.com/*
@@ -24,21 +24,19 @@
 (function() {
   "use strict";
 
-  // 价格使用的 Steam 国区代码，例如 CN / US / JP。
+  // Steam 商店地区代码，例如 CN / US / JP。
   const STORE_CC = "CN";
-  // 商店接口返回语言，schinese 表示简体中文。
+  // Steam 商店语言代码，例如 schinese / english / japanese。
   const STORE_LANG = "schinese";
-  // 本地存储键名；改动后会读不到旧缓存。
+  // 本地存储键名。
   const STORAGE_KEY = "steam_family_fit_analyzer_state_v1";
-  // 家庭共享支持性缓存有效期，默认 7 天。
-  const SHAREABILITY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  // 原价缓存有效期，默认 7 天。
-  const ORIGINAL_PRICE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  // 原价批量请求每批 app 数量；只请求 price_overview，不包含中文名。
+  // 商店条目缓存有效期，默认 7 天。
+  const STORE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  // 原价读取每批 app 数量。
   const ORIGINAL_PRICE_BATCH_SIZE = 50;
-  // 家庭共享支持性检测并发批量；过大更容易 HTTP 429。
-  const SHAREABILITY_BATCH_SIZE = 5;
-  // 商店请求之间的基础间隔，单位毫秒。
+  // 共享支持性检测每批 app 数量。
+  const SHAREABILITY_BATCH_SIZE = 50;
+  // 商店请求之间的间隔，单位毫秒。
   const STORE_REQUEST_DELAY_MS = 50;
   // 自动后台刷新家庭库的间隔，默认 24 小时。
   const AUTO_FAMILY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -55,9 +53,7 @@
       appInfoById: {},
       updatedAt: 0
     },
-    shareabilityCache: {},
-    originalPriceCache: {},
-    originalPriceMode: "fast",
+    storeCache: {},
     autoFamilyRefreshEnabled: true,
     lastAutoFamilyRefreshAttemptAt: 0,
     apiKey: ""
@@ -759,10 +755,8 @@
             <button class="sffa-icon-btn" type="button" data-sffa-more title="更多" aria-label="更多" aria-expanded="false">⋯</button>
             <div class="sffa-menu" data-sffa-menu>
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
-              <button class="sffa-menu-item" type="button" data-sffa-price-mode></button>
               <button class="sffa-menu-item" type="button" data-sffa-copy>复制报告</button>
-              <button class="sffa-menu-item danger" type="button" data-sffa-clear-shareability hidden>清除共享缓存</button>
-              <button class="sffa-menu-item danger" type="button" data-sffa-clear-price hidden>清除价格缓存</button>
+              <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>清除商店缓存</button>
               <button class="sffa-menu-item" type="button" data-sffa-raw>查看原始数据</button>
             </div>
             <button class="sffa-close" type="button" data-sffa-close title="关闭">×</button>
@@ -825,10 +819,8 @@
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
-      priceModeBtn: root.querySelector("[data-sffa-price-mode]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
-      clearShareabilityBtn: root.querySelector("[data-sffa-clear-shareability]"),
-      clearPriceBtn: root.querySelector("[data-sffa-clear-price]"),
+      clearStoreCacheBtn: root.querySelector("[data-sffa-clear-store-cache]"),
       rawBtn: root.querySelector("[data-sffa-raw]"),
       rateContinueBtn: root.querySelector("[data-sffa-rate-continue]"),
       rateCheckBtn: root.querySelector("[data-sffa-rate-check]"),
@@ -843,11 +835,9 @@
     elements.refreshBtn.addEventListener("click", refreshFamilyLibrary);
     elements.analyzeBtn.addEventListener("click", analyzeTarget);
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
-    elements.priceModeBtn.addEventListener("click", toggleOriginalPriceMode);
     elements.copyBtn.addEventListener("click", copyReportSummary);
     elements.copyCurrentBtn.addEventListener("click", copyCurrentList);
-    elements.clearShareabilityBtn.addEventListener("click", clearShareabilityCache);
-    elements.clearPriceBtn.addEventListener("click", clearOriginalPriceCache);
+    elements.clearStoreCacheBtn.addEventListener("click", clearStoreCache);
     elements.rawBtn?.addEventListener("click", showRawDataWindow);
     elements.rateContinueBtn?.addEventListener("click", continueAfterRateLimit);
     elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
@@ -881,9 +871,7 @@
     renderSummary(null);
     renderTargetProfile(null);
     renderAutoFamilyRefreshButton();
-    renderOriginalPriceModeButton();
-    renderShareabilityCacheButton();
-    renderOriginalPriceCacheButton();
+    renderStoreCacheButton();
     renderRateLimitControls();
   }
 
@@ -1068,7 +1056,7 @@
       const comparison = compareLibraries(targetProfile);
       const analysisId = ++activeAnalysisId;
       priceLoadState = createPriceLoadState();
-      shareabilityFilterState = createShareabilityFilterState(analysisId, comparison.overlapGames.length, comparison.newGames.length, targetProfile.games.length);
+      shareabilityFilterState = createShareabilityFilterState(analysisId, 0, targetProfile.games.length, targetProfile.games.length);
       if (shareabilityProgressUiState?.timer) {
         window.clearTimeout(shareabilityProgressUiState.timer);
       }
@@ -1087,9 +1075,9 @@
       renderTargetProfile(lastReport);
       renderDetails();
       setStatus(`已显示全部，后台统计 ${formatPercent(targetProfile.games.length ? comparison.overlapGames.length / targetProfile.games.length : 0)}`, "warn");
-      setRawStep("background-filter-new-family-sharing-games");
+      setRawStep("background-load-store-items");
       window.setTimeout(() => {
-        startBackgroundShareabilityFilter(analysisId, comparison.newGames);
+        startBackgroundShareabilityFilter(analysisId, targetProfile.games);
       }, 0);
     } catch (error) {
       setRawError(error);
@@ -1182,41 +1170,12 @@
     }
   }
 
-  function toggleOriginalPriceMode() {
+  function clearStoreCache() {
     closeMenu();
-    if (priceLoadState.running) {
-      setStatus("价格加载中，稍后切换", "warn");
-      return;
-    }
-    state.originalPriceMode = getOriginalPriceMode() === "fast" ? "localized" : "fast";
+    state.storeCache = {};
     saveState();
-    renderOriginalPriceModeButton();
-    setStatus(getOriginalPriceMode() === "fast" ? "价格模式：快速" : "价格模式：中文名", "ok");
-    if (lastReport?.games?.new?.length) {
-      prepareOriginalPrices(lastReport.games.new);
-      refreshReportMetrics();
-      renderSummary(lastReport);
-      renderDetailsPreserveScroll();
-      if (!shareabilityFilterState.running) {
-        startLazyOriginalPriceLoading();
-      }
-    }
-  }
-
-  function clearShareabilityCache() {
-    closeMenu();
-    state.shareabilityCache = {};
-    saveState();
-    renderShareabilityCacheButton();
-    setStatus("已清除共享缓存", "ok");
-  }
-
-  function clearOriginalPriceCache() {
-    closeMenu();
-    state.originalPriceCache = {};
-    saveState();
-    renderOriginalPriceCacheButton();
-    setStatus("已清除价格缓存", "ok");
+    renderStoreCacheButton();
+    setStatus("已清除商店缓存", "ok");
   }
 
   async function fetchExistingSteamApiKey() {
@@ -1630,17 +1589,20 @@
     }
 
     try {
-      for (const game of games) {
+      for (let index = 0; index < games.length; index += SHAREABILITY_BATCH_SIZE) {
         if (analysisId !== activeAnalysisId || !lastReport) {
           return;
         }
 
-        const shareability = await getShareabilityForAppid(game.appid);
+        const batchGames = games.slice(index, index + SHAREABILITY_BATCH_SIZE);
+        const shareabilityById = await getShareabilityForAppids(batchGames.map(game => game.appid));
         if (analysisId !== activeAnalysisId || !lastReport) {
           return;
         }
 
-        applyShareabilityResult(game, shareability);
+        for (const game of batchGames) {
+          applyStoreItemResult(game, shareabilityById[String(game.appid)]);
+        }
         await sleep(0);
       }
 
@@ -1674,23 +1636,59 @@
 
   async function getShareabilityForAppid(appid) {
     const key = String(appid);
-    state.shareabilityCache = state.shareabilityCache || {};
-    const cached = state.shareabilityCache[key];
-    if (isFreshShareabilityCacheEntry(cached)) {
-      return cached;
-    }
-
-    const shareability = await fetchShareability(key);
-    state.shareabilityCache[key] = shareability;
-    saveState();
-    renderShareabilityCacheButton();
-    return shareability;
+    const shareabilityById = await getShareabilityForAppids([key]);
+    return shareabilityById[key];
   }
 
-  function applyShareabilityResult(game, shareability) {
+  async function getShareabilityForAppids(appids) {
+    const uniqueAppids = Array.from(new Set(appids.map(appid => String(appid))));
+    state.storeCache = state.storeCache || {};
+    const shareabilityById = {};
+    const missing = [];
+
+    uniqueAppids.forEach(appid => {
+      if (!/^\d+$/.test(appid)) {
+        throw new Error(`AppID 无效：${appid}`);
+      }
+      const cached = state.storeCache[appid];
+      if (hasCompleteStoreCache(appid)) {
+        shareabilityById[appid] = cached;
+      } else {
+        missing.push(appid);
+      }
+    });
+
+    for (let index = 0; index < missing.length; index += SHAREABILITY_BATCH_SIZE) {
+      const batch = missing.slice(index, index + SHAREABILITY_BATCH_SIZE);
+      const batchShareability = await fetchShareabilityBatch(batch);
+      batch.forEach(appid => {
+        const shareability = batchShareability[appid];
+        shareabilityById[appid] = shareability;
+        state.storeCache[appid] = mergeStoreCacheEntry(state.storeCache[appid], shareability);
+      });
+    }
+
+    saveState();
+    renderStoreCacheButton();
+    return shareabilityById;
+  }
+
+  function applyStoreItemResult(game, shareability) {
     const appid = String(game.appid);
     shareabilityFilterState.processed += 1;
     lastReport.filtering.processed = shareabilityFilterState.processed;
+    if (shareability?.localizedName) {
+      game.localizedName = shareability.localizedName;
+      updateReportGameLocalizedName(appid, shareability.localizedName);
+    }
+
+    const currentStatus = lastReport.classificationById[appid]?.status;
+    if (currentStatus === "overlap") {
+      refreshReportMetrics();
+      scheduleShareabilityProgressRender();
+      return;
+    }
+
     lastReport.classificationById[appid] = {
       status: shareability?.supported ? "new" : "unsupported"
     };
@@ -1699,9 +1697,14 @@
       const newGame = {
         ...game,
         familySharingSupported: true,
+        localizedName: shareability.localizedName || shareability.price?.localizedName || game.localizedName || "",
         price: null
       };
-      prepareOriginalPriceForGame(newGame);
+      if (isFreshOriginalPriceCacheEntry(shareability.price)) {
+        applyOriginalPriceToGame(newGame, shareability.price);
+      } else {
+        prepareOriginalPriceForGame(newGame);
+      }
       lastReport.games.new.push(newGame);
       lastReport.games.new.sort(sortByName);
     } else {
@@ -1713,48 +1716,78 @@
     scheduleVisiblePriceLoads();
   }
 
-  async function enrichShareability(games) {
-    state.shareabilityCache = state.shareabilityCache || {};
-    const appids = games.map(game => game.appid);
-    const shareabilityById = {};
-    const missing = [];
-    let processed = 0;
-
-    appids.forEach(appid => {
-      const cached = state.shareabilityCache[String(appid)];
-      if (isFreshShareabilityCacheEntry(cached)) {
-        shareabilityById[String(appid)] = cached;
-      } else {
-        missing.push(String(appid));
-      }
-    });
-
-    for (let index = 0; index < missing.length; index += SHAREABILITY_BATCH_SIZE) {
-      const batch = missing.slice(index, index + SHAREABILITY_BATCH_SIZE);
-      const entries = await Promise.all(batch.map(async appid => {
-        return [appid, await fetchShareability(appid)];
-      }));
-      entries.forEach(([appid, shareability]) => {
-        const key = String(appid);
-        shareabilityById[key] = shareability;
-        state.shareabilityCache[key] = shareability;
-        processed += 1;
-        setStatus(`统计：${processed}/${missing.length}`, "warn");
-      });
-      saveState();
-      renderShareabilityCacheButton();
+  function updateReportGameLocalizedName(appid, localizedName) {
+    if (!lastReport || !localizedName) {
+      return;
     }
 
-    games.forEach(game => {
-      const shareability = shareabilityById[String(game.appid)] || state.shareabilityCache[String(game.appid)];
-      game.familySharingSupported = Boolean(shareability?.supported);
+    ["all", "new", "overlap"].forEach(listName => {
+      (lastReport.games[listName] || []).forEach(game => {
+        if (String(game.appid) === String(appid)) {
+          game.localizedName = localizedName;
+        }
+      });
     });
   }
 
-  async function fetchShareability(appid) {
+  async function enrichShareability(games) {
+    const appids = games.map(game => game.appid);
+    const shareabilityById = await getShareabilityForAppids(appids);
+
+    games.forEach(game => {
+      const shareability = shareabilityById[String(game.appid)] || state.storeCache[String(game.appid)];
+      game.familySharingSupported = Boolean(shareability?.supported);
+      if (shareability?.localizedName) {
+        game.localizedName = shareability.localizedName;
+      }
+    });
+  }
+
+  async function fetchShareabilityBatch(appids) {
+    const url = buildShareabilityBatchUrl(appids);
+    const rawKey = `shareability.batch${Date.now()}`;
+    const data = await requestStoreJson(url, rawKey);
+    setRawData(rawKey, data);
+    if (!Array.isArray(data?.response?.store_items)) {
+      throw new Error("共享支持性批量响应格式异常");
+    }
+    const items = data.response.store_items;
+    const itemById = {};
+    items.forEach(item => {
+      if (item?.appid) {
+        itemById[String(item.appid)] = item;
+      }
+    });
+
+    const results = {};
+    for (const appid of appids) {
+      const item = itemById[String(appid)];
+      if (Number(item?.success) !== 1 || !Array.isArray(item?.categories?.feature_categoryids)) {
+        const fallback = await fetchShareabilityFallback(appid);
+        results[String(appid)] = {
+          ...fallback,
+          localizedName: item?.name || fallback.localizedName || ""
+        };
+        continue;
+      }
+
+      const featureCategoryIds = item.categories.feature_categoryids;
+      const price = normalizeStoreItemOriginalPrice(item);
+      results[String(appid)] = {
+        supported: Array.isArray(featureCategoryIds) && featureCategoryIds.some(id => Number(id) === FAMILY_SHARING_CATEGORY_ID),
+        localizedName: item.name || price?.localizedName || "",
+        price,
+        updatedAt: Date.now()
+      };
+    }
+
+    return results;
+  }
+
+  async function fetchShareabilityFallback(appid) {
     const url = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(appid)}&filters=categories&l=${STORE_LANG}`;
-    const data = await requestStoreJson(url, `shareability.${appid}`);
-    setRawData(`shareability.${appid}`, data);
+    const data = await requestStoreJson(url, `shareability.fallback.${appid}`);
+    setRawData(`shareability.fallback.${appid}`, data);
     const item = data?.[appid];
     const categories = item?.success && item.data && !Array.isArray(item.data)
       ? item.data.categories
@@ -1764,6 +1797,22 @@
       supported: Array.isArray(categories) && categories.some(category => Number(category.id) === FAMILY_SHARING_CATEGORY_ID),
       updatedAt: Date.now()
     };
+  }
+
+  function buildShareabilityBatchUrl(appids) {
+    const input = {
+      ids: appids.map(appid => ({ appid: Number(appid) })),
+      context: {
+        language: STORE_LANG,
+        country_code: STORE_CC
+      },
+      data_request: {
+        include_basic_info: false,
+        include_all_purchase_options: true,
+        include_tag_count: 0
+      }
+    };
+    return `https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(JSON.stringify(input))}`;
   }
 
   function compareLibraries(targetProfile) {
@@ -1781,6 +1830,7 @@
         overlapGames.push({
           ...game,
           familyName: familyInfo.name || game.name,
+          localizedName: getCachedLocalizedName(appid) || game.localizedName || "",
           owners: familyInfo.owners || []
         });
       } else {
@@ -1796,31 +1846,27 @@
   }
 
   function prepareOriginalPrices(games) {
-    state.originalPriceCache = state.originalPriceCache || {};
+    state.storeCache = state.storeCache || {};
     priceLoadState = createPriceLoadState();
 
     games.forEach(game => {
       prepareOriginalPriceForGame(game);
     });
 
-    renderOriginalPriceCacheButton();
+    renderStoreCacheButton();
   }
 
   function prepareOriginalPriceForGame(game) {
-    state.originalPriceCache = state.originalPriceCache || {};
-    if (getOriginalPriceMode() === "fast") {
-      delete game.localizedName;
-    }
+    state.storeCache = state.storeCache || {};
     const appid = String(game.appid);
-    const key = originalPriceCacheKey(appid);
-    const cached = state.originalPriceCache[key];
+    const cached = state.storeCache[appid]?.price;
     if (isFreshOriginalPriceCacheEntry(cached)) {
       applyOriginalPriceToGame(game, cached);
     } else {
       game.price = { pending: true };
       priceLoadState.pendingMap.set(appid, game);
     }
-    renderOriginalPriceCacheButton();
+    renderStoreCacheButton();
   }
 
   function createPriceLoadState() {
@@ -1847,14 +1893,6 @@
 
   async function fetchOriginalPrices(appids) {
     const uniqueAppids = Array.from(new Set(appids.map(String)));
-    if (getOriginalPriceMode() === "localized") {
-      const prices = new Map();
-      for (const appid of uniqueAppids) {
-        prices.set(appid, await fetchOriginalPrice(appid));
-      }
-      return prices;
-    }
-
     const priceUrl = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(uniqueAppids.join(","))}&filters=price_overview&cc=${STORE_CC}&l=${STORE_LANG}`;
     const rawKey = `prices.batch${Date.now()}`;
     const priceData = await requestStoreJson(priceUrl, rawKey);
@@ -1980,7 +2018,7 @@
               return;
             }
             const price = prices.get(appid) || normalizeOriginalPrice(null);
-            state.originalPriceCache[originalPriceCacheKey(appid)] = price;
+            cacheOriginalPrice(appid, price);
             applyOriginalPriceToGame(game, price);
             priceLoadState.pendingMap.delete(appid);
           });
@@ -1988,7 +2026,7 @@
           refreshReportMetrics();
           renderSummary(lastReport);
           renderDetailsAfterPriceChange();
-          renderOriginalPriceCacheButton();
+          renderStoreCacheButton();
         } catch (error) {
           if (isRateLimitError(error)) {
             restoreOriginalPriceQueueBatch(appids);
@@ -2021,9 +2059,8 @@
   }
 
   function takeOriginalPriceQueueBatch() {
-    const limit = getOriginalPriceMode() === "fast" ? ORIGINAL_PRICE_BATCH_SIZE : 1;
     const appids = [];
-    while (priceLoadState.queue.length > 0 && appids.length < limit) {
+    while (priceLoadState.queue.length > 0 && appids.length < ORIGINAL_PRICE_BATCH_SIZE) {
       const appid = priceLoadState.queue.shift();
       priceLoadState.queuedSet.delete(appid);
       if (!priceLoadState.pendingMap.has(appid) || priceLoadState.loadingSet.has(appid)) {
@@ -2126,6 +2163,25 @@
     };
   }
 
+  function normalizeStoreItemOriginalPrice(item) {
+    const now = Date.now();
+    const localizedName = item?.name || "";
+    const purchaseOption = item?.best_purchase_option;
+    const initial = purchaseOption?.original_price_in_cents ?? purchaseOption?.final_price_in_cents;
+    if (initial != null && initial !== "") {
+      return {
+        initial: Number(initial),
+        currency: "CNY",
+        localizedName,
+        isFree: false,
+        unavailable: false,
+        updatedAt: now
+      };
+    }
+
+    return null;
+  }
+
   function buildReport(targetProfile, comparison) {
     const newGames = comparison.newGames;
     const allGames = (comparison.allGames || targetProfile.games || []).slice().sort(sortByName);
@@ -2167,7 +2223,7 @@
         familyOnlyCount: comparison.familyOnlyCount,
         initialValue,
         unpricedCount: unpricedGames.length,
-        filteringProcessed: overlapCount,
+        filteringProcessed: 0,
         filteringTotal: targetCount
       },
       games: {
@@ -2178,9 +2234,9 @@
       },
       classificationById,
       filtering: {
-        processed: overlapCount,
+        processed: 0,
         total: targetCount,
-        running: pendingNewGames.length > 0
+        running: targetCount > 0
       },
       generatedAt: Date.now()
     };
@@ -2270,17 +2326,6 @@
     const lastTime = state.familyLibrary?.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : "无缓存";
     elements.autoFamilyRefreshBtn.textContent = `${enabled ? "关闭" : "开启"}自动刷新`;
     elements.autoFamilyRefreshBtn.title = `每 24 小时刷新上次：${lastTime}`;
-  }
-
-  function renderOriginalPriceModeButton() {
-    if (!elements.priceModeBtn) {
-      return;
-    }
-    const isFast = getOriginalPriceMode() === "fast";
-    elements.priceModeBtn.textContent = `价格模式：${isFast ? "快速" : "中文名"}`;
-    elements.priceModeBtn.title = isFast
-      ? "批量读取原价，不补中文名"
-      : "逐个读取原价并补中文名，速度较慢";
   }
 
   function metricHtml(label, value) {
@@ -2550,6 +2595,10 @@
     return (state.familyLibrary?.appidSet || [])
       .map(appid => state.familyLibrary?.appInfoById?.[String(appid)])
       .filter(Boolean)
+      .map(game => ({
+        ...game,
+        localizedName: getCachedLocalizedName(game.appid) || game.localizedName || ""
+      }))
       .sort(sortFamilyLibraryRows);
   }
 
@@ -2687,11 +2736,16 @@
 
   function getGameDisplayName(game) {
     const originalName = game.name || game.familyName || `App ${game.appid}`;
-    const localizedName = game.localizedName || game.price?.localizedName || "";
+    const localizedName = game.localizedName || getCachedLocalizedName(game.appid) || game.price?.localizedName || "";
     if (!localizedName || normalizeGameName(localizedName) === normalizeGameName(originalName)) {
       return originalName;
     }
     return `${localizedName} (${originalName})`;
+  }
+
+  function getCachedLocalizedName(appid) {
+    const entry = state.storeCache?.[String(appid)];
+    return entry?.localizedName || entry?.price?.localizedName || "";
   }
 
   function normalizeGameName(name) {
@@ -2716,22 +2770,13 @@
     return `<th data-sort-key="${escapeAttr(key)}"${style ? ` style="${escapeAttr(style)}"` : ""}>${escapeHtml(label)}<span class="sffa-sort-indicator">${indicator}</span></th>`;
   }
 
-  function renderShareabilityCacheButton() {
-    if (!elements.clearShareabilityBtn) {
+  function renderStoreCacheButton() {
+    if (!elements.clearStoreCacheBtn) {
       return;
     }
-    const count = getShareabilityCacheCount();
-    elements.clearShareabilityBtn.hidden = count === 0;
-    elements.clearShareabilityBtn.textContent = `清除共享缓存（${count}）`;
-  }
-
-  function renderOriginalPriceCacheButton() {
-    if (!elements.clearPriceBtn) {
-      return;
-    }
-    const count = getOriginalPriceCacheCount();
-    elements.clearPriceBtn.hidden = count === 0;
-    elements.clearPriceBtn.textContent = `清除价格缓存（${count}）`;
+    const count = getStoreCacheCount();
+    elements.clearStoreCacheBtn.hidden = count === 0;
+    elements.clearStoreCacheBtn.textContent = `清除商店缓存（${count}）`;
   }
 
   function setStatus(message, type) {
@@ -2772,10 +2817,16 @@
     if (!lastReport) {
       return [];
     }
-    return (lastReport.games.all || []).filter(game => {
-      const status = lastReport.classificationById[String(game.appid)]?.status;
-      return status === "pending";
-    });
+    return (lastReport.games.all || []).filter(game => !hasCompleteStoreCache(game.appid));
+  }
+
+  function hasCompleteStoreCache(appid) {
+    const cached = state.storeCache?.[String(appid)];
+    return Boolean(
+      isFreshStoreCacheEntry(cached) &&
+      cached.localizedName &&
+      (!cached.supported || isFreshOriginalPriceCacheEntry(cached.price))
+    );
   }
 
   function continueAfterRateLimit() {
@@ -2826,7 +2877,7 @@
     elements.rateCheckBtn.disabled = true;
     setStatus("检测中...", "warn");
     try {
-      const url = `https://store.steampowered.com/api/appdetails?appids=10&filters=categories&l=${STORE_LANG}`;
+      const url = buildShareabilityBatchUrl(["10"]);
       await sleep(STORE_REQUEST_DELAY_MS);
       await requestJson(url);
       rateLimitState.checkedAt = Date.now();
@@ -2928,7 +2979,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.autoFamilyRefreshBtn, elements.priceModeBtn, elements.copyBtn, elements.copyCurrentBtn, elements.clearShareabilityBtn, elements.clearPriceBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -2949,9 +3000,7 @@
           ...cloneDefaultState().familyLibrary,
           ...(saved.familyLibrary || {})
         },
-        shareabilityCache: saved.shareabilityCache || {},
-        originalPriceCache: saved.originalPriceCache || {},
-        originalPriceMode: saved.originalPriceMode === "localized" ? "localized" : "fast",
+        storeCache: normalizeSavedStoreCache(saved.storeCache || {}),
         launcherVisible: saved.launcherVisible !== false,
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
         lastAutoFamilyRefreshAttemptAt: Number(saved.lastAutoFamilyRefreshAttemptAt || 0)
@@ -2969,24 +3018,16 @@
     return JSON.parse(JSON.stringify(DEFAULT_STATE));
   }
 
-  function isFreshShareabilityCacheEntry(entry) {
+  function isFreshStoreCacheEntry(entry) {
     return Boolean(
       entry &&
       typeof entry.supported === "boolean" &&
-      Date.now() - Number(entry.updatedAt || 0) < SHAREABILITY_CACHE_TTL_MS
+      Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
     );
   }
 
-  function getShareabilityCacheCount() {
-    return Object.keys(state.shareabilityCache || {}).length;
-  }
-
-  function originalPriceCacheKey(appid) {
-    return `${STORE_CC}:${getOriginalPriceMode()}:${appid}`;
-  }
-
-  function getOriginalPriceMode() {
-    return state.originalPriceMode === "localized" ? "localized" : "fast";
+  function getStoreCacheCount() {
+    return Object.keys(state.storeCache || {}).length;
   }
 
   function isFreshOriginalPriceCacheEntry(entry) {
@@ -2994,12 +3035,46 @@
       entry &&
       (typeof entry.initial === "number" || entry.unavailable === true) &&
       Object.prototype.hasOwnProperty.call(entry, "localizedName") &&
-      Date.now() - Number(entry.updatedAt || 0) < ORIGINAL_PRICE_CACHE_TTL_MS
+      Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
     );
   }
 
-  function getOriginalPriceCacheCount() {
-    return Object.keys(state.originalPriceCache || {}).length;
+  function cacheOriginalPrice(appid, price) {
+    state.storeCache = state.storeCache || {};
+    if (!isFreshOriginalPriceCacheEntry(price)) {
+      return;
+    }
+    state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
+      localizedName: price.localizedName || "",
+      price,
+      updatedAt: Date.now()
+    });
+  }
+
+  function mergeStoreCacheEntry(existing, next) {
+    const updatedAt = Math.max(Number(existing?.updatedAt || 0), Number(next?.updatedAt || 0));
+    return {
+      ...(existing || {}),
+      ...(next || {}),
+      localizedName: next?.localizedName || existing?.localizedName || next?.price?.localizedName || existing?.price?.localizedName || "",
+      price: next?.price || existing?.price || null,
+      updatedAt: updatedAt || Date.now()
+    };
+  }
+
+  function normalizeSavedStoreCache(storeCache) {
+    const normalized = {};
+    Object.entries(storeCache || {}).forEach(([appid, entry]) => {
+      if (isFreshStoreCacheEntry(entry) || isFreshOriginalPriceCacheEntry(entry?.price)) {
+        normalized[String(appid)] = {
+          ...(typeof entry.supported === "boolean" ? { supported: entry.supported } : {}),
+          localizedName: entry.localizedName || entry.price?.localizedName || "",
+          price: isFreshOriginalPriceCacheEntry(entry.price) ? entry.price : null,
+          updatedAt: Number(entry.updatedAt || Date.now())
+        };
+      }
+    });
+    return normalized;
   }
 
   function requestJson(url) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.0
+// @version      0.1.1
 // @description  基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
 // @match        https://store.steampowered.com/*
@@ -38,10 +38,6 @@
   const SHAREABILITY_BATCH_SIZE = 5;
   // 商店请求之间的基础间隔，单位毫秒。
   const STORE_REQUEST_DELAY_MS = 50;
-  // 商店请求失败后的重试次数。
-  const STORE_REQUEST_RETRY_COUNT = 4;
-  // 商店请求失败后首次重试等待时间，后续会递增。
-  const STORE_REQUEST_RETRY_BASE_DELAY_MS = 1800;
   // 自动后台刷新家庭库的间隔，默认 24 小时。
   const AUTO_FAMILY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
   // Steam 商店分类中“家庭共享”特性的 category id。
@@ -74,6 +70,7 @@
   let activeAnalysisId = 0;
   let shareabilityFilterState = createShareabilityFilterState();
   let shareabilityProgressUiState = createShareabilityProgressUiState();
+  let rateLimitState = createRateLimitState();
   let scriptMenuCommandIds = [];
   let autoFamilyRefreshRunning = false;
   let elements = {};
@@ -449,6 +446,16 @@
         font-size: 12px;
         color: #b8c7d3;
       }
+      .sffa-status-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .sffa-status-row .sffa-status {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
       .sffa-status.ok {
         color: #9be0ad;
       }
@@ -457,6 +464,28 @@
       }
       .sffa-status.err {
         color: #ffaaa2;
+      }
+      .sffa-rate-btn {
+        flex: 0 0 auto;
+        min-height: 22px;
+        padding: 3px 8px;
+        border: 1px solid rgba(102, 192, 244, 0.34);
+        border-radius: 3px;
+        background: #2d4355;
+        color: #e2edf4;
+        font: inherit;
+        font-size: 12px;
+        line-height: 1.2;
+        cursor: pointer;
+        transition: filter 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+      }
+      .sffa-rate-btn:hover:not(:disabled) {
+        filter: brightness(1.16);
+        border-color: rgba(143, 209, 255, 0.66);
+      }
+      .sffa-rate-btn:disabled {
+        cursor: wait;
+        opacity: 0.58;
       }
       .sffa-summary {
         display: grid;
@@ -743,7 +772,11 @@
           </div>
           <div class="sffa-content">
             <div class="sffa-side">
-            <div class="sffa-status" data-sffa-status></div>
+            <div class="sffa-status-row">
+              <div class="sffa-status" data-sffa-status></div>
+              <button class="sffa-rate-btn" type="button" data-sffa-rate-continue hidden>继续</button>
+              <button class="sffa-rate-btn" type="button" data-sffa-rate-check hidden>限流检测</button>
+            </div>
             <div class="sffa-summary" data-sffa-summary></div>
             <div class="sffa-profile" data-sffa-profile></div>
             </div>
@@ -792,6 +825,8 @@
       clearShareabilityBtn: root.querySelector("[data-sffa-clear-shareability]"),
       clearPriceBtn: root.querySelector("[data-sffa-clear-price]"),
       rawBtn: root.querySelector("[data-sffa-raw]"),
+      rateContinueBtn: root.querySelector("[data-sffa-rate-continue]"),
+      rateCheckBtn: root.querySelector("[data-sffa-rate-check]"),
       tabs: Array.from(root.querySelectorAll("[data-tab]"))
     };
 
@@ -808,6 +843,8 @@
     elements.clearShareabilityBtn.addEventListener("click", clearShareabilityCache);
     elements.clearPriceBtn.addEventListener("click", clearOriginalPriceCache);
     elements.rawBtn?.addEventListener("click", showRawDataWindow);
+    elements.rateContinueBtn?.addEventListener("click", continueAfterRateLimit);
+    elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
     elements.tableWrap.addEventListener("scroll", () => scheduleVisiblePriceLoads());
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.targetInput.addEventListener("keydown", event => {
@@ -840,6 +877,7 @@
     renderAutoFamilyRefreshButton();
     renderShareabilityCacheButton();
     renderOriginalPriceCacheButton();
+    renderRateLimitControls();
   }
 
   function openDialog() {
@@ -1494,6 +1532,16 @@
     };
   }
 
+  function createRateLimitState() {
+    return {
+      active: false,
+      source: "",
+      message: "",
+      checkedAt: 0,
+      checkPassed: false
+    };
+  }
+
   function scheduleShareabilityProgressRender(force = false) {
     if (!lastReport || !shareabilityFilterState.running || !shareabilityProgressUiState) {
       return;
@@ -1585,6 +1633,13 @@
         shareabilityProgressUiState.timer = 0;
       }
       setRawError(error);
+      if (isRateLimitError(error)) {
+        if (lastReport?.filtering) {
+          lastReport.filtering.paused = true;
+        }
+        setRateLimited(error, "shareability");
+        return;
+      }
       setStatus(error.message, "err");
     }
   }
@@ -1770,7 +1825,7 @@
   }
 
   function scheduleVisiblePriceLoads() {
-    if (!lastReport || priceLoadState.pendingMap.size === 0) {
+    if (rateLimitState.active || !lastReport || priceLoadState.pendingMap.size === 0) {
       return;
     }
     window.clearTimeout(priceLoadState.scheduled);
@@ -1804,7 +1859,7 @@
   }
 
   function scheduleBackgroundPriceLoads() {
-    if (!lastReport || priceLoadState.pendingMap.size === 0) {
+    if (rateLimitState.active || !lastReport || priceLoadState.pendingMap.size === 0) {
       return;
     }
     enqueueOriginalPriceLoads(Array.from(priceLoadState.pendingMap.keys()), false);
@@ -1837,7 +1892,7 @@
   }
 
   async function runOriginalPriceQueue() {
-    if (priceLoadState.running) {
+    if (rateLimitState.active || priceLoadState.running) {
       return;
     }
     priceLoadState.running = true;
@@ -1862,6 +1917,13 @@
           renderDetailsAfterPriceChange();
           renderOriginalPriceCacheButton();
         } catch (error) {
+          if (isRateLimitError(error)) {
+            priceLoadState.queue = [appid, ...priceLoadState.queue.filter(item => item !== appid)];
+            priceLoadState.queuedSet.add(appid);
+            setRawError(error);
+            setRateLimited(error, "price");
+            break;
+          }
           game.price = { unavailable: true, updatedAt: Date.now() };
           priceLoadState.pendingMap.delete(appid);
           setRawError(error);
@@ -1874,7 +1936,7 @@
       }
     } finally {
       priceLoadState.running = false;
-      if (priceLoadState.pendingMap.size > 0 && !shareabilityFilterState.running) {
+      if (!rateLimitState.active && priceLoadState.pendingMap.size > 0 && !shareabilityFilterState.running) {
         scheduleBackgroundPriceLoads();
       }
     }
@@ -2561,6 +2623,117 @@
     elements.status.className = `sffa-status ${type || ""}`.trim();
   }
 
+  function setRateLimited(error, source) {
+    rateLimitState = {
+      active: true,
+      source: source || "",
+      message: error?.message || "请求过快，请稍后再试",
+      checkedAt: 0,
+      checkPassed: false
+    };
+    renderRateLimitControls();
+    setStatus("请求过快，请稍后再试", "err");
+  }
+
+  function clearRateLimit() {
+    rateLimitState = createRateLimitState();
+    renderRateLimitControls();
+  }
+
+  function renderRateLimitControls() {
+    const visible = Boolean(rateLimitState.active);
+    if (elements.rateContinueBtn) {
+      elements.rateContinueBtn.hidden = !visible;
+      elements.rateContinueBtn.disabled = false;
+    }
+    if (elements.rateCheckBtn) {
+      elements.rateCheckBtn.hidden = !visible;
+      elements.rateCheckBtn.disabled = false;
+    }
+  }
+
+  function getPendingShareabilityGames() {
+    if (!lastReport) {
+      return [];
+    }
+    return (lastReport.games.all || []).filter(game => {
+      const status = lastReport.classificationById[String(game.appid)]?.status;
+      return status === "pending";
+    });
+  }
+
+  function continueAfterRateLimit() {
+    if (!rateLimitState.active) {
+      return;
+    }
+
+    clearRateLimit();
+    const pendingShareabilityGames = getPendingShareabilityGames();
+    if (pendingShareabilityGames.length > 0 && lastReport) {
+      const analysisId = activeAnalysisId;
+      shareabilityFilterState = createShareabilityFilterState(
+        analysisId,
+        lastReport.filtering?.processed || 0,
+        pendingShareabilityGames.length,
+        lastReport.filtering?.total || lastReport.metrics.targetCount || 0
+      );
+      if (lastReport.filtering) {
+        lastReport.filtering.running = true;
+        lastReport.filtering.paused = false;
+      }
+      if (shareabilityProgressUiState?.timer) {
+        window.clearTimeout(shareabilityProgressUiState.timer);
+      }
+      shareabilityProgressUiState = createShareabilityProgressUiState(analysisId);
+      setStatus("继续统计...", "warn");
+      startBackgroundShareabilityFilter(analysisId, pendingShareabilityGames);
+      return;
+    }
+
+    if (priceLoadState.pendingMap.size > 0) {
+      setStatus("继续加载价格...", "warn");
+      scheduleVisiblePriceLoads();
+      if (!shareabilityFilterState.running) {
+        scheduleBackgroundPriceLoads();
+      }
+      return;
+    }
+
+    setStatus("没有待继续任务", "ok");
+  }
+
+  async function checkRateLimit() {
+    if (!rateLimitState.active) {
+      return;
+    }
+
+    elements.rateCheckBtn.disabled = true;
+    setStatus("检测中...", "warn");
+    try {
+      const url = `https://store.steampowered.com/api/appdetails?appids=10&filters=categories&l=${STORE_LANG}`;
+      await sleep(STORE_REQUEST_DELAY_MS);
+      await requestJson(url);
+      rateLimitState.checkedAt = Date.now();
+      rateLimitState.checkPassed = true;
+      renderRateLimitControls();
+      setStatus("限流已解除，可继续", "ok");
+    } catch (error) {
+      rateLimitState.checkedAt = Date.now();
+      rateLimitState.checkPassed = false;
+      renderRateLimitControls();
+      if (isHttp429(error)) {
+        setStatus("仍被限流，请稍后再试", "err");
+        return;
+      }
+      setRawError(error);
+      setStatus(error.message || "检测失败", "err");
+    } finally {
+      if (elements.rateCheckBtn) {
+        elements.rateCheckBtn.disabled = false;
+      }
+    }
+  }
+
   async function autoReadApiKeyFromCommunity(options = {}) {
     const keepBusy = Boolean(options.keepBusy);
     try {
@@ -2719,30 +2892,23 @@
   }
 
   async function requestStoreJsonWithRetry(url, rawDataPath) {
-    let lastError = null;
-    for (let attempt = 0; attempt <= STORE_REQUEST_RETRY_COUNT; attempt++) {
-      if (attempt > 0) {
-        const delay = STORE_REQUEST_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        setRawData(`${rawDataPath}.retry${attempt}`, {
-          reason: "HTTP 429",
-          delayMs: delay
-        });
-        await sleep(delay);
-      } else {
-        await sleep(STORE_REQUEST_DELAY_MS);
-      }
-
-      try {
-        return await requestJson(url);
-      } catch (error) {
-        lastError = error;
-        if (!isHttp429(error)) {
-          throw error;
-        }
-      }
+    if (rateLimitState.active) {
+      throw createRateLimitError();
     }
 
-    throw new Error(`请求过快，请稍后再试`);
+    await sleep(STORE_REQUEST_DELAY_MS);
+    try {
+      return await requestJson(url);
+    } catch (error) {
+      if (isHttp429(error)) {
+        setRawData(`${rawDataPath}.rateLimited`, {
+          reason: "HTTP 429",
+          pausedAt: new Date().toISOString()
+        });
+        throw createRateLimitError();
+      }
+      throw error;
+    }
   }
 
   function requestText(url) {
@@ -2821,6 +2987,17 @@
     const error = new Error(message);
     error.status = status;
     return error;
+  }
+
+  function createRateLimitError() {
+    const error = new Error("请求过快，请稍后再试");
+    error.name = "SteamRateLimitError";
+    error.isSteamRateLimit = true;
+    return error;
+  }
+
+  function isRateLimitError(error) {
+    return Boolean(error?.isSteamRateLimit) || isHttp429(error);
   }
 
   function isHttp429(error) {

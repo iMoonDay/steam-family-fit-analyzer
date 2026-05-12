@@ -1,0 +1,55 @@
+# Steam 家庭库分析器
+
+一个 Tampermonkey 用户脚本，用来基于当前登录 Steam 账号的家庭组共享库，分析指定公开 Steam 账号加入后可能带来的新增游戏、重复游戏和新增价值。
+
+## 功能
+
+- 读取当前账号的 Steam 家庭组共享库。
+- 支持输入 SteamID64、`/profiles/<steamid64>`、`/id/<custom>` 或 vanity 名称。
+- 支持在 `steamcommunity.com/profiles/<steamid64>` 页面自动填入当前资料页账号。
+- 统计总游戏、家庭库、统计进度、新增、重复、重复率和新增价值。
+- 列表包含全部、家庭库、新增、重复、搜索。
+- 仅统计支持 Steam 家庭共享的游戏。
+- 新增游戏原价按中国区商店价格显示，并缓存 7 天。
+- 家庭共享支持性结果缓存 7 天，减少重复请求。
+- 支持表头排序、搜索、复制当前列表、复制报告和查看原始返回数据。
+- 支持每 24 小时自动后台刷新家庭库，可在菜单中关闭。
+
+## 安装
+
+1. 安装 Tampermonkey。
+2. 打开脚本文件：
+   <https://github.com/iMoonDay/steam-family-fit-analyzer/raw/main/steam-family-fit-analyzer.user.js>
+3. Tampermonkey 会弹出安装页面，确认安装即可。
+
+## 使用
+
+1. 登录 Steam 网页版。
+2. 打开 `https://store.steampowered.com/` 或任意 `https://steamcommunity.com/profiles/<steamid64>` 页面。
+3. 点击右侧的“家庭库分析”按钮。
+4. 先点“刷新家庭库”。
+5. 输入要分析的公开 Steam 账号，点击“分析账号”。
+
+## 说明
+
+- 目标账号的游戏详情必须公开，否则无法获取完整游戏库。
+- 新增价值使用中国区原价，不读取当前折扣价。
+- 免费、无价格、下架或区域不可售游戏会显示为 `N/A`。
+- Steam 商店接口可能触发 HTTP 429，脚本会限速、重试，并缓存已分析过的结果。
+- 脚本不绕过 Steam 隐私限制，也不需要手动输入 Steam Web API Key。
+
+## 可调整配置
+
+脚本开头保留了一组常量，可按需要修改：
+
+- `STORE_CC`：价格地区，默认 `CN`。
+- `STORE_LANG`：商店语言，默认 `schinese`。
+- `SHAREABILITY_CACHE_TTL_MS`：家庭共享支持性缓存时间。
+- `ORIGINAL_PRICE_CACHE_TTL_MS`：原价缓存时间。
+- `SHAREABILITY_BATCH_SIZE`：共享支持性检测批量。
+- `STORE_REQUEST_DELAY_MS`：商店请求间隔。
+- `AUTO_FAMILY_REFRESH_INTERVAL_MS`：自动刷新家庭库间隔。
+
+## 授权
+
+MIT License

@@ -25,7 +25,7 @@
 也可以直接从 GitHub 安装：
 
 1. 打开脚本文件：
-   <https://github.com/iMoonDay/steam-family-fit-analyzer/raw/main/steam-family-fit-analyzer.user.js>
+   <https://github.com/iMoonDay/steam-family-fit-analyzer/raw/main/script.user.js>
 2. Tampermonkey 会弹出安装页面，确认安装即可。
 
 ## 使用

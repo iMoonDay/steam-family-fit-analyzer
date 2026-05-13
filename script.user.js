@@ -1507,7 +1507,76 @@
     UI_LOCALE = resolveUiLocale(appLocaleMode);
     state.appLocaleMode = appLocaleMode;
     saveState();
-    location.reload();
+    closeMenu();
+    renderLocalizedUi();
+  }
+
+  function renderLocalizedUi() {
+    elements.root.querySelector(".sffa-launcher span").textContent = t("launcher");
+    elements.launcher.title = t("openAnalyzer");
+    elements.launcherCloseBtn.title = t("hideLauncher");
+    elements.launcherCloseBtn.setAttribute("aria-label", t("hideLauncher"));
+    elements.root.querySelector(".sffa-title strong").textContent = t("launcher");
+    elements.root.querySelector("[data-tab='all']").textContent = t("tabs.all");
+    elements.root.querySelector("[data-tab='new']").textContent = t("tabs.new");
+    elements.root.querySelector("[data-tab='overlap']").textContent = t("tabs.overlap");
+    elements.root.querySelector("[data-tab='search']").textContent = t("tabs.search");
+    elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
+    elements.localeToggleBtn.textContent = getLocaleModeButtonText();
+    elements.localeOptions.forEach(option => {
+      option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption);
+      option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode);
+    });
+    elements.moreBtn.title = t("more");
+    elements.moreBtn.setAttribute("aria-label", t("more"));
+    elements.closeBtn.title = t("close");
+    elements.targetInput.placeholder = t("targetPlaceholder");
+    elements.refreshBtn.textContent = t("refreshFamily");
+    elements.analyzeBtn.textContent = t("analyzeAccount");
+    elements.searchInput.placeholder = t("searchPlaceholder");
+    elements.copyCurrentBtn.textContent = t("copyList");
+    elements.copyBtn.textContent = t("copyReport");
+    elements.rawBtn.textContent = t("rawData");
+    elements.rateContinueBtn.textContent = t("continue");
+    elements.rateCheckBtn.textContent = t("rateCheck");
+
+    registerScriptMenuCommands();
+    renderFamilyMeta();
+    renderAutoFamilyRefreshButton();
+    renderStoreCacheButton();
+    renderRateLimitControls();
+    renderSummary(lastReport);
+    renderTargetProfile(lastReport);
+    renderTabs();
+    renderDetailsPreserveScroll();
+    renderCurrentStatusText();
+  }
+
+  function renderCurrentStatusText() {
+    if (rateLimitState.active) {
+      setStatus(t("requestTooFast"), "err");
+      return;
+    }
+    if (lastReport) {
+      const filtering = lastReport.filtering || {};
+      if (filtering.running && filtering.total) {
+        setStatus(t("backgroundProgress", { percent: formatPercent((filtering.processed || 0) / filtering.total) }), "warn");
+        return;
+      }
+      setStatus(t("completedAdded", { count: lastReport.games.new?.length || 0 }), "ok");
+      return;
+    }
+
+    const session = getSteamSession();
+    if (!session.isLoggedIn) {
+      setStatus(t("signInFirst"), "warn");
+    } else if (state.activeSteamId && state.activeSteamId !== session.steamid) {
+      setStatus(t("accountSwitched"), "warn");
+    } else if (state.familyLibrary.appidSet.length > 0) {
+      setStatus(t("loadedCount", { count: state.familyLibrary.appidSet.length }), "ok");
+    } else {
+      setStatus(t("refreshFirst"), "warn");
+    }
   }
 
   async function refreshFamilyLibrary() {

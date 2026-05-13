@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.5
+// @version      0.1.6
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -76,7 +76,7 @@
       languageAuto: "自动",
       languageChinese: "中文",
       languageEnglish: "English",
-      targetPlaceholder: "SteamID64、好友码、主页链接或自定义 ID",
+      targetPlaceholder: "SteamID64、好友码、主页链接或自定义 ID，多个用空格分隔",
       refreshFamily: "刷新家庭库",
       analyzeAccount: "分析账号",
       continue: "继续",
@@ -149,6 +149,9 @@
       notRefreshed: "未刷新",
       noCache: "无缓存",
       targetAccount: "目标账号",
+      targetAccountCount: "{count} 个账号",
+      targetOwners: "拥有者",
+      deduped: "去重",
       progress: "统计进度",
       unknownAccount: "未知账号",
       time: "时间",
@@ -199,7 +202,7 @@
       languageAuto: "Auto",
       languageChinese: "中文",
       languageEnglish: "English",
-      targetPlaceholder: "SteamID64, friend code, profile URL, or custom ID",
+      targetPlaceholder: "SteamID64, friend code, profile URL, or custom ID. Separate multiple with spaces",
       refreshFamily: "Refresh family library",
       analyzeAccount: "Analyze account",
       continue: "Continue",
@@ -272,6 +275,9 @@
       notRefreshed: "Not refreshed",
       noCache: "No cache",
       targetAccount: "Target account",
+      targetAccountCount: "{count} accounts",
+      targetOwners: "Owners",
+      deduped: "deduped",
       progress: "Progress",
       unknownAccount: "Unknown account",
       time: "Time",
@@ -1061,6 +1067,22 @@
         font-size: 12px;
         text-decoration: none;
       }
+      .sffa-target-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+        padding: 6px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        font-size: 12px;
+      }
+      .sffa-target-row input {
+        margin: 2px 0 0;
+      }
+      .sffa-target-row span {
+        color: #d8e4ee;
+        overflow-wrap: anywhere;
+      }
       .sffa-profile-row {
         display: grid;
         grid-template-columns: 72px minmax(0, 1fr);
@@ -1372,6 +1394,7 @@
     elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
     elements.tableWrap.addEventListener("scroll", () => scheduleVisiblePriceLoads());
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
+    elements.profile.addEventListener("change", handleTargetSelectionChange);
     elements.targetInput.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         analyzeTarget();
@@ -1678,12 +1701,14 @@
       setStatus(t("readTargetLibrary"), "warn");
       setRawStep("fetch-target-owned-games");
       const targetProfile = await getTargetProfile(rawInput);
-      if (targetProfile.steamid64 === session.steamid) {
+      if (getTargetSteamIds(targetProfile).includes(session.steamid)) {
         throw new Error(t("currentAccountUnsupported"));
       }
+      setRawStep("fetch-current-owned-games");
+      const currentOwnedAppids = await fetchCurrentOwnedAppids(session.steamid, state.apiKey);
       setStatus(t("compareLibraries"), "warn");
       setRawStep("compare-libraries");
-      const comparison = compareLibraries(targetProfile);
+      const comparison = compareLibraries(targetProfile, currentOwnedAppids);
       const analysisId = ++activeAnalysisId;
       priceLoadState = createPriceLoadState();
       shareabilityFilterState = createShareabilityFilterState(analysisId, 0, targetProfile.games.length, targetProfile.games.length);
@@ -2011,6 +2036,16 @@
   }
 
   async function getTargetProfile(rawInput) {
+    const targetInputs = splitTargetInputs(rawInput);
+    const rawDataPrefixByIndex = targetInputs.length > 1
+      ? targetInputs.map((_, index) => `targets.${index}`)
+      : targetInputs.map(() => "");
+    const profiles = await Promise.all(targetInputs.map((targetInput, index) => fetchSingleTargetProfile(targetInput, rawDataPrefixByIndex[index])));
+    const uniqueProfiles = dedupeTargetProfiles(profiles);
+    return uniqueProfiles.length === 1 ? uniqueProfiles[0] : mergeTargetProfiles(uniqueProfiles);
+  }
+
+  async function fetchSingleTargetProfile(rawInput, rawDataPrefix = "") {
     const parsed = parseTargetInput(rawInput);
     const identity = parsed.steamid64
       ? {
@@ -2018,9 +2053,17 @@
           profileUrl: `https://steamcommunity.com/profiles/${parsed.steamid64}`,
           source: parsed.source || "steamid64"
         }
-      : await resolveVanity(parsed.vanity, state.apiKey);
+      : await resolveVanity(parsed.vanity, state.apiKey, rawDataPrefix);
 
-    return fetchPublicGames(identity, state.apiKey);
+    return fetchPublicGames(identity, state.apiKey, rawDataPrefix);
+  }
+
+  function splitTargetInputs(rawInput) {
+    const inputs = String(rawInput || "").trim().split(/\s+/).filter(Boolean);
+    if (!inputs.length) {
+      throw new Error(t("enterAccount"));
+    }
+    return inputs;
   }
 
   function parseTargetInput(rawInput) {
@@ -2067,7 +2110,95 @@
     return String(STEAMID64_INDIVIDUAL_BASE + accountId);
   }
 
-  async function resolveVanity(vanity, apiKey) {
+  function dedupeTargetProfiles(profiles) {
+    const profileBySteamId = new Map();
+    profiles.forEach(profile => {
+      const steamid64 = String(profile.steamid64 || "");
+      if (steamid64 && !profileBySteamId.has(steamid64)) {
+        profileBySteamId.set(steamid64, profile);
+      }
+    });
+    return Array.from(profileBySteamId.values());
+  }
+
+  function mergeTargetProfiles(profiles) {
+    const gameById = new Map();
+    profiles.forEach(profile => {
+      profile.games.forEach(game => {
+        const appid = String(game.appid);
+        const existing = gameById.get(appid);
+        if (!existing) {
+          gameById.set(appid, {
+            ...game,
+            targetOwners: [profile.steamid64]
+          });
+          return;
+        }
+
+        existing.targetOwners = Array.from(new Set([...(existing.targetOwners || []), profile.steamid64]));
+        if (!existing.localizedName && game.localizedName) {
+          existing.localizedName = game.localizedName;
+        }
+      });
+    });
+
+    const displayNames = profiles.map(getTargetProfileDisplayName);
+    return {
+      steamid64: profiles.map(profile => profile.steamid64).join(", "),
+      displayName: displayNames.join(" + "),
+      profileUrl: "",
+      avatar: "",
+      targets: profiles.map(profile => ({
+        steamid64: profile.steamid64,
+        displayName: profile.displayName,
+        profileUrl: profile.profileUrl,
+        avatar: profile.avatar || "",
+        selected: true,
+        gameAppids: profile.games.map(game => String(game.appid))
+      })),
+      games: Array.from(gameById.values()),
+      rawGameCount: profiles.reduce((sum, profile) => sum + Number(profile.rawGameCount || profile.games.length || 0), 0)
+    };
+  }
+
+  function getTargetSteamIds(targetProfile) {
+    const targets = Array.isArray(targetProfile?.targets) && targetProfile.targets.length
+      ? targetProfile.targets
+      : [targetProfile];
+    return targets.map(target => String(target?.steamid64 || "")).filter(Boolean);
+  }
+
+  function getSelectedTargetSteamIds(report = lastReport) {
+    const targets = Array.isArray(report?.target?.targets) ? report.target.targets : [];
+    if (!targets.length) {
+      return getTargetSteamIds(report?.target || {});
+    }
+    return targets
+      .filter(target => target.selected !== false)
+      .map(target => String(target.steamid64 || ""))
+      .filter(Boolean);
+  }
+
+  function isGameIncludedBySelectedTargets(game, report = lastReport) {
+    if (!isMultiTargetReport(report)) {
+      return true;
+    }
+    const selectedIds = new Set(getSelectedTargetSteamIds(report));
+    if (selectedIds.size === 0) {
+      return false;
+    }
+    return (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid));
+  }
+
+  function getTargetProfileDisplayName(profile) {
+    return profile?.displayName || profile?.steamid64 || t("unknownAccount");
+  }
+
+  function getRawDataPath(prefix, leaf) {
+    return prefix ? `${prefix}.${leaf}` : leaf;
+  }
+
+  async function resolveVanity(vanity, apiKey, rawDataPrefix = "") {
     if (!vanity) {
         throw new Error(t("missingVanity"));
     }
@@ -2076,13 +2207,13 @@
         throw new Error(t("missingApiKey"));
     }
 
-    return resolveVanityWithApiKey(vanity, apiKey);
+    return resolveVanityWithApiKey(vanity, apiKey, rawDataPrefix);
   }
 
-  async function resolveVanityWithApiKey(vanity, apiKey) {
+  async function resolveVanityWithApiKey(vanity, apiKey, rawDataPrefix = "") {
     const url = `https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/?key=${encodeURIComponent(apiKey)}&vanityurl=${encodeURIComponent(vanity)}&format=json`;
     const data = await requestJson(url);
-    setRawData("resolveVanityUrl", data);
+    setRawData(getRawDataPath(rawDataPrefix, "resolveVanityUrl"), data);
     const response = data.response || {};
     if (Number(response.success) !== 1 || !/^\d{17}$/.test(String(response.steamid || ""))) {
       const message = response.message ? `：${response.message}` : "";
@@ -2096,22 +2227,22 @@
     };
   }
 
-  async function fetchPublicGames(identity, apiKey) {
+  async function fetchPublicGames(identity, apiKey, rawDataPrefix = "") {
     if (!apiKey) {
       throw new Error(t("missingApiKey"));
     }
 
-    return fetchPublicGamesFromOwnedGames(identity, apiKey);
+    return fetchPublicGamesFromOwnedGames(identity, apiKey, rawDataPrefix);
   }
 
-  async function fetchPublicGamesFromOwnedGames(identity, apiKey) {
+  async function fetchPublicGamesFromOwnedGames(identity, apiKey, rawDataPrefix = "") {
     const steamid64 = identity.steamid64;
     const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${encodeURIComponent(apiKey)}&steamid=${encodeURIComponent(steamid64)}&include_appinfo=1&include_played_free_games=1&format=json`;
     const [data, playerSummary] = await Promise.all([
       requestJson(url),
-      fetchTargetPlayerSummary(steamid64, apiKey)
+      fetchTargetPlayerSummary(steamid64, apiKey, rawDataPrefix)
     ]);
-    setRawData("ownedGames", data);
+    setRawData(getRawDataPath(rawDataPrefix, "ownedGames"), data);
     if (identity.source === "friendCode" && !playerSummary.exists) {
       throw new Error(t("invalidFriendCode"));
     }
@@ -2132,14 +2263,15 @@
         logo: game.img_icon_url || "",
         storeLink: `https://store.steampowered.com/app/${game.appid}/`
       })).filter(game => /^\d+$/.test(game.appid)),
+      rawGameCount: rawGames.length,
       source: "webapi-ownedgames"
     };
   }
 
-  async function fetchTargetPlayerSummary(steamid64, apiKey) {
+  async function fetchTargetPlayerSummary(steamid64, apiKey, rawDataPrefix = "") {
     const url = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${encodeURIComponent(apiKey)}&steamids=${encodeURIComponent(steamid64)}&format=json`;
     const data = await requestJson(url);
-    setRawData("targetPlayerSummaries", data);
+    setRawData(getRawDataPath(rawDataPrefix, "targetPlayerSummaries"), data);
     const player = data.response?.players?.[0];
     return {
       exists: String(player?.steamid || "") === String(steamid64),
@@ -2147,6 +2279,18 @@
       avatar: player?.avatarfull || player?.avatarmedium || player?.avatar || "",
       profileUrl: player?.profileurl || ""
     };
+  }
+
+  async function fetchCurrentOwnedAppids(steamid64, apiKey) {
+    if (!steamid64 || !apiKey) {
+      throw new Error(t("missingApiKey"));
+    }
+
+    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${encodeURIComponent(apiKey)}&steamid=${encodeURIComponent(steamid64)}&include_appinfo=0&include_played_free_games=1&format=json`;
+    const data = await requestJson(url);
+    setRawData("currentOwnedGames", data);
+    const games = Array.isArray(data.response?.games) ? data.response.games : [];
+    return new Set(games.map(game => String(game.appid)).filter(appid => /^\d+$/.test(appid)));
   }
 
   async function filterShareableNewGames(games) {
@@ -2337,7 +2481,7 @@
     }
 
     const currentStatus = lastReport.classificationById[appid]?.status;
-    if (currentStatus === "overlap") {
+    if (currentStatus === "overlap" || currentStatus === "noValue") {
       refreshReportMetrics();
       scheduleShareabilityProgressRender();
       return;
@@ -2478,8 +2622,9 @@
     return `https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(JSON.stringify(input))}`;
   }
 
-  function compareLibraries(targetProfile) {
+  function compareLibraries(targetProfile, currentOwnedAppids = new Set()) {
     const familySet = new Set(state.familyLibrary.appidSet.map(String));
+    const currentOwnedSet = new Set(Array.from(currentOwnedAppids || []).map(String));
     const targetMap = new Map();
     targetProfile.games.forEach(game => {
       targetMap.set(String(game.appid), game);
@@ -2487,24 +2632,39 @@
 
     const newGames = [];
     const overlapGames = [];
+    const alreadyOwnedGames = [];
+    let familyOverlapCount = 0;
     targetMap.forEach((game, appid) => {
       if (familySet.has(appid)) {
+        familyOverlapCount += 1;
         const familyInfo = state.familyLibrary.appInfoById[appid] || {};
         overlapGames.push({
           ...game,
           familyName: familyInfo.name || game.name,
           localizedName: getCachedLocalizedName(appid) || game.localizedName || "",
-          owners: familyInfo.owners || []
+          owners: familyInfo.owners || [],
+          targetOwners: game.targetOwners || getTargetSteamIds(targetProfile)
+        });
+      } else if (currentOwnedSet.has(appid)) {
+        alreadyOwnedGames.push({
+          ...game,
+          targetOwners: game.targetOwners || getTargetSteamIds(targetProfile),
+          price: null
         });
       } else {
-        newGames.push({ ...game, price: null });
+        newGames.push({
+          ...game,
+          targetOwners: game.targetOwners || getTargetSteamIds(targetProfile),
+          price: null
+        });
       }
     });
 
     return {
       newGames: newGames.sort(sortByName),
       overlapGames: overlapGames.sort(sortByName),
-      familyOnlyCount: Math.max(0, familySet.size - overlapGames.length)
+      alreadyOwnedGames: alreadyOwnedGames.sort(sortByName),
+      familyOnlyCount: Math.max(0, familySet.size - familyOverlapCount)
     };
   }
 
@@ -2775,15 +2935,21 @@
       return;
     }
     pruneZeroValueAddedGames();
-    const newGames = lastReport.games.new || [];
+    const allGames = (lastReport.games.all || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+    const newGames = (lastReport.games.new || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+    const overlapGames = (lastReport.games.overlap || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
     const pricedGames = newGames.filter(game => game.price && !game.price.pending && !game.price.unavailable);
     const unpricedGames = newGames.filter(game => game.price?.unavailable);
+    lastReport.metrics.targetCount = allGames.length;
     lastReport.metrics.newCount = newGames.length;
+    lastReport.metrics.overlapCount = overlapGames.length;
+    lastReport.metrics.overlapRate = lastReport.metrics.familyCount > 0 ? overlapGames.length / lastReport.metrics.familyCount : 0;
     lastReport.metrics.initialValue = pricedGames.reduce((sum, game) => sum + Number(game.price?.initial || 0), 0);
     lastReport.metrics.unpricedCount = unpricedGames.length;
     lastReport.metrics.filteringProcessed = lastReport.filtering?.processed || 0;
     lastReport.metrics.filteringTotal = lastReport.filtering?.total || 0;
     lastReport.games.unpriced = unpricedGames;
+    lastReport.targetBreakdown = buildTargetBreakdownFromReport(lastReport);
   }
 
   function pruneZeroValueAddedGames() {
@@ -2889,6 +3055,9 @@
     comparison.overlapGames.forEach(game => {
       classificationById[String(game.appid)] = { status: "overlap" };
     });
+    (comparison.alreadyOwnedGames || []).forEach(game => {
+      classificationById[String(game.appid)] = { status: "noValue" };
+    });
     newGames.forEach(game => {
       classificationById[String(game.appid)] = { status: "new" };
     });
@@ -2898,7 +3067,8 @@
         steamid64: targetProfile.steamid64,
         displayName: targetProfile.displayName,
         profileUrl: targetProfile.profileUrl,
-        avatar: targetProfile.avatar || ""
+        avatar: targetProfile.avatar || "",
+        targets: targetProfile.targets || []
       },
       metrics: {
         targetCount,
@@ -2914,6 +3084,7 @@
         filteringProcessed: 0,
         filteringTotal: targetCount
       },
+      targetBreakdown: buildTargetBreakdown(targetProfile, comparison, newGames),
       games: {
         all: allGames,
         new: newGames,
@@ -2927,6 +3098,83 @@
         running: targetCount > 0
       },
       generatedAt: Date.now()
+    };
+  }
+
+  function buildTargetBreakdown(targetProfile, comparison, currentNewGames = []) {
+    const targets = Array.isArray(targetProfile.targets) ? targetProfile.targets : [];
+    const selectedTargets = targets.filter(target => target.selected !== false);
+    if (selectedTargets.length <= 1) {
+      return null;
+    }
+
+    const familySet = new Set(state.familyLibrary.appidSet.map(String));
+    const selectedIds = new Set(selectedTargets.map(target => String(target.steamid64 || "")));
+    const allGames = (comparison.allGames || targetProfile.games || [])
+      .filter(game => (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid)));
+    const overlapGames = (comparison.overlapGames || [])
+      .filter(game => (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid)));
+    const allGameIds = new Set(allGames.map(game => String(game.appid)));
+    const overlapGameIds = new Set(overlapGames.map(game => String(game.appid)));
+    const newGames = (currentNewGames || [])
+      .filter(game => (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid)));
+    const targetRows = selectedTargets.map(target => {
+      const gameIds = Array.from(new Set((target.gameAppids || []).map(String)));
+      const steamid64 = String(target.steamid64 || "");
+      const targetNewGames = newGames.filter(game => (game.targetOwners || []).map(String).includes(steamid64));
+      const pricedNewGames = targetNewGames.filter(game => game.price && !game.price.pending && !game.price.unavailable);
+      return {
+        steamid64,
+        targetCount: gameIds.length,
+        overlapCount: gameIds.filter(appid => familySet.has(appid)).length,
+        newCount: targetNewGames.length,
+        initialValue: pricedNewGames.reduce((sum, game) => sum + Number(game.price?.initial || 0), 0)
+      };
+    });
+
+    const initialValue = newGames
+      .filter(game => game.price && !game.price.pending && !game.price.unavailable)
+      .reduce((sum, game) => sum + Number(game.price?.initial || 0), 0);
+    return {
+      targetCount: buildSplitMetric(targetRows.map(row => row.targetCount), allGameIds.size),
+      newCount: buildSplitMetric(targetRows.map(row => row.newCount), newGames.length),
+      initialValue: buildSplitMetric(targetRows.map(row => row.initialValue), initialValue),
+      overlapCount: buildSplitMetric(targetRows.map(row => row.overlapCount), overlapGameIds.size),
+      overlapRate: buildSplitMetric(
+        targetRows.map(row => state.familyLibrary.appidSet.length > 0 ? row.overlapCount / state.familyLibrary.appidSet.length : 0),
+        state.familyLibrary.appidSet.length > 0 ? overlapGameIds.size / state.familyLibrary.appidSet.length : 0,
+        targetRows.reduce((sum, row) => sum + row.overlapCount, 0) !== overlapGameIds.size
+      )
+    };
+  }
+
+  function buildTargetBreakdownFromReport(report) {
+    const targets = Array.isArray(report?.target?.targets) ? report.target.targets : [];
+    if (targets.length <= 1) {
+      return null;
+    }
+
+    return buildTargetBreakdown(
+      {
+        targets,
+        games: report.games?.all || []
+      },
+      {
+        allGames: report.games?.all || [],
+        overlapGames: report.games?.overlap || []
+      },
+      report.games?.new || []
+    );
+  }
+
+  function buildSplitMetric(parts, total, forceDeduped = false) {
+    const numericParts = parts.map(value => Number(value || 0));
+    const numericTotal = Number(total || 0);
+    const partSum = numericParts.reduce((sum, value) => sum + value, 0);
+    return {
+      parts: numericParts,
+      total: numericTotal,
+      deduped: forceDeduped || Math.abs(partSum - numericTotal) > 1e-9
     };
   }
 
@@ -2967,6 +3215,7 @@
     };
 
     const targetLabel = report?.target?.displayName || t("noSummary");
+    const breakdown = report?.targetBreakdown || null;
     const filterValue = metrics.filteringTotal
       ? `${metrics.filteringProcessed || 0}/${metrics.filteringTotal}`
       : "0/0";
@@ -2974,12 +3223,22 @@
       metricHtml(t("targetAccount"), escapeHtml(targetLabel)),
       metricHtml(t("progress"), filterValue),
       metricHtml(t("tabs.family"), `${metrics.familyCount}`),
-      metricHtml(t("totalGames"), `${metrics.targetCount}`),
-      metricHtml(t("addedGames"), `${metrics.newCount}`),
-      metricHtml(t("addedValue"), formatMoney(metrics.initialValue)),
-      metricHtml(t("duplicatedGames"), `${metrics.overlapCount}`),
-      metricHtml(t("overlapRate"), formatPercent(metrics.overlapRate))
+      metricHtml(t("totalGames"), formatSummaryMetric(breakdown?.targetCount, value => `${value}`, metrics.targetCount)),
+      metricHtml(t("addedGames"), formatSummaryMetric(breakdown?.newCount, value => `${value}`, metrics.newCount)),
+      metricHtml(t("addedValue"), formatSummaryMetric(breakdown?.initialValue, value => formatMoney(value), metrics.initialValue)),
+      metricHtml(t("duplicatedGames"), formatSummaryMetric(breakdown?.overlapCount, value => `${value}`, metrics.overlapCount)),
+      metricHtml(t("overlapRate"), formatSummaryMetric(breakdown?.overlapRate, value => formatPercent(value), metrics.overlapRate))
     ].join("");
+  }
+
+  function formatSummaryMetric(splitMetric, formatter, fallbackValue) {
+    if (!splitMetric || !Array.isArray(splitMetric.parts) || splitMetric.parts.length <= 1) {
+      return formatter(fallbackValue);
+    }
+
+    const parts = splitMetric.parts.map(value => formatter(value));
+    const suffix = splitMetric.deduped ? ` (${escapeHtml(t("deduped"))})` : "";
+    return `${parts.join(" + ")} = ${formatter(splitMetric.total)}${suffix}`;
   }
 
   function renderTargetProfile(report) {
@@ -2989,6 +3248,35 @@
     }
 
     const target = report.target || {};
+    const targets = Array.isArray(target.targets) ? target.targets : [];
+    if (targets.length > 1) {
+      const rows = targets.map((profile, index) => {
+        const name = getTargetProfileDisplayName(profile);
+        const checked = profile.selected === false ? "" : " checked";
+        const nameHtml = profile.profileUrl
+          ? `<a class="sffa-profile-link" href="${escapeAttr(profile.profileUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+          : escapeHtml(name);
+        return `
+          <div class="sffa-target-row">
+            <input type="checkbox" data-sffa-target-toggle value="${escapeAttr(profile.steamid64 || "")}"${checked}>
+            <span>${nameHtml} · ${escapeHtml(profile.steamid64 || "-")}</span>
+          </div>
+        `;
+      }).join("");
+      elements.profile.innerHTML = `
+        <div class="sffa-profile-head">
+          <div class="sffa-avatar"></div>
+          <div>
+            <div class="sffa-profile-name">${escapeHtml(target.displayName || t("targetAccountCount", { count: targets.length }))}</div>
+          </div>
+        </div>
+        <div class="sffa-profile-row"><span>${escapeHtml(t("targetAccount"))}</span><span>${escapeHtml(t("targetAccountCount", { count: targets.length }))}</span></div>
+        ${rows}
+        <div class="sffa-profile-row"><span>${escapeHtml(t("time"))}</span><span>${formatDateTime(report.generatedAt)}</span></div>
+      `;
+      return;
+    }
+
     const avatar = target.avatar
       ? `<img class="sffa-avatar" src="${escapeAttr(target.avatar)}" alt="">`
       : `<div class="sffa-avatar"></div>`;
@@ -3004,6 +3292,26 @@
       <div class="sffa-profile-row"><span>${escapeHtml(t("time"))}</span><span>${formatDateTime(report.generatedAt)}</span></div>
       <div class="sffa-profile-row"><span>${escapeHtml(t("link"))}</span><span>${escapeHtml(target.profileUrl || "-")}</span></div>
     `;
+  }
+
+  function handleTargetSelectionChange(event) {
+    const checkbox = event.target.closest("[data-sffa-target-toggle]");
+    if (!checkbox || !lastReport) {
+      return;
+    }
+
+    const steamid64 = String(checkbox.value || "");
+    const targets = Array.isArray(lastReport.target?.targets) ? lastReport.target.targets : [];
+    const target = targets.find(item => String(item.steamid64 || "") === steamid64);
+    if (!target) {
+      return;
+    }
+
+    target.selected = checkbox.checked;
+    refreshReportMetrics();
+    renderSummary(lastReport);
+    renderTargetProfile(lastReport);
+    renderDetails();
   }
 
   function renderAutoFamilyRefreshButton() {
@@ -3043,13 +3351,21 @@
       };
     }
     if (currentTab === "new") {
+      const includeTargetOwners = isMultiTargetReport();
       return {
-        headers: ["AppID", t("game"), t("price")],
-        rows: rows.map(game => [
-          game.appid,
-          getGameDisplayName(game),
-          formatOriginalPriceText(game.price || {})
-        ])
+        headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), t("price")] : ["AppID", t("game"), t("price")],
+        rows: rows.map(game => includeTargetOwners
+          ? [
+              game.appid,
+              getGameDisplayName(game),
+              formatTargetOwners(game.targetOwners || []),
+              formatOriginalPriceText(game.price || {})
+            ]
+          : [
+              game.appid,
+              getGameDisplayName(game),
+              formatOriginalPriceText(game.price || {})
+            ])
       };
     }
     if (currentTab === "overlap") {
@@ -3073,13 +3389,21 @@
         ])
       };
     }
+    const includeTargetOwners = isMultiTargetReport();
     return {
-      headers: ["AppID", t("game"), t("status")],
-      rows: rows.map(game => [
-        game.appid,
-        getGameDisplayName(game),
-        getGameListLabel(game.appid)
-      ])
+      headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), t("status")] : ["AppID", t("game"), t("status")],
+      rows: rows.map(game => includeTargetOwners
+        ? [
+            game.appid,
+            getGameDisplayName(game),
+            formatTargetOwners(game.targetOwners || []),
+            getGameListLabel(game.appid)
+          ]
+        : [
+            game.appid,
+            getGameDisplayName(game),
+            getGameListLabel(game.appid)
+          ])
     };
   }
 
@@ -3119,7 +3443,7 @@
       return;
     }
 
-    const rows = getSortedRows(currentTab, lastReport.games[currentTab] || []);
+    const rows = getSortedRows(currentTab, getReportRowsForCurrentSelection(currentTab));
     if (rows.length === 0) {
       elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("tabEmpty", { tab: getTabLabel(currentTab) }))}</div>`;
       return;
@@ -3140,6 +3464,10 @@
       return buildOverlapTable(rows);
     }
     return buildNewGamesTable(rows);
+  }
+
+  function getReportRowsForCurrentSelection(tab) {
+    return (lastReport.games[tab] || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
   }
 
   function getSortedRows(tab, rows) {
@@ -3178,6 +3506,8 @@
         return getGameListLabel(game.appid);
       case "owners":
         return formatOwners(game.owners || []);
+      case "targetOwners":
+        return formatTargetOwners(game.targetOwners || []);
       case "time":
         return Number(game.time || 0);
       case "price":
@@ -3232,18 +3562,27 @@
   function getSearchRows() {
     const rowsById = new Map();
     (lastReport.games.all || []).forEach(game => {
+      if (!isGameIncludedBySelectedTargets(game, lastReport)) {
+        return;
+      }
       rowsById.set(String(game.appid), {
         ...game,
         listType: getGameListLabel(game.appid)
       });
     });
     (lastReport.games.new || []).forEach(game => {
+      if (!isGameIncludedBySelectedTargets(game, lastReport)) {
+        return;
+      }
       rowsById.set(String(game.appid), {
         ...game,
         listType: t("addedGames")
       });
     });
     (lastReport.games.overlap || []).forEach(game => {
+      if (!isGameIncludedBySelectedTargets(game, lastReport)) {
+        return;
+      }
       const appid = String(game.appid);
       rowsById.set(appid, {
         ...game,
@@ -3276,7 +3615,7 @@
     if (currentTab === "search") {
       return getSortedRows("search", getSearchFilteredRows() || []);
     }
-    return getSortedRows(currentTab, lastReport.games[currentTab] || []);
+    return getSortedRows(currentTab, getReportRowsForCurrentSelection(currentTab));
   }
 
   function getFamilyLibraryRows() {
@@ -3291,10 +3630,12 @@
   }
 
   function buildAllGamesTable(rows) {
+    const includeTargetOwners = isMultiTargetReport();
     const body = rows.map(game => `
       <tr>
         <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
         <td>${escapeHtml(getGameDisplayName(game))}</td>
+        ${includeTargetOwners ? `<td>${escapeHtml(formatTargetOwners(game.targetOwners || []))}</td>` : ""}
         <td data-status-appid="${escapeAttr(game.appid)}">${getGameListStatusHtml(game.appid)}</td>
       </tr>
     `).join("");
@@ -3303,6 +3644,7 @@
       <tr>
         ${sortableTh("AppID", "appid", "width: 82px;")}
         ${sortableTh(t("game"), "name")}
+        ${includeTargetOwners ? sortableTh(t("targetOwners"), "targetOwners", "width: 150px;") : ""}
         ${sortableTh(t("status"), "status", "width: 110px;")}
       </tr>
     `, body);
@@ -3329,10 +3671,12 @@
   }
 
   function buildNewGamesTable(rows) {
+    const includeTargetOwners = isMultiTargetReport();
     const body = rows.map(game => `
       <tr data-price-appid="${escapeAttr(game.appid)}">
         <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
         <td>${escapeHtml(getGameDisplayName(game))}</td>
+        ${includeTargetOwners ? `<td>${escapeHtml(formatTargetOwners(game.targetOwners || []))}</td>` : ""}
         <td>${formatOriginalPriceCell(game.price || {})}</td>
       </tr>
     `).join("");
@@ -3341,6 +3685,7 @@
       <tr>
         ${sortableTh("AppID", "appid", "width: 82px;")}
         ${sortableTh(t("game"), "name")}
+        ${includeTargetOwners ? sortableTh(t("targetOwners"), "targetOwners", "width: 150px;") : ""}
         ${sortableTh(t("price"), "price", "width: 110px;")}
       </tr>
     `, body);
@@ -3933,6 +4278,38 @@
     return owners
       .map(steamid => state.familyInfo?.steamIdtoName?.[steamid] || steamid)
       .join(UI_LOCALE === "en" ? ", " : "、");
+  }
+
+  function formatTargetOwners(owners) {
+    const selectedIds = isMultiTargetReport() ? new Set(getSelectedTargetSteamIds()) : null;
+    const ownerIds = Array.from(new Set((owners || []).map(String).filter(Boolean)))
+      .filter(steamid => !selectedIds || selectedIds.has(steamid));
+    if (!ownerIds.length) {
+      return "";
+    }
+
+    const targetNameById = getTargetNameById();
+    return ownerIds
+      .map(steamid => targetNameById[steamid] || steamid)
+      .join(UI_LOCALE === "en" ? ", " : "、");
+  }
+
+  function getTargetNameById() {
+    const targets = Array.isArray(lastReport?.target?.targets) && lastReport.target.targets.length
+      ? lastReport.target.targets
+      : [lastReport?.target].filter(Boolean);
+    const names = {};
+    targets.forEach(target => {
+      const steamid64 = String(target?.steamid64 || "");
+      if (steamid64) {
+        names[steamid64] = getTargetProfileDisplayName(target);
+      }
+    });
+    return names;
+  }
+
+  function isMultiTargetReport(report = lastReport) {
+    return Array.isArray(report?.target?.targets) && report.target.targets.length > 1;
   }
 
   function formatOriginalPriceCell(price) {

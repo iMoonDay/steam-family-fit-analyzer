@@ -15,9 +15,11 @@ A Tampermonkey userscript that analyzes a public Steam account against the Steam
 ## Features
 
 - Reads the Steam Family shared library of the current account.
-- Supports SteamID64, Steam friend codes, `/profiles/<steamid64>`, `/id/<custom>`, and vanity names.
+- Supports SteamID64, Steam friend codes, `/profiles/<steamid64>`, `/id/<custom>`, and vanity names. Separate multiple accounts with spaces to analyze their merged library together.
 - Auto-fills the current profile account on `steamcommunity.com/profiles/<steamid64>` pages.
 - Shows total games, family library size, progress, added games, duplicates, duplicate rate, and added value.
+- For multi-account analysis, shows per-account metric breakdowns, lets you choose which accounts to include, and shows target owners in the All and Added lists.
+- During analysis, also reads the current signed-in account's personal library to avoid counting games you already own but that are missing from the Family shared library as added games.
 - Provides All, Family library, Added, Duplicates, and Search lists.
 - Only counts games that support Steam Family Sharing.
 - Shows original prices for added games according to the current store region.

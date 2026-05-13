@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         Steam 家庭库分析器
+// @name:en      Steam Family Library Analyzer
 // @namespace    https://tampermonkey.net/
 // @version      0.1.3
 // @description  基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
+// @description:en Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @author       iMoonDay
 // @match        https://store.steampowered.com/*
 // @match        https://steamcommunity.com/profiles/*
@@ -24,10 +26,12 @@
 (function() {
   "use strict";
 
-  // Steam 商店地区代码，例如 CN / US / JP。
-  const STORE_CC = "CN";
-  // Steam 商店语言代码，例如 schinese / english / japanese。
-  const STORE_LANG = "schinese";
+  // 无法从 Steam 页面识别时使用的商店地区代码，例如 CN / US / JP。
+  const FALLBACK_STORE_CC = "CN";
+  // 无法从 Steam 页面识别时使用的商店语言代码，例如 schinese / english / japanese。
+  const FALLBACK_STORE_LANG = "schinese";
+  // 界面语言；auto 会根据当前 Steam 页面语言在中文和英文之间选择。
+  const APP_LOCALE = "auto";
   // 本地存储键名。
   const STORAGE_KEY = "steam_family_fit_analyzer_state_v1";
   // 商店条目缓存有效期，默认 7 天。
@@ -43,6 +47,437 @@
   // Steam 商店分类中“家庭共享”特性的 category id。
   const FAMILY_SHARING_CATEGORY_ID = 62;
 
+  const STORE_LANG = getDetectedStoreLanguage();
+  const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
+  let STORE_CC = INITIAL_STORE_CC || FALLBACK_STORE_CC;
+  let STORE_CACHE_CONTEXT = getStoreCacheContext();
+  let appLocaleMode = getSavedAppLocaleMode();
+  let UI_LOCALE = resolveUiLocale(appLocaleMode, STORE_LANG);
+
+  const I18N = {
+    "zh-CN": {
+      appName: "Steam 家庭库分析器",
+      launcher: "家庭库分析",
+      waitFamilyScan: "等待家庭库扫描",
+      hideLauncher: "隐藏侧边按钮",
+      openAnalyzer: "打开 Steam 家庭库分析器",
+      more: "更多",
+      copyReport: "复制报告",
+      clearStoreCache: "清除商店缓存",
+      rawData: "查看原始数据",
+      close: "关闭",
+      languageTitle: "语言",
+      languageAuto: "自动",
+      languageChinese: "中文",
+      languageEnglish: "English",
+      targetPlaceholder: "SteamID64、主页链接或自定义 ID",
+      refreshFamily: "刷新家庭库",
+      analyzeAccount: "分析账号",
+      continue: "继续",
+      rateCheck: "限流检测",
+      tabs: {
+        all: "全部",
+        family: "家庭库",
+        new: "新增",
+        overlap: "重复",
+        search: "搜索"
+      },
+      searchPlaceholder: "搜索游戏名或 AppID",
+      copyList: "复制列表",
+      initialEmpty: "输入账号后分析",
+      signInFirst: "请先登录",
+      accountSwitched: "账号已切换，请刷新",
+      loadedCount: "已加载：{count} 款",
+      refreshFirst: "请先刷新",
+      launcherHidden: "侧边按钮已隐藏",
+      launcherVisible: "侧边按钮已显示",
+      showLauncherMenu: "显示侧边按钮",
+      hideLauncherMenu: "隐藏侧边按钮",
+      openDialogMenu: "打开分析弹窗",
+      refreshing: "刷新中...",
+      notLoggedInOrExpired: "未登录或页面过期",
+      refreshedCount: "已刷新：{count} 款",
+      autoRefreshedCount: "已自动刷新：{count} 款",
+      autoRefreshFailed: "自动刷新失败：",
+      enterAccount: "请输入账号",
+      readApiKey: "读取 API Key...",
+      readTargetLibrary: "读取目标库...",
+      compareLibraries: "比较游戏库...",
+      shownAllProgress: "已显示全部，后台统计 {percent}",
+      noSummary: "暂无摘要",
+      reportTitle: "Steam 家庭库分析：{target}",
+      totalGames: "总游戏",
+      addedGames: "新增",
+      duplicatedGames: "重复",
+      overlapRate: "重复率",
+      addedValue: "新增价值",
+      copied: "已复制",
+      copyFailed: "复制失败",
+      noList: "暂无列表",
+      enterSearch: "请先输入关键词",
+      currentListEmpty: "当前列表为空",
+      copiedList: "已复制列表",
+      popupBlocked: "弹窗被拦截",
+      rawDataTitle: "返回原始数据",
+      autoRefreshOn: "自动刷新已开",
+      autoRefreshOff: "自动刷新已关",
+      storeCacheCleared: "已清除商店缓存",
+      communityNotSignedIn: "Community 未登录",
+      apiKeyNotRegistered: "未注册 API Key",
+      apiKeyNotFound: "找不到 API Key",
+      noFamilyGroup: "没有家庭组",
+      unnamed: "未命名",
+      emptyFamilyLibrary: "家庭库为空",
+      invalidAccount: "账号格式不对",
+      missingVanity: "缺少自定义 ID",
+      missingApiKey: "缺少 API Key",
+      resolveVanityFailed: "无法解析自定义 ID{message}",
+      privateTargetLibrary: "目标库不可见",
+      backgroundProgress: "后台统计：{percent}",
+      done: "完成",
+      completedAdded: "统计完成：新增 {count} 款",
+      invalidAppid: "AppID 无效：{appid}",
+      storeBatchMalformed: "共享支持性批量响应格式异常",
+      notRefreshed: "未刷新",
+      noCache: "无缓存",
+      targetAccount: "目标账号",
+      progress: "统计进度",
+      unknownAccount: "未知账号",
+      time: "时间",
+      link: "链接",
+      openProfile: "打开主页",
+      autoRefreshClose: "关闭自动刷新",
+      autoRefreshOpen: "开启自动刷新",
+      autoRefreshTitle: "每 24 小时刷新上次：{time}",
+      game: "游戏",
+      owners: "贡献者",
+      acquiredAt: "入库时间",
+      price: "原价",
+      list: "列表",
+      info: "信息",
+      status: "状态",
+      noFamilyRefresh: "请先刷新家庭库",
+      tabEmpty: "{tab}为空",
+      searchEmpty: "输入关键词搜索",
+      noMatches: "没有匹配游戏",
+      unsupported: "不可共享",
+      pending: "统计中",
+      requestTooFast: "请求过快，请稍后再试",
+      continueStats: "继续统计...",
+      continuePrices: "继续加载价格...",
+      nothingToContinue: "没有待继续任务",
+      checking: "检测中...",
+      rateLimitCleared: "限流已解除，可继续",
+      rateLimitedStill: "仍被限流，请稍后再试",
+      checkFailed: "检测失败",
+      jsonParseFailed: "JSON 无法解析",
+      networkFailed: "网络失败",
+      requestTimeout: "请求超时",
+      loading: "加载中"
+    },
+    en: {
+      appName: "Steam Family Library Analyzer",
+      launcher: "Family Analyzer",
+      waitFamilyScan: "Waiting for family library",
+      hideLauncher: "Hide side button",
+      openAnalyzer: "Open Steam Family Library Analyzer",
+      more: "More",
+      copyReport: "Copy report",
+      clearStoreCache: "Clear store cache",
+      rawData: "View raw data",
+      close: "Close",
+      languageTitle: "Language",
+      languageAuto: "Auto",
+      languageChinese: "中文",
+      languageEnglish: "English",
+      targetPlaceholder: "SteamID64, profile URL, or custom ID",
+      refreshFamily: "Refresh family library",
+      analyzeAccount: "Analyze account",
+      continue: "Continue",
+      rateCheck: "Check rate limit",
+      tabs: {
+        all: "All",
+        family: "Family library",
+        new: "Added",
+        overlap: "Duplicates",
+        search: "Search"
+      },
+      searchPlaceholder: "Search game name or AppID",
+      copyList: "Copy list",
+      initialEmpty: "Enter an account to analyze",
+      signInFirst: "Please sign in first",
+      accountSwitched: "Account changed, please refresh",
+      loadedCount: "Loaded: {count}",
+      refreshFirst: "Please refresh first",
+      launcherHidden: "Side button hidden",
+      launcherVisible: "Side button shown",
+      showLauncherMenu: "Show side button",
+      hideLauncherMenu: "Hide side button",
+      openDialogMenu: "Open analyzer",
+      refreshing: "Refreshing...",
+      notLoggedInOrExpired: "Not signed in or page expired",
+      refreshedCount: "Refreshed: {count}",
+      autoRefreshedCount: "Auto-refreshed: {count}",
+      autoRefreshFailed: "Auto refresh failed:",
+      enterAccount: "Enter an account",
+      readApiKey: "Reading API key...",
+      readTargetLibrary: "Reading target library...",
+      compareLibraries: "Comparing libraries...",
+      shownAllProgress: "Showing all, background progress {percent}",
+      noSummary: "No summary yet",
+      reportTitle: "Steam family library analysis: {target}",
+      totalGames: "Total games",
+      addedGames: "Added",
+      duplicatedGames: "Duplicates",
+      overlapRate: "Duplicate rate",
+      addedValue: "Added value",
+      copied: "Copied",
+      copyFailed: "Copy failed",
+      noList: "No list yet",
+      enterSearch: "Enter a search term first",
+      currentListEmpty: "Current list is empty",
+      copiedList: "List copied",
+      popupBlocked: "Popup blocked",
+      rawDataTitle: "Raw data",
+      autoRefreshOn: "Auto refresh on",
+      autoRefreshOff: "Auto refresh off",
+      storeCacheCleared: "Store cache cleared",
+      communityNotSignedIn: "Community not signed in",
+      apiKeyNotRegistered: "API key is not registered",
+      apiKeyNotFound: "API key not found",
+      noFamilyGroup: "No family group",
+      unnamed: "Unnamed",
+      emptyFamilyLibrary: "Family library is empty",
+      invalidAccount: "Invalid account format",
+      missingVanity: "Missing custom ID",
+      missingApiKey: "Missing API key",
+      resolveVanityFailed: "Unable to resolve custom ID{message}",
+      privateTargetLibrary: "Target library is private",
+      backgroundProgress: "Background progress: {percent}",
+      done: "Done",
+      completedAdded: "Completed: {count} added",
+      invalidAppid: "Invalid AppID: {appid}",
+      storeBatchMalformed: "Unexpected store batch response",
+      notRefreshed: "Not refreshed",
+      noCache: "No cache",
+      targetAccount: "Target account",
+      progress: "Progress",
+      unknownAccount: "Unknown account",
+      time: "Time",
+      link: "Link",
+      openProfile: "Open profile",
+      autoRefreshClose: "Disable auto refresh",
+      autoRefreshOpen: "Enable auto refresh",
+      autoRefreshTitle: "Refreshes every 24 hours. Last: {time}",
+      game: "Game",
+      owners: "Owners",
+      acquiredAt: "Acquired",
+      price: "Original price",
+      list: "List",
+      info: "Info",
+      status: "Status",
+      noFamilyRefresh: "Refresh family library first",
+      tabEmpty: "{tab} is empty",
+      searchEmpty: "Enter keywords to search",
+      noMatches: "No matching games",
+      unsupported: "Not shareable",
+      pending: "Processing",
+      requestTooFast: "Too many requests, please try again later",
+      continueStats: "Continuing...",
+      continuePrices: "Continuing price loading...",
+      nothingToContinue: "Nothing to continue",
+      checking: "Checking...",
+      rateLimitCleared: "Rate limit cleared, you can continue",
+      rateLimitedStill: "Still rate limited, please try later",
+      checkFailed: "Check failed",
+      jsonParseFailed: "Unable to parse JSON",
+      networkFailed: "Network failed",
+      requestTimeout: "Request timed out",
+      loading: "Loading"
+    }
+  };
+
+  function t(key, vars = {}) {
+    const value = key.split(".").reduce((cursor, part) => cursor?.[part], I18N[UI_LOCALE])
+      ?? key.split(".").reduce((cursor, part) => cursor?.[part], I18N["zh-CN"])
+      ?? key;
+    return String(value).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
+  }
+
+  function labelValue(label, value) {
+    return `${label}${UI_LOCALE === "en" ? ": " : "："}${value}`;
+  }
+
+  function getAutoUiLocale(storeLanguage) {
+    return storeLanguage === "schinese" || storeLanguage === "tchinese" ? "zh-CN" : "en";
+  }
+
+  function resolveUiLocale(mode, storeLanguage = STORE_LANG) {
+    const normalizedMode = normalizeAppLocaleMode(mode);
+    return normalizedMode === "auto" ? getAutoUiLocale(storeLanguage) : normalizedMode;
+  }
+
+  function normalizeAppLocaleMode(mode) {
+    return ["auto", "zh-CN", "en"].includes(mode) ? mode : APP_LOCALE;
+  }
+
+  function getSavedAppLocaleMode() {
+    try {
+      return normalizeAppLocaleMode(GM_getValue(STORAGE_KEY)?.appLocaleMode);
+    } catch (error) {
+      return APP_LOCALE;
+    }
+  }
+
+  function getLocaleModeLabel(mode = appLocaleMode) {
+    const normalizedMode = normalizeAppLocaleMode(mode);
+    if (normalizedMode === "auto") {
+      const locale = getLocaleName(resolveUiLocale("auto"));
+      return UI_LOCALE === "en" ? `${t("languageAuto")} (${locale})` : `${t("languageAuto")}（${locale}）`;
+    }
+    return getLocaleName(normalizedMode);
+  }
+
+  function getLocaleName(locale) {
+    return {
+      "zh-CN": t("languageChinese"),
+      en: t("languageEnglish")
+    }[locale] || t("languageEnglish");
+  }
+
+  function getLocaleModeButtonText() {
+    return labelValue(t("languageTitle"), getLocaleModeLabel());
+  }
+
+  function getDetectedStoreLanguage() {
+    const pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+    const candidates = [
+      new URLSearchParams(location.search).get("l"),
+      pageWindow?.g_strLanguage,
+      window.g_strLanguage,
+      readCookieValue("Steam_Language"),
+      document.documentElement.lang
+    ];
+
+    for (const candidate of candidates) {
+      const language = normalizeSteamLanguage(candidate);
+      if (language) {
+        return language;
+      }
+    }
+    return FALLBACK_STORE_LANG;
+  }
+
+  function normalizeSteamLanguage(value) {
+    const normalized = String(value || "").trim().toLowerCase().replace("_", "-");
+    return {
+      english: "english",
+      en: "english",
+      "en-us": "english",
+      "en-gb": "english",
+      schinese: "schinese",
+      "zh-cn": "schinese",
+      "zh-hans": "schinese",
+      tchinese: "tchinese",
+      "zh-tw": "tchinese",
+      "zh-hk": "tchinese",
+      japanese: "japanese",
+      ja: "japanese",
+      "ja-jp": "japanese",
+      koreana: "koreana",
+      ko: "koreana",
+      "ko-kr": "koreana",
+      german: "german",
+      de: "german",
+      "de-de": "german",
+      french: "french",
+      fr: "french",
+      "fr-fr": "french",
+      italian: "italian",
+      it: "italian",
+      spanish: "spanish",
+      es: "spanish",
+      "es-es": "spanish",
+      "brazilian": "brazilian",
+      "pt-br": "brazilian",
+      russian: "russian",
+      ru: "russian"
+    }[normalized] || "";
+  }
+
+  function getStoreCacheContext() {
+    return `${STORE_CC}:${STORE_LANG}`;
+  }
+
+  function setStoreCountry(country) {
+    const normalized = normalizeStoreCountry(country);
+    if (!normalized || normalized === STORE_CC) {
+      return;
+    }
+    STORE_CC = normalized;
+    STORE_CACHE_CONTEXT = getStoreCacheContext();
+  }
+
+  function getDetectedStoreCountryFromPage(doc = document, pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window) {
+    const configNode = getApplicationConfigNode(pageWindow, doc);
+    const storeUserConfig = configNode ? readJsonAttribute(configNode, "data-store_user_config") : null;
+    const userInfo = configNode ? readJsonAttribute(configNode, "data-userinfo") : null;
+    const walletInfo = pageWindow?.g_rgWalletInfo || (doc === document ? window.g_rgWalletInfo : {}) || {};
+    const candidates = [
+      doc === document ? new URLSearchParams(location.search).get("cc") : "",
+      pageWindow?.g_strCountryCode,
+      doc === document ? window.g_strCountryCode : "",
+      pageWindow?.g_strUserCountry,
+      doc === document ? window.g_strUserCountry : "",
+      storeUserConfig?.country_code,
+      storeUserConfig?.web_country_code,
+      storeUserConfig?.user_country,
+      userInfo?.country_code,
+      walletInfo?.wallet_country,
+      walletInfo?.country_code,
+      doc === document ? readCookieValue("steamCountry") : ""
+    ];
+
+    for (const candidate of candidates) {
+      const country = normalizeStoreCountry(candidate);
+      if (country) {
+        return country;
+      }
+    }
+    return "";
+  }
+
+  async function resolveStoreCountryFromAccount() {
+    if (INITIAL_STORE_CC || location.hostname === "store.steampowered.com") {
+      return;
+    }
+
+    try {
+      const html = await Promise.race([
+        requestText(`https://store.steampowered.com/?l=${encodeURIComponent(STORE_LANG)}`).catch(() => ""),
+        sleep(3000).then(() => "")
+      ]);
+      if (!html) {
+        return;
+      }
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      setStoreCountry(getDetectedStoreCountryFromPage(doc, {}));
+    } catch (error) {
+      // Keep the fallback country if the account region cannot be read from the store page.
+    }
+  }
+
+  function normalizeStoreCountry(value) {
+    const match = String(value || "").toUpperCase().match(/[A-Z]{2}/);
+    return match ? match[0] : "";
+  }
+
+  function readCookieValue(name) {
+    const pattern = new RegExp(`(?:^|;\\s*)${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`);
+    const match = document.cookie.match(pattern);
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
   const DEFAULT_STATE = Object.freeze({
     version: 1,
     activeSteamId: "",
@@ -56,10 +491,11 @@
     storeCache: {},
     autoFamilyRefreshEnabled: true,
     lastAutoFamilyRefreshAttemptAt: 0,
+    appLocaleMode: APP_LOCALE,
     apiKey: ""
   });
 
-  let state = loadState();
+  let state = cloneDefaultState();
   let currentTab = "all";
   let tableSortByTab = {};
   let lastReport = null;
@@ -76,13 +512,15 @@
 
   bootstrap();
 
-  function bootstrap() {
+  async function bootstrap() {
+    await resolveStoreCountryFromAccount();
+    state = loadState();
     injectStyles();
     mountPanel();
     autoFillTargetInputFromProfilePage();
     const session = getSteamSession();
     if (!session.isLoggedIn) {
-      setStatus("请先登录", "warn");
+      setStatus(t("signInFirst"), "warn");
       setBusy(false);
       return;
     }
@@ -91,11 +529,11 @@
       state.activeSteamId = session.steamid;
       saveState();
     } else if (state.activeSteamId !== session.steamid) {
-      setStatus("账号已切换，请刷新", "warn");
+      setStatus(t("accountSwitched"), "warn");
     } else if (state.familyLibrary.appidSet.length > 0) {
-      setStatus(`已加载：${state.familyLibrary.appidSet.length} 款`, "ok");
+      setStatus(t("loadedCount", { count: state.familyLibrary.appidSet.length }), "ok");
     } else {
-      setStatus("请先刷新", "warn");
+      setStatus(t("refreshFirst"), "warn");
     }
     renderLauncherVisibility();
     registerScriptMenuCommands();
@@ -303,6 +741,67 @@
       }
       .sffa-icon-btn[aria-expanded="true"] {
         background: rgba(102, 192, 244, 0.2);
+      }
+      .sffa-locale-wrap {
+        position: relative;
+      }
+      .sffa-locale-btn {
+        height: 30px;
+        max-width: 180px;
+        padding: 0 9px;
+        border: 1px solid rgba(102, 192, 244, 0.24);
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #dbe8f3;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sffa-locale-btn:hover,
+      .sffa-locale-btn[aria-expanded="true"] {
+        background: rgba(102, 192, 244, 0.18);
+        border-color: rgba(143, 209, 255, 0.42);
+      }
+      .sffa-locale-menu {
+        position: absolute;
+        right: 0;
+        top: 36px;
+        min-width: 138px;
+        display: none;
+        padding: 6px;
+        border: 1px solid rgba(102, 192, 244, 0.26);
+        border-radius: 3px;
+        background: #0f141b;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+        z-index: 3;
+      }
+      .sffa-locale-wrap.is-open .sffa-locale-menu {
+        display: grid;
+        gap: 4px;
+      }
+      .sffa-locale-option {
+        width: 100%;
+        min-height: 30px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
+        color: #dbe8f3;
+        text-align: left;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .sffa-locale-option:hover {
+        background: rgba(102, 192, 244, 0.14);
+      }
+      .sffa-locale-option.is-active {
+        background: rgba(102, 192, 244, 0.22);
+        color: #ffffff;
       }
       .sffa-icon-btn:hover,
       .sffa-close:hover {
@@ -572,12 +1071,14 @@
         align-items: center;
       }
       .sffa-tab {
+        flex: 0 0 auto;
         height: 30px;
         padding: 0 10px;
         border-radius: 3px;
         background: #223344;
         color: #c2d4df;
         border: 1px solid rgba(255, 255, 255, 0.08);
+        white-space: nowrap;
         transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
       }
       .sffa-tab:hover:not(:disabled) {
@@ -599,9 +1100,10 @@
       }
       .sffa-search-input {
         display: none;
+        flex: 1 1 130px;
         margin-left: 6px;
-        width: min(260px, 40%);
-        min-width: 160px;
+        width: min(220px, 34%);
+        min-width: 120px;
         height: 30px;
         border: 1px solid rgba(102, 192, 244, 0.26);
         background: #0f141b;
@@ -739,57 +1241,65 @@
     root.id = "sffa-root";
     root.innerHTML = `
       <div class="sffa-launcher-wrap" data-sffa-launcher-wrap>
-        <button class="sffa-launcher-close" type="button" data-sffa-launcher-close title="隐藏侧边按钮" aria-label="隐藏侧边按钮">×</button>
-        <button class="sffa-launcher" type="button" title="打开 Steam 家庭库分析器">
-          <span>家庭库分析</span>
+        <button class="sffa-launcher-close" type="button" data-sffa-launcher-close title="${escapeAttr(t("hideLauncher"))}" aria-label="${escapeAttr(t("hideLauncher"))}">×</button>
+        <button class="sffa-launcher" type="button" title="${escapeAttr(t("openAnalyzer"))}">
+          <span>${escapeHtml(t("launcher"))}</span>
         </button>
       </div>
       <div class="sffa-backdrop" data-sffa-backdrop></div>
-      <section class="sffa-shell" aria-label="Steam 家庭库分析器">
+      <section class="sffa-shell" aria-label="${escapeAttr(t("appName"))}">
         <header class="sffa-header">
           <div class="sffa-title">
-            <strong>家庭库分析</strong>
-            <span data-sffa-family-meta>等待家庭库扫描</span>
+            <strong>${escapeHtml(t("launcher"))}</strong>
+            <span data-sffa-family-meta>${escapeHtml(t("waitFamilyScan"))}</span>
           </div>
           <div class="sffa-header-actions" data-sffa-menu-wrap>
-            <button class="sffa-icon-btn" type="button" data-sffa-more title="更多" aria-label="更多" aria-expanded="false">⋯</button>
+            <div class="sffa-locale-wrap" data-sffa-locale-wrap>
+              <button class="sffa-locale-btn" type="button" data-sffa-locale-toggle aria-expanded="false">${escapeHtml(getLocaleModeButtonText())}</button>
+              <div class="sffa-locale-menu" data-sffa-locale-menu>
+                ${buildLocaleOptionHtml("auto")}
+                ${buildLocaleOptionHtml("zh-CN")}
+                ${buildLocaleOptionHtml("en")}
+              </div>
+            </div>
+            <button class="sffa-icon-btn" type="button" data-sffa-more title="${escapeAttr(t("more"))}" aria-label="${escapeAttr(t("more"))}" aria-expanded="false">⋯</button>
             <div class="sffa-menu" data-sffa-menu>
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
-              <button class="sffa-menu-item" type="button" data-sffa-copy>复制报告</button>
-              <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>清除商店缓存</button>
-              <button class="sffa-menu-item" type="button" data-sffa-raw>查看原始数据</button>
+              <button class="sffa-menu-item" type="button" data-sffa-copy>${escapeHtml(t("copyReport"))}</button>
+              <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
+              <button class="sffa-menu-item" type="button" data-sffa-raw>${escapeHtml(t("rawData"))}</button>
             </div>
-            <button class="sffa-close" type="button" data-sffa-close title="关闭">×</button>
+            <button class="sffa-close" type="button" data-sffa-close title="${escapeAttr(t("close"))}">×</button>
           </div>
         </header>
         <div class="sffa-body">
           <div class="sffa-row">
-            <input class="sffa-input" data-sffa-target placeholder="SteamID64、主页链接或自定义 ID" autocomplete="off">
-            <button class="sffa-btn secondary" type="button" data-sffa-refresh>刷新家庭库</button>
-            <button class="sffa-btn" type="button" data-sffa-analyze>分析账号</button>
+            <input class="sffa-input" data-sffa-target placeholder="${escapeAttr(t("targetPlaceholder"))}" autocomplete="off">
+            <button class="sffa-btn secondary" type="button" data-sffa-refresh>${escapeHtml(t("refreshFamily"))}</button>
+            <button class="sffa-btn" type="button" data-sffa-analyze>${escapeHtml(t("analyzeAccount"))}</button>
           </div>
           <div class="sffa-content">
             <div class="sffa-side">
             <div class="sffa-status-row">
               <div class="sffa-status" data-sffa-status></div>
-              <button class="sffa-rate-btn" type="button" data-sffa-rate-continue hidden>继续</button>
-              <button class="sffa-rate-btn" type="button" data-sffa-rate-check hidden>限流检测</button>
+              <button class="sffa-rate-btn" type="button" data-sffa-rate-continue hidden>${escapeHtml(t("continue"))}</button>
+              <button class="sffa-rate-btn" type="button" data-sffa-rate-check hidden>${escapeHtml(t("rateCheck"))}</button>
             </div>
             <div class="sffa-summary" data-sffa-summary></div>
             <div class="sffa-profile" data-sffa-profile></div>
             </div>
             <div class="sffa-main">
               <div class="sffa-tabs" data-sffa-tabs>
-                <button class="sffa-tab active" type="button" data-tab="all">全部</button>
-              <button class="sffa-tab" type="button" data-tab="new">新增</button>
-              <button class="sffa-tab" type="button" data-tab="overlap">重复</button>
-              <button class="sffa-tab" type="button" data-tab="search">搜索</button>
-                <input class="sffa-search-input" data-sffa-search placeholder="搜索游戏名或 AppID" autocomplete="off">
-                <button class="sffa-tab" type="button" data-tab="family">家庭库</button>
-                <button class="sffa-tab sffa-copy-current" type="button" data-sffa-copy-current>复制列表</button>
+                <button class="sffa-tab active" type="button" data-tab="all">${escapeHtml(t("tabs.all"))}</button>
+              <button class="sffa-tab" type="button" data-tab="new">${escapeHtml(t("tabs.new"))}</button>
+              <button class="sffa-tab" type="button" data-tab="overlap">${escapeHtml(t("tabs.overlap"))}</button>
+              <button class="sffa-tab" type="button" data-tab="search">${escapeHtml(t("tabs.search"))}</button>
+                <input class="sffa-search-input" data-sffa-search placeholder="${escapeAttr(t("searchPlaceholder"))}" autocomplete="off">
+                <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
+                <button class="sffa-tab sffa-copy-current" type="button" data-sffa-copy-current>${escapeHtml(t("copyList"))}</button>
               </div>
               <div class="sffa-table-wrap" data-sffa-table-wrap>
-                <div class="sffa-empty">输入账号后分析</div>
+                <div class="sffa-empty">${escapeHtml(t("initialEmpty"))}</div>
               </div>
             </div>
           </div>
@@ -811,6 +1321,9 @@
       launcherWrap: root.querySelector("[data-sffa-launcher-wrap]"),
       launcherCloseBtn: root.querySelector("[data-sffa-launcher-close]"),
       menuWrap: root.querySelector("[data-sffa-menu-wrap]"),
+      localeWrap: root.querySelector("[data-sffa-locale-wrap]"),
+      localeToggleBtn: root.querySelector("[data-sffa-locale-toggle]"),
+      localeOptions: Array.from(root.querySelectorAll("[data-sffa-locale-option]")),
       moreBtn: root.querySelector("[data-sffa-more]"),
       launcher: root.querySelector(".sffa-launcher"),
       targetInput: root.querySelector("[data-sffa-target]"),
@@ -831,6 +1344,10 @@
     elements.launcherCloseBtn.addEventListener("click", hideLauncherButton);
     elements.closeBtn.addEventListener("click", closeDialog);
     elements.backdrop.addEventListener("click", closeDialog);
+    elements.localeToggleBtn.addEventListener("click", toggleLocaleMenu);
+    elements.localeOptions.forEach(option => {
+      option.addEventListener("click", () => setAppLocaleMode(option.dataset.sffaLocaleOption));
+    });
     elements.moreBtn.addEventListener("click", toggleMenu);
     elements.refreshBtn.addEventListener("click", refreshFamilyLibrary);
     elements.analyzeBtn.addEventListener("click", analyzeTarget);
@@ -909,7 +1426,7 @@
     saveState();
     renderLauncherVisibility();
     registerScriptMenuCommands();
-    setStatus("侧边按钮已隐藏", "ok");
+    setStatus(t("launcherHidden"), "ok");
   }
 
   function toggleLauncherButtonVisibility() {
@@ -917,7 +1434,7 @@
     saveState();
     renderLauncherVisibility();
     registerScriptMenuCommands();
-    setStatus(state.launcherVisible ? "侧边按钮已显示" : "侧边按钮已隐藏", "ok");
+    setStatus(state.launcherVisible ? t("launcherVisible") : t("launcherHidden"), "ok");
   }
 
   function registerScriptMenuCommands() {
@@ -926,10 +1443,10 @@
       return;
     }
     scriptMenuCommandIds.push(
-      GM_registerMenuCommand(state.launcherVisible === false ? "显示侧边按钮" : "隐藏侧边按钮", toggleLauncherButtonVisibility)
+      GM_registerMenuCommand(state.launcherVisible === false ? t("showLauncherMenu") : t("hideLauncherMenu"), toggleLauncherButtonVisibility)
     );
     scriptMenuCommandIds.push(
-      GM_registerMenuCommand("打开分析弹窗", openDialog)
+      GM_registerMenuCommand(t("openDialogMenu"), openDialog)
     );
   }
 
@@ -955,13 +1472,42 @@
 
   function toggleMenu(event) {
     event.stopPropagation();
+    closeLocaleMenu();
     const isOpen = elements.menuWrap.classList.toggle("is-menu-open");
     elements.moreBtn.setAttribute("aria-expanded", String(isOpen));
+  }
+
+  function toggleLocaleMenu(event) {
+    event.stopPropagation();
+    elements.menuWrap?.classList.remove("is-menu-open");
+    elements.moreBtn?.setAttribute("aria-expanded", "false");
+    const isOpen = elements.localeWrap.classList.toggle("is-open");
+    elements.localeToggleBtn.setAttribute("aria-expanded", String(isOpen));
   }
 
   function closeMenu() {
     elements.menuWrap?.classList.remove("is-menu-open");
     elements.moreBtn?.setAttribute("aria-expanded", "false");
+    closeLocaleMenu();
+  }
+
+  function closeLocaleMenu() {
+    elements.localeWrap?.classList.remove("is-open");
+    elements.localeToggleBtn?.setAttribute("aria-expanded", "false");
+  }
+
+  function setAppLocaleMode(mode) {
+    const nextMode = normalizeAppLocaleMode(mode);
+    if (nextMode === appLocaleMode) {
+      closeMenu();
+      return;
+    }
+
+    appLocaleMode = nextMode;
+    UI_LOCALE = resolveUiLocale(appLocaleMode);
+    state.appLocaleMode = appLocaleMode;
+    saveState();
+    location.reload();
   }
 
   async function refreshFamilyLibrary() {
@@ -969,17 +1515,17 @@
       openDialog();
       setBusy(true);
       resetRawData("refresh-family-library");
-      setStatus("刷新中...", "warn");
+      setStatus(t("refreshing"), "warn");
       const session = getSteamSession();
       if (!session.isLoggedIn || !session.accessToken || !session.steamid) {
-        throw new Error("未登录或页面过期");
+        throw new Error(t("notLoggedInOrExpired"));
       }
 
       const familyLibrary = await updateFamilyLibraryCache(session);
 
       renderFamilyMeta();
       renderAutoFamilyRefreshButton();
-      setStatus(`已刷新：${familyLibrary.appidSet.length} 款`, "ok");
+      setStatus(t("refreshedCount", { count: familyLibrary.appidSet.length }), "ok");
     } catch (error) {
       setStatus(error.message, "err");
     } finally {
@@ -1023,10 +1569,10 @@
       resetRawData("auto-refresh-family-library");
       const familyLibrary = await updateFamilyLibraryCache(session);
       renderFamilyMeta();
-      setStatus(`已自动刷新：${familyLibrary.appidSet.length} 款`, "ok");
+      setStatus(t("autoRefreshedCount", { count: familyLibrary.appidSet.length }), "ok");
     } catch (error) {
       setRawError(error);
-      console.warn("自动刷新失败：", error);
+      console.warn(t("autoRefreshFailed"), error);
     } finally {
       autoFamilyRefreshRunning = false;
       renderAutoFamilyRefreshButton();
@@ -1040,18 +1586,18 @@
       resetRawData("analyze-target");
       const rawInput = elements.targetInput.value.trim();
       if (!rawInput) {
-        throw new Error("请输入账号");
+        throw new Error(t("enterAccount"));
       }
       setRawStep("check-family-cache");
       ensureFamilyReady();
-      setStatus("读取 API Key...", "warn");
+      setStatus(t("readApiKey"), "warn");
       setRawStep("read-steam-web-api-key");
       await autoReadApiKeyFromCommunity({ keepBusy: true });
 
-      setStatus("读取目标库...", "warn");
+      setStatus(t("readTargetLibrary"), "warn");
       setRawStep("fetch-target-owned-games");
       const targetProfile = await getTargetProfile(rawInput);
-      setStatus("比较游戏库...", "warn");
+      setStatus(t("compareLibraries"), "warn");
       setRawStep("compare-libraries");
       const comparison = compareLibraries(targetProfile);
       const analysisId = ++activeAnalysisId;
@@ -1074,7 +1620,7 @@
       renderSummary(lastReport);
       renderTargetProfile(lastReport);
       renderDetails();
-      setStatus(`已显示全部，后台统计 ${formatPercent(targetProfile.games.length ? comparison.overlapGames.length / targetProfile.games.length : 0)}`, "warn");
+      setStatus(t("shownAllProgress", { percent: formatPercent(targetProfile.games.length ? comparison.overlapGames.length / targetProfile.games.length : 0) }), "warn");
       setRawStep("background-load-store-items");
       window.setTimeout(() => {
         startBackgroundShareabilityFilter(analysisId, targetProfile.games);
@@ -1090,37 +1636,37 @@
   async function copyReportSummary() {
     closeMenu();
     if (!lastReport) {
-      setStatus("暂无摘要", "warn");
+      setStatus(t("noSummary"), "warn");
       return;
     }
 
     const summary = [
-      `Steam 家庭库分析：${lastReport.target.displayName || lastReport.target.steamid64}`,
-      `总游戏：${lastReport.metrics.targetCount} 款`,
-      `家庭库：${lastReport.metrics.familyCount} 款`,
-      `新增：${lastReport.metrics.newCount} 款`,
-      `重复：${lastReport.metrics.overlapCount} 款`,
-      `重复率：${formatPercent(lastReport.metrics.overlapRate)}`,
-      `新增价值：${formatCny(lastReport.metrics.initialValue)}`
+      t("reportTitle", { target: lastReport.target.displayName || lastReport.target.steamid64 }),
+      labelValue(t("totalGames"), lastReport.metrics.targetCount),
+      labelValue(t("tabs.family"), lastReport.metrics.familyCount),
+      labelValue(t("addedGames"), lastReport.metrics.newCount),
+      labelValue(t("duplicatedGames"), lastReport.metrics.overlapCount),
+      labelValue(t("overlapRate"), formatPercent(lastReport.metrics.overlapRate)),
+      labelValue(t("addedValue"), formatMoney(lastReport.metrics.initialValue))
     ].join("\n");
 
     try {
       await navigator.clipboard.writeText(summary);
-      setStatus("已复制", "ok");
+      setStatus(t("copied"), "ok");
     } catch (error) {
-      setStatus("复制失败", "err");
+      setStatus(t("copyFailed"), "err");
     }
   }
 
   async function copyCurrentList() {
     const rows = getCurrentListRows();
     if (!lastReport && currentTab !== "family") {
-      setStatus("暂无列表", "warn");
+      setStatus(t("noList"), "warn");
       return;
     }
 
     if (rows.length === 0) {
-      setStatus(currentTab === "search" ? "请先输入关键词" : "当前列表为空", "warn");
+      setStatus(currentTab === "search" ? t("enterSearch") : t("currentListEmpty"), "warn");
       return;
     }
 
@@ -1131,9 +1677,9 @@
 
     try {
       await navigator.clipboard.writeText(text);
-      setStatus("已复制列表", "ok");
+      setStatus(t("copiedList"), "ok");
     } catch (error) {
-      setStatus("复制失败", "err");
+      setStatus(t("copyFailed"), "err");
     }
   }
 
@@ -1141,11 +1687,11 @@
     closeMenu();
     const popup = window.open("", "_blank", "width=980,height=720");
     if (!popup) {
-      setStatus("弹窗被拦截", "err");
+      setStatus(t("popupBlocked"), "err");
       return;
     }
 
-    popup.document.title = "返回原始数据";
+    popup.document.title = t("rawDataTitle");
     popup.document.body.style.margin = "0";
     popup.document.body.style.background = "#0f141b";
     popup.document.body.style.color = "#dbe8f3";
@@ -1164,7 +1710,7 @@
     state.autoFamilyRefreshEnabled = !state.autoFamilyRefreshEnabled;
     saveState();
     renderAutoFamilyRefreshButton();
-    setStatus(state.autoFamilyRefreshEnabled ? "自动刷新已开" : "自动刷新已关", "ok");
+    setStatus(state.autoFamilyRefreshEnabled ? t("autoRefreshOn") : t("autoRefreshOff"), "ok");
     if (state.autoFamilyRefreshEnabled) {
       maybeAutoRefreshFamilyLibrary(getSteamSession());
     }
@@ -1175,7 +1721,7 @@
     state.storeCache = {};
     saveState();
     renderStoreCacheButton();
-    setStatus("已清除商店缓存", "ok");
+    setStatus(t("storeCacheCleared"), "ok");
   }
 
   async function fetchExistingSteamApiKey() {
@@ -1186,7 +1732,7 @@
       htmlLength: html.length
     });
     if (isSteamSignInPage(html)) {
-      throw new Error("Community 未登录");
+      throw new Error(t("communityNotSignedIn"));
     }
 
     const apiKey = extractSteamApiKeyFromDevPage(html);
@@ -1195,10 +1741,10 @@
     }
 
     if (/\/dev\/registerkey|Registering\s+for\s+a\s+Steam\s+Web\s+API\s+Key|Domain\s+Name/i.test(html)) {
-      throw new Error("未注册 API Key");
+      throw new Error(t("apiKeyNotRegistered"));
     }
 
-    throw new Error("找不到 API Key");
+    throw new Error(t("apiKeyNotFound"));
   }
 
   function extractSteamApiKeyFromDevPage(html) {
@@ -1291,13 +1837,13 @@
     return match ? match[1] : "";
   }
 
-  function getApplicationConfigNode(pageWindow) {
+  function getApplicationConfigNode(pageWindow, doc = document) {
     const candidates = [
-      document.getElementById("application_config"),
-      document.querySelector("#application_config"),
-      document.querySelector("[data-store_user_config][data-userinfo]"),
+      doc.getElementById("application_config"),
+      doc.querySelector("#application_config"),
+      doc.querySelector("[data-store_user_config][data-userinfo]"),
       pageWindow?.application_config,
-      window.application_config
+      doc === document ? window.application_config : null
     ];
 
     return candidates.find(node => node && typeof node.getAttribute === "function") || null;
@@ -1309,14 +1855,14 @@
     setRawData("familyGroupForUser", data);
     const response = data.response;
     if (!response?.family_groupid || !response?.family_group?.members) {
-      throw new Error("没有家庭组");
+      throw new Error(t("noFamilyGroup"));
     }
 
     const members = response.family_group.members;
     const names = await getUserNames(accessToken, members);
     return {
       family_groupid: response.family_groupid,
-      family_name: response.family_group.name || "未命名",
+      family_name: response.family_group.name || t("unnamed"),
       family_member: members.map(member => ({
         ...member,
         userName: names[member.steamid] || member.steamid
@@ -1331,7 +1877,7 @@
     setRawData("sharedLibraryApps", data);
     const apps = data.response?.apps;
     if (!Array.isArray(apps)) {
-      throw new Error("家庭库为空");
+      throw new Error(t("emptyFamilyLibrary"));
     }
 
     const appidSet = [];
@@ -1414,16 +1960,16 @@
       return { vanity };
     }
 
-    throw new Error("账号格式不对");
+    throw new Error(t("invalidAccount"));
   }
 
   async function resolveVanity(vanity, apiKey) {
     if (!vanity) {
-      throw new Error("缺少自定义 ID");
+        throw new Error(t("missingVanity"));
     }
 
     if (!apiKey) {
-      throw new Error("缺少 API Key");
+        throw new Error(t("missingApiKey"));
     }
 
     return resolveVanityWithApiKey(vanity, apiKey);
@@ -1436,7 +1982,7 @@
     const response = data.response || {};
     if (Number(response.success) !== 1 || !/^\d{17}$/.test(String(response.steamid || ""))) {
       const message = response.message ? `：${response.message}` : "";
-      throw new Error(`无法解析自定义 ID${message}`);
+      throw new Error(t("resolveVanityFailed", { message }));
     }
 
     return {
@@ -1448,7 +1994,7 @@
 
   async function fetchPublicGames(identity, apiKey) {
     if (!apiKey) {
-      throw new Error("缺少 API Key");
+      throw new Error(t("missingApiKey"));
     }
 
     return fetchPublicGamesFromOwnedGames(identity, apiKey);
@@ -1465,7 +2011,7 @@
     const response = data.response || {};
     const rawGames = Array.isArray(response.games) ? response.games : [];
     if (rawGames.length === 0) {
-      throw new Error("目标库不可见");
+      throw new Error(t("privateTargetLibrary"));
     }
 
     return {
@@ -1574,7 +2120,7 @@
     refreshReportMetrics();
     renderSummary(lastReport);
     renderDetailsPreserveScroll();
-    setStatus(`后台统计：${formatPercent(shareabilityFilterState.total ? shareabilityFilterState.processed / shareabilityFilterState.total : 0)}`, "warn");
+    setStatus(t("backgroundProgress", { percent: formatPercent(shareabilityFilterState.total ? shareabilityFilterState.processed / shareabilityFilterState.total : 0) }), "warn");
   }
 
   async function startBackgroundShareabilityFilter(analysisId, games) {
@@ -1584,7 +2130,7 @@
     if (!games.length) {
       shareabilityFilterState.running = false;
       setRawStep("done");
-      setStatus("完成", "ok");
+      setStatus(t("done"), "ok");
       return;
     }
 
@@ -1612,7 +2158,7 @@
       shareabilityProgressUiState.dirty = true;
       flushShareabilityProgressRender();
       startLazyOriginalPriceLoading();
-      setStatus(`统计完成：新增 ${lastReport.metrics.newCount} 款`, "ok");
+      setStatus(t("completedAdded", { count: lastReport.metrics.newCount }), "ok");
     } catch (error) {
       shareabilityFilterState.running = false;
       if (lastReport?.filtering) {
@@ -1648,7 +2194,7 @@
 
     uniqueAppids.forEach(appid => {
       if (!/^\d+$/.test(appid)) {
-        throw new Error(`AppID 无效：${appid}`);
+        throw new Error(t("invalidAppid", { appid }));
       }
       const cached = state.storeCache[appid];
       if (hasCompleteStoreCache(appid)) {
@@ -1749,7 +2295,7 @@
     const data = await requestStoreJson(url, rawKey);
     setRawData(rawKey, data);
     if (!Array.isArray(data?.response?.store_items)) {
-      throw new Error("共享支持性批量响应格式异常");
+      throw new Error(t("storeBatchMalformed"));
     }
     const items = data.response.store_items;
     const itemById = {};
@@ -1766,6 +2312,7 @@
         const fallback = await fetchShareabilityFallback(appid);
         results[String(appid)] = {
           ...fallback,
+          context: STORE_CACHE_CONTEXT,
           localizedName: item?.name || fallback.localizedName || ""
         };
         continue;
@@ -1775,6 +2322,7 @@
       const price = normalizeStoreItemOriginalPrice(item);
       results[String(appid)] = {
         supported: Array.isArray(featureCategoryIds) && featureCategoryIds.some(id => Number(id) === FAMILY_SHARING_CATEGORY_ID),
+        context: STORE_CACHE_CONTEXT,
         localizedName: item.name || price?.localizedName || "",
         price,
         updatedAt: Date.now()
@@ -1795,6 +2343,7 @@
 
     return {
       supported: Array.isArray(categories) && categories.some(category => Number(category.id) === FAMILY_SHARING_CATEGORY_ID),
+      context: STORE_CACHE_CONTEXT,
       updatedAt: Date.now()
     };
   }
@@ -1859,9 +2408,9 @@
   function prepareOriginalPriceForGame(game) {
     state.storeCache = state.storeCache || {};
     const appid = String(game.appid);
-    const cached = state.storeCache[appid]?.price;
-    if (isFreshOriginalPriceCacheEntry(cached)) {
-      applyOriginalPriceToGame(game, cached);
+    const cached = state.storeCache[appid];
+    if (isFreshStoreCacheEntry(cached) && isFreshOriginalPriceCacheEntry(cached.price)) {
+      applyOriginalPriceToGame(game, cached.price);
     } else {
       game.price = { pending: true };
       priceLoadState.pendingMap.set(appid, game);
@@ -2134,7 +2683,7 @@
       const priceOverview = item.data.price_overview;
       return {
         initial: Number(priceOverview.initial ?? priceOverview.final ?? 0),
-        currency: priceOverview.currency || "CNY",
+        currency: priceOverview.currency || getStoreCurrency(),
         localizedName,
         isFree: false,
         unavailable: false,
@@ -2145,7 +2694,7 @@
     if (data?.is_free === true) {
       return {
         initial: 0,
-        currency: "CNY",
+        currency: getStoreCurrency(),
         localizedName,
         isFree: true,
         unavailable: false,
@@ -2155,7 +2704,7 @@
 
     return {
       initial: null,
-      currency: "CNY",
+      currency: getStoreCurrency(),
       localizedName,
       isFree: false,
       unavailable: true,
@@ -2171,7 +2720,7 @@
     if (initial != null && initial !== "") {
       return {
         initial: Number(initial),
-        currency: "CNY",
+        currency: getStoreCurrency(),
         localizedName,
         isFree: false,
         unavailable: false,
@@ -2245,22 +2794,22 @@
   function ensureFamilyReady() {
     const session = getSteamSession();
     if (!session.isLoggedIn) {
-      throw new Error("请先登录");
+      throw new Error(t("signInFirst"));
     }
     if (state.activeSteamId && session.steamid && state.activeSteamId !== session.steamid) {
-      throw new Error("账号已切换，请刷新");
+      throw new Error(t("accountSwitched"));
     }
     if (!state.familyInfo?.family_groupid || state.familyLibrary.appidSet.length === 0) {
-      throw new Error("请先刷新");
+      throw new Error(t("refreshFirst"));
     }
     return session;
   }
 
   function renderFamilyMeta() {
     const count = state.familyLibrary.appidSet.length;
-    const name = state.familyInfo?.family_name || "未刷新";
-    const time = state.familyLibrary.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : "无缓存";
-    elements.familyMeta.textContent = `${name} · ${count} 款 · ${time}`;
+    const name = state.familyInfo?.family_name || t("notRefreshed");
+    const time = state.familyLibrary.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : t("noCache");
+    elements.familyMeta.textContent = `${name} · ${count} · ${time}`;
   }
 
   function renderSummary(report) {
@@ -2278,25 +2827,25 @@
       filteringTotal: 0
     };
 
-    const targetLabel = report?.target?.displayName || "未分析";
+    const targetLabel = report?.target?.displayName || t("noSummary");
     const filterValue = metrics.filteringTotal
       ? `${metrics.filteringProcessed || 0}/${metrics.filteringTotal}`
       : "0/0";
     elements.summary.innerHTML = [
-      metricHtml("目标账号", escapeHtml(targetLabel)),
-      metricHtml("统计进度", filterValue),
-      metricHtml("家庭库", `${metrics.familyCount}`),
-      metricHtml("总游戏", `${metrics.targetCount}`),
-      metricHtml("新增", `${metrics.newCount}`),
-      metricHtml("新增价值", formatCny(metrics.initialValue)),
-      metricHtml("重复", `${metrics.overlapCount}`),
-      metricHtml("重复率", formatPercent(metrics.overlapRate))
+      metricHtml(t("targetAccount"), escapeHtml(targetLabel)),
+      metricHtml(t("progress"), filterValue),
+      metricHtml(t("tabs.family"), `${metrics.familyCount}`),
+      metricHtml(t("totalGames"), `${metrics.targetCount}`),
+      metricHtml(t("addedGames"), `${metrics.newCount}`),
+      metricHtml(t("addedValue"), formatMoney(metrics.initialValue)),
+      metricHtml(t("duplicatedGames"), `${metrics.overlapCount}`),
+      metricHtml(t("overlapRate"), formatPercent(metrics.overlapRate))
     ].join("");
   }
 
   function renderTargetProfile(report) {
     if (!report) {
-      elements.profile.innerHTML = `<div class="sffa-empty">暂无账号</div>`;
+      elements.profile.innerHTML = `<div class="sffa-empty">${escapeHtml(t("noSummary"))}</div>`;
       return;
     }
 
@@ -2308,13 +2857,13 @@
       <div class="sffa-profile-head">
         ${avatar}
         <div>
-          <div class="sffa-profile-name">${escapeHtml(target.displayName || target.steamid64 || "未知账号")}</div>
-          <a class="sffa-profile-link" href="${escapeAttr(target.profileUrl || "#")}" target="_blank" rel="noopener">打开主页</a>
+          <div class="sffa-profile-name">${escapeHtml(target.displayName || target.steamid64 || t("unknownAccount"))}</div>
+          <a class="sffa-profile-link" href="${escapeAttr(target.profileUrl || "#")}" target="_blank" rel="noopener">${escapeHtml(t("openProfile"))}</a>
         </div>
       </div>
       <div class="sffa-profile-row"><span>SteamID</span><span>${escapeHtml(target.steamid64 || "-")}</span></div>
-      <div class="sffa-profile-row"><span>时间</span><span>${formatDateTime(report.generatedAt)}</span></div>
-      <div class="sffa-profile-row"><span>链接</span><span>${escapeHtml(target.profileUrl || "-")}</span></div>
+      <div class="sffa-profile-row"><span>${escapeHtml(t("time"))}</span><span>${formatDateTime(report.generatedAt)}</span></div>
+      <div class="sffa-profile-row"><span>${escapeHtml(t("link"))}</span><span>${escapeHtml(target.profileUrl || "-")}</span></div>
     `;
   }
 
@@ -2323,9 +2872,9 @@
       return;
     }
     const enabled = Boolean(state.autoFamilyRefreshEnabled);
-    const lastTime = state.familyLibrary?.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : "无缓存";
-    elements.autoFamilyRefreshBtn.textContent = `${enabled ? "关闭" : "开启"}自动刷新`;
-    elements.autoFamilyRefreshBtn.title = `每 24 小时刷新上次：${lastTime}`;
+    const lastTime = state.familyLibrary?.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : t("noCache");
+    elements.autoFamilyRefreshBtn.textContent = enabled ? t("autoRefreshClose") : t("autoRefreshOpen");
+    elements.autoFamilyRefreshBtn.title = t("autoRefreshTitle", { time: lastTime });
   }
 
   function metricHtml(label, value) {
@@ -2345,7 +2894,7 @@
   function buildCurrentListCopyTable(rows) {
     if (currentTab === "family") {
       return {
-        headers: ["AppID", "游戏", "贡献者", "入库时间"],
+        headers: ["AppID", t("game"), t("owners"), t("acquiredAt")],
         rows: rows.map(game => [
           game.appid,
           getGameDisplayName(game),
@@ -2356,7 +2905,7 @@
     }
     if (currentTab === "new") {
       return {
-        headers: ["AppID", "游戏", "原价"],
+        headers: ["AppID", t("game"), t("price")],
         rows: rows.map(game => [
           game.appid,
           getGameDisplayName(game),
@@ -2366,7 +2915,7 @@
     }
     if (currentTab === "overlap") {
       return {
-        headers: ["AppID", "游戏", "贡献者"],
+        headers: ["AppID", t("game"), t("owners")],
         rows: rows.map(game => [
           game.appid,
           getGameDisplayName(game),
@@ -2376,7 +2925,7 @@
     }
     if (currentTab === "search") {
       return {
-        headers: ["AppID", "游戏", "列表", "信息"],
+        headers: ["AppID", t("game"), t("list"), t("info")],
         rows: rows.map(game => [
           game.appid,
           getGameDisplayName(game),
@@ -2386,7 +2935,7 @@
       };
     }
     return {
-      headers: ["AppID", "游戏", "状态"],
+      headers: ["AppID", t("game"), t("status")],
       rows: rows.map(game => [
         game.appid,
         getGameDisplayName(game),
@@ -2414,7 +2963,7 @@
     if (currentTab === "family") {
       const rows = getSortedRows("family", getFamilyLibraryRows());
       if (rows.length === 0) {
-        elements.tableWrap.innerHTML = `<div class="sffa-empty">请先刷新家庭库</div>`;
+        elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("noFamilyRefresh"))}</div>`;
         return;
       }
       elements.tableWrap.innerHTML = buildFamilyLibraryTable(rows);
@@ -2422,7 +2971,7 @@
     }
 
     if (!lastReport) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">输入账号后分析</div>`;
+      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("initialEmpty"))}</div>`;
       return;
     }
 
@@ -2433,7 +2982,7 @@
 
     const rows = getSortedRows(currentTab, lastReport.games[currentTab] || []);
     if (rows.length === 0) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">${getTabLabel(currentTab)}为空</div>`;
+      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("tabEmpty", { tab: getTabLabel(currentTab) }))}</div>`;
       return;
     }
 
@@ -2473,7 +3022,7 @@
       const diff = leftValue - rightValue;
       return diff === 0 ? sortByName(left, right) : diff;
     }
-    const result = String(leftValue ?? "").localeCompare(String(rightValue ?? ""), "zh-Hans-CN", {
+    const result = String(leftValue ?? "").localeCompare(String(rightValue ?? ""), getNumberLocale(), {
       numeric: true,
       sensitivity: "base"
     });
@@ -2517,10 +3066,10 @@
   }
 
   function getSearchSortInfo(game) {
-    if (game.listType === "重复") {
+    if (game.listType === t("duplicatedGames")) {
       return formatOwners(game.owners || []);
     }
-    if (game.listType === "新增") {
+    if (game.listType === t("addedGames")) {
       return getOriginalPriceSortValue(game.price || {});
     }
     return getGameListLabel(game.appid);
@@ -2529,12 +3078,12 @@
   function renderSearchDetails() {
     const rows = getSearchFilteredRows();
     if (!rows) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">输入关键词搜索</div>`;
+      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("searchEmpty"))}</div>`;
       return;
     }
 
     if (rows.length === 0) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">没有匹配游戏</div>`;
+      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("noMatches"))}</div>`;
       return;
     }
 
@@ -2552,14 +3101,14 @@
     (lastReport.games.new || []).forEach(game => {
       rowsById.set(String(game.appid), {
         ...game,
-        listType: "新增"
+        listType: t("addedGames")
       });
     });
     (lastReport.games.overlap || []).forEach(game => {
       const appid = String(game.appid);
       rowsById.set(appid, {
         ...game,
-        listType: "重复"
+        listType: t("duplicatedGames")
       });
     });
     return Array.from(rowsById.values()).sort(sortByName);
@@ -2614,8 +3163,8 @@
     return tableHtml(`
       <tr>
         ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh("游戏", "name")}
-        ${sortableTh("状态", "status", "width: 110px;")}
+        ${sortableTh(t("game"), "name")}
+        ${sortableTh(t("status"), "status", "width: 110px;")}
       </tr>
     `, body);
   }
@@ -2633,9 +3182,9 @@
     return tableHtml(`
       <tr>
         ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh("游戏", "name")}
-        ${sortableTh("贡献者", "owners", "width: 160px;")}
-        ${sortableTh("入库时间", "time", "width: 130px;")}
+        ${sortableTh(t("game"), "name")}
+        ${sortableTh(t("owners"), "owners", "width: 160px;")}
+        ${sortableTh(t("acquiredAt"), "time", "width: 130px;")}
       </tr>
     `, body);
   }
@@ -2652,8 +3201,8 @@
     return tableHtml(`
       <tr>
         ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh("游戏", "name")}
-        ${sortableTh("原价", "price", "width: 110px;")}
+        ${sortableTh(t("game"), "name")}
+        ${sortableTh(t("price"), "price", "width: 110px;")}
       </tr>
     `, body);
   }
@@ -2670,15 +3219,15 @@
     return tableHtml(`
       <tr>
         ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh("游戏", "name", "width: calc((100% - 82px) / 2);")}
-        ${sortableTh("贡献者", "owners", "width: calc((100% - 82px) / 2);")}
+        ${sortableTh(t("game"), "name", "width: calc((100% - 82px) / 2);")}
+        ${sortableTh(t("owners"), "owners", "width: calc((100% - 82px) / 2);")}
       </tr>
     `, body);
   }
 
   function buildSearchTable(rows) {
     const body = rows.map(game => `
-      <tr ${game.listType === "新增" ? `data-price-appid="${escapeAttr(game.appid)}"` : ""}>
+      <tr ${game.listType === t("addedGames") ? `data-price-appid="${escapeAttr(game.appid)}"` : ""}>
         <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
         <td>${escapeHtml(getGameDisplayName(game))}</td>
         <td>${escapeHtml(game.listType || "")}</td>
@@ -2689,28 +3238,28 @@
     return tableHtml(`
       <tr>
         ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh("游戏", "name")}
-        ${sortableTh("列表", "listType", "width: 120px;")}
-        ${sortableTh("信息", "info", "width: 170px;")}
+        ${sortableTh(t("game"), "name")}
+        ${sortableTh(t("list"), "listType", "width: 120px;")}
+        ${sortableTh(t("info"), "info", "width: 170px;")}
       </tr>
     `, body);
   }
 
   function getSearchInfoHtml(game) {
-    if (game.listType === "重复") {
+    if (game.listType === t("duplicatedGames")) {
       return escapeHtml(formatOwners(game.owners || []) || "-");
     }
-    if (game.listType !== "新增") {
+    if (game.listType !== t("addedGames")) {
       return getGameListStatusHtml(game.appid);
     }
     return formatOriginalPriceCell(game.price || {});
   }
 
   function getSearchInfoText(game) {
-    if (game.listType === "重复") {
+    if (game.listType === t("duplicatedGames")) {
       return formatOwners(game.owners || []) || "-";
     }
-    if (game.listType !== "新增") {
+    if (game.listType !== t("addedGames")) {
       return getGameListLabel(game.appid);
     }
     return formatOriginalPriceText(game.price || {});
@@ -2719,17 +3268,17 @@
   function getGameListLabel(appid) {
     const status = lastReport?.classificationById?.[String(appid)]?.status;
     return {
-      new: "新增",
-      overlap: "重复",
-      unsupported: "不可共享",
-      pending: "统计中"
+      new: t("addedGames"),
+      overlap: t("duplicatedGames"),
+      unsupported: t("unsupported"),
+      pending: t("pending")
     }[status] || "-";
   }
 
   function getGameListStatusHtml(appid) {
     const status = lastReport?.classificationById?.[String(appid)]?.status;
     if (status === "pending") {
-      return `<span class="sffa-status-inline"><span class="sffa-spinner" title="统计中"></span>统计中</span>`;
+      return `<span class="sffa-status-inline"><span class="sffa-spinner" title="${escapeAttr(t("pending"))}"></span>${escapeHtml(t("pending"))}</span>`;
     }
     return escapeHtml(getGameListLabel(appid));
   }
@@ -2776,7 +3325,7 @@
     }
     const count = getStoreCacheCount();
     elements.clearStoreCacheBtn.hidden = count === 0;
-    elements.clearStoreCacheBtn.textContent = `清除商店缓存（${count}）`;
+    elements.clearStoreCacheBtn.textContent = `${t("clearStoreCache")} (${count})`;
   }
 
   function setStatus(message, type) {
@@ -2788,17 +3337,26 @@
     rateLimitState = {
       active: true,
       source: source || "",
-      message: error?.message || "请求过快，请稍后再试",
+      message: error?.message || t("requestTooFast"),
       checkedAt: 0,
       checkPassed: false
     };
     renderRateLimitControls();
-    setStatus("请求过快，请稍后再试", "err");
+    setStatus(t("requestTooFast"), "err");
   }
 
   function clearRateLimit() {
     rateLimitState = createRateLimitState();
     renderRateLimitControls();
+  }
+
+  function buildLocaleOptionHtml(mode) {
+    const isActive = normalizeAppLocaleMode(mode) === appLocaleMode;
+    return `
+      <button class="sffa-locale-option${isActive ? " is-active" : ""}" type="button" data-sffa-locale-option="${escapeAttr(mode)}">
+        ${escapeHtml(getLocaleModeLabel(mode))}
+      </button>
+    `;
   }
 
   function renderRateLimitControls() {
@@ -2852,13 +3410,13 @@
         window.clearTimeout(shareabilityProgressUiState.timer);
       }
       shareabilityProgressUiState = createShareabilityProgressUiState(analysisId);
-      setStatus("继续统计...", "warn");
+      setStatus(t("continueStats"), "warn");
       startBackgroundShareabilityFilter(analysisId, pendingShareabilityGames);
       return;
     }
 
     if (priceLoadState.pendingMap.size > 0) {
-      setStatus("继续加载价格...", "warn");
+      setStatus(t("continuePrices"), "warn");
       scheduleVisiblePriceLoads();
       if (!shareabilityFilterState.running) {
         scheduleBackgroundPriceLoads();
@@ -2866,7 +3424,7 @@
       return;
     }
 
-    setStatus("没有待继续任务", "ok");
+    setStatus(t("nothingToContinue"), "ok");
   }
 
   async function checkRateLimit() {
@@ -2875,7 +3433,7 @@
     }
 
     elements.rateCheckBtn.disabled = true;
-    setStatus("检测中...", "warn");
+    setStatus(t("checking"), "warn");
     try {
       const url = buildShareabilityBatchUrl(["10"]);
       await sleep(STORE_REQUEST_DELAY_MS);
@@ -2883,17 +3441,17 @@
       rateLimitState.checkedAt = Date.now();
       rateLimitState.checkPassed = true;
       renderRateLimitControls();
-      setStatus("限流已解除，可继续", "ok");
+      setStatus(t("rateLimitCleared"), "ok");
     } catch (error) {
       rateLimitState.checkedAt = Date.now();
       rateLimitState.checkPassed = false;
       renderRateLimitControls();
       if (isHttp429(error)) {
-        setStatus("仍被限流，请稍后再试", "err");
+        setStatus(t("rateLimitedStill"), "err");
         return;
       }
       setRawError(error);
-      setStatus(error.message || "检测失败", "err");
+      setStatus(error.message || t("checkFailed"), "err");
     } finally {
       if (elements.rateCheckBtn) {
         elements.rateCheckBtn.disabled = false;
@@ -2979,7 +3537,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -3003,6 +3561,7 @@
         storeCache: normalizeSavedStoreCache(saved.storeCache || {}),
         launcherVisible: saved.launcherVisible !== false,
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
+        appLocaleMode,
         lastAutoFamilyRefreshAttemptAt: Number(saved.lastAutoFamilyRefreshAttemptAt || 0)
       };
     } catch (error) {
@@ -3022,6 +3581,7 @@
     return Boolean(
       entry &&
       typeof entry.supported === "boolean" &&
+      entry.context === STORE_CACHE_CONTEXT &&
       Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
     );
   }
@@ -3045,6 +3605,7 @@
       return;
     }
     state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
+      context: STORE_CACHE_CONTEXT,
       localizedName: price.localizedName || "",
       price,
       updatedAt: Date.now()
@@ -3065,9 +3626,10 @@
   function normalizeSavedStoreCache(storeCache) {
     const normalized = {};
     Object.entries(storeCache || {}).forEach(([appid, entry]) => {
-      if (isFreshStoreCacheEntry(entry) || isFreshOriginalPriceCacheEntry(entry?.price)) {
+      if (isFreshStoreCacheEntry(entry)) {
         normalized[String(appid)] = {
           ...(typeof entry.supported === "boolean" ? { supported: entry.supported } : {}),
+          context: entry.context,
           localizedName: entry.localizedName || entry.price?.localizedName || "",
           price: isFreshOriginalPriceCacheEntry(entry.price) ? entry.price : null,
           updatedAt: Number(entry.updatedAt || Date.now())
@@ -3143,10 +3705,10 @@
             } catch (error) {
               setRawData(`requestFailures.${endpoint}`, {
                 status: response.status,
-                message: "JSON 无法解析",
+                message: t("jsonParseFailed"),
                 responseText: String(response.responseText || "").slice(0, 1000)
               });
-              reject(new Error("JSON 无法解析"));
+              reject(new Error(t("jsonParseFailed")));
             }
           } else {
             resolve(response.responseText || String(response.response || ""));
@@ -3154,15 +3716,15 @@
         },
         onerror() {
           setRawData(`requestFailures.${endpoint}`, {
-            message: "网络失败"
+            message: t("networkFailed")
           });
-          reject(new Error("网络失败"));
+          reject(new Error(t("networkFailed")));
         },
         ontimeout() {
           setRawData(`requestFailures.${endpoint}`, {
-            message: "请求超时"
+            message: t("requestTimeout")
           });
-          reject(new Error("请求超时"));
+          reject(new Error(t("requestTimeout")));
         }
       });
     });
@@ -3186,7 +3748,7 @@
   }
 
   function createRateLimitError() {
-    const error = new Error("请求过快，请稍后再试");
+    const error = new Error(t("requestTooFast"));
     error.name = "SteamRateLimitError";
     error.isSteamRateLimit = true;
     return error;
@@ -3221,7 +3783,7 @@
   }
 
   function sortByName(left, right) {
-    return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
+    return String(left.name || "").localeCompare(String(right.name || ""), getNumberLocale());
   }
 
   function formatOwners(owners) {
@@ -3230,12 +3792,12 @@
     }
     return owners
       .map(steamid => state.familyInfo?.steamIdtoName?.[steamid] || steamid)
-      .join("、");
+      .join(UI_LOCALE === "en" ? ", " : "、");
   }
 
   function formatOriginalPriceCell(price) {
     if (price?.pending) {
-      return `<span class="sffa-spinner" title="加载中"></span>`;
+      return `<span class="sffa-spinner" title="${escapeAttr(t("loading"))}"></span>`;
     }
     if (!price || (price.initial == null && !price.unavailable && !price.isFree)) {
       return "-";
@@ -3243,12 +3805,12 @@
     if (price.unavailable) {
       return "N/A";
     }
-    return formatCny(Number(price.initial || 0));
+    return formatMoney(Number(price.initial || 0), price.currency);
   }
 
   function formatOriginalPriceText(price) {
     if (price?.pending) {
-      return "加载中";
+      return t("loading");
     }
     if (!price || (price.initial == null && !price.unavailable && !price.isFree)) {
       return "-";
@@ -3256,18 +3818,136 @@
     if (price.unavailable) {
       return "N/A";
     }
-    return formatCny(Number(price.initial || 0));
+    return formatMoney(Number(price.initial || 0), price.currency);
   }
 
   function normalizeCopyCell(value) {
     return String(value ?? "").replace(/\t/g, " ").replace(/\r?\n/g, " ");
   }
 
-  function formatCny(cents) {
-    return new Intl.NumberFormat("zh-CN", {
+  function formatMoney(cents, currency = getStoreCurrency()) {
+    return new Intl.NumberFormat(localeForStoreCountry(), {
       style: "currency",
-      currency: "CNY"
+      currency
     }).format(Number(cents || 0) / 100);
+  }
+
+  function getNumberLocale() {
+    return UI_LOCALE === "en" ? localeForStoreCountry() : "zh-CN";
+  }
+
+  function localeForStoreCountry() {
+    return {
+      US: "en-US",
+      GB: "en-GB",
+      AU: "en-AU",
+      CA: "en-CA",
+      MX: "es-MX",
+      JP: "ja-JP",
+      KR: "ko-KR",
+      CN: "zh-CN",
+      TW: "zh-TW",
+      HK: "zh-HK",
+      SG: "en-SG",
+      NZ: "en-NZ",
+      DE: "de-DE",
+      FR: "fr-FR",
+      IT: "it-IT",
+      ES: "es-ES",
+      NL: "nl-NL",
+      BE: "nl-BE",
+      AT: "de-AT",
+      FI: "fi-FI",
+      IE: "en-IE",
+      PT: "pt-PT",
+      GR: "el-GR",
+      BR: "pt-BR",
+      RU: "ru-RU",
+      TR: "tr-TR",
+      IN: "en-IN",
+      ZA: "en-ZA",
+      PL: "pl-PL",
+      NO: "nb-NO",
+      SE: "sv-SE",
+      DK: "da-DK",
+      CH: "de-CH",
+      CL: "es-CL",
+      CO: "es-CO",
+      PE: "es-PE",
+      PH: "en-PH",
+      ID: "id-ID",
+      MY: "ms-MY",
+      TH: "th-TH",
+      VN: "vi-VN",
+      UA: "uk-UA",
+      AR: "es-AR",
+      SA: "ar-SA",
+      AE: "ar-AE",
+      IL: "he-IL",
+      KZ: "kk-KZ",
+      UY: "es-UY",
+      CR: "es-CR",
+      KW: "ar-KW",
+      QA: "ar-QA",
+      EU: "en-IE"
+    }[STORE_CC] || "en-US";
+  }
+
+  function getStoreCurrency() {
+    return {
+      US: "USD",
+      CA: "CAD",
+      MX: "MXN",
+      BR: "BRL",
+      GB: "GBP",
+      EU: "EUR",
+      DE: "EUR",
+      FR: "EUR",
+      IT: "EUR",
+      ES: "EUR",
+      NL: "EUR",
+      BE: "EUR",
+      AT: "EUR",
+      FI: "EUR",
+      IE: "EUR",
+      PT: "EUR",
+      GR: "EUR",
+      JP: "JPY",
+      KR: "KRW",
+      CN: "CNY",
+      TW: "TWD",
+      HK: "HKD",
+      SG: "SGD",
+      AU: "AUD",
+      NZ: "NZD",
+      RU: "RUB",
+      TR: "TRY",
+      IN: "INR",
+      ZA: "ZAR",
+      PL: "PLN",
+      NO: "NOK",
+      SE: "SEK",
+      DK: "DKK",
+      CH: "CHF",
+      CL: "CLP",
+      CO: "COP",
+      PE: "PEN",
+      PH: "PHP",
+      ID: "IDR",
+      MY: "MYR",
+      TH: "THB",
+      VN: "VND",
+      UA: "UAH",
+      AR: "ARS",
+      SA: "SAR",
+      AE: "AED",
+      IL: "ILS",
+      KZ: "KZT",
+      UY: "UYU",
+      CR: "CRC",
+      KW: "KWD",
+      QA: "QAR"
+    }[STORE_CC] || "USD";
   }
 
   function formatPercent(value) {
@@ -3275,7 +3955,7 @@
   }
 
   function formatDateTime(timestamp) {
-    return new Date(timestamp).toLocaleString("zh-CN", {
+    return new Date(timestamp).toLocaleString(getNumberLocale(), {
       hour12: false,
       month: "2-digit",
       day: "2-digit",
@@ -3289,7 +3969,7 @@
     if (!seconds) {
       return "-";
     }
-    return new Date(seconds * 1000).toLocaleString("zh-CN", {
+    return new Date(seconds * 1000).toLocaleString(getNumberLocale(), {
       hour12: false,
       year: "numeric",
       month: "2-digit",
@@ -3310,12 +3990,12 @@
 
   function getTabLabel(tab) {
     return {
-      all: "全部",
-      family: "家庭库",
-      new: "新增",
-      overlap: "重复",
-      search: "搜索"
-    }[tab] || "明细";
+      all: t("tabs.all"),
+      family: t("tabs.family"),
+      new: t("tabs.new"),
+      overlap: t("tabs.overlap"),
+      search: t("tabs.search")
+    }[tab] || t("list");
   }
 
   function escapeHtml(value) {

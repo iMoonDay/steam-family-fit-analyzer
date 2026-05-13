@@ -15,7 +15,7 @@
 ## 功能
 
 - 读取当前账号的 Steam 家庭组共享库。
-- 支持输入 SteamID64、`/profiles/<steamid64>`、`/id/<custom>` 或 vanity 名称。
+- 支持输入 SteamID64、Steam 好友码、`/profiles/<steamid64>`、`/id/<custom>` 或 vanity 名称。
 - 支持在 `steamcommunity.com/profiles/<steamid64>` 页面自动填入当前资料页账号。
 - 统计总游戏、家庭库、统计进度、新增、重复、重复率和新增价值。
 - 列表包含全部、家庭库、新增、重复、搜索。

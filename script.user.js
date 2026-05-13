@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.4
+// @version      0.1.5
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -48,6 +48,10 @@
   const AUTO_FAMILY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
   // Steam 商店分类中“家庭共享”特性的 category id。
   const FAMILY_SHARING_CATEGORY_ID = 62;
+  // 普通用户 SteamID64 = 该基数 + Steam 好友码 / accountid。
+  const STEAMID64_INDIVIDUAL_BASE = 76561197960265728n;
+  const MAX_STEAM_ACCOUNT_ID = 4294967295n;
+  const MAX_STEAM_ACCOUNT_ID_LENGTH = String(MAX_STEAM_ACCOUNT_ID).length;
 
   const STORE_LANG = getDetectedStoreLanguage();
   const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
@@ -72,7 +76,7 @@
       languageAuto: "自动",
       languageChinese: "中文",
       languageEnglish: "English",
-      targetPlaceholder: "SteamID64、主页链接或自定义 ID",
+      targetPlaceholder: "SteamID64、好友码、主页链接或自定义 ID",
       refreshFamily: "刷新家庭库",
       analyzeAccount: "分析账号",
       continue: "继续",
@@ -131,6 +135,7 @@
       unnamed: "未命名",
       emptyFamilyLibrary: "家庭库为空",
       invalidAccount: "账号格式不对",
+      invalidFriendCode: "Steam 好友码无效",
       currentAccountUnsupported: "不能分析当前登录账号，请输入另一个公开 Steam 账号",
       missingVanity: "缺少自定义 ID",
       missingApiKey: "缺少 API Key",
@@ -194,7 +199,7 @@
       languageAuto: "Auto",
       languageChinese: "中文",
       languageEnglish: "English",
-      targetPlaceholder: "SteamID64, profile URL, or custom ID",
+      targetPlaceholder: "SteamID64, friend code, profile URL, or custom ID",
       refreshFamily: "Refresh family library",
       analyzeAccount: "Analyze account",
       continue: "Continue",
@@ -253,6 +258,7 @@
       unnamed: "Unnamed",
       emptyFamilyLibrary: "Family library is empty",
       invalidAccount: "Invalid account format",
+      invalidFriendCode: "Invalid Steam friend code",
       currentAccountUnsupported: "The current signed-in account cannot be analyzed. Enter another public Steam account.",
       missingVanity: "Missing custom ID",
       missingApiKey: "Missing API key",
@@ -2007,7 +2013,11 @@
   async function getTargetProfile(rawInput) {
     const parsed = parseTargetInput(rawInput);
     const identity = parsed.steamid64
-      ? { steamid64: parsed.steamid64, profileUrl: `https://steamcommunity.com/profiles/${parsed.steamid64}` }
+      ? {
+          steamid64: parsed.steamid64,
+          profileUrl: `https://steamcommunity.com/profiles/${parsed.steamid64}`,
+          source: parsed.source || "steamid64"
+        }
       : await resolveVanity(parsed.vanity, state.apiKey);
 
     return fetchPublicGames(identity, state.apiKey);
@@ -2017,6 +2027,9 @@
     const input = rawInput.trim();
     if (/^\d{17}$/.test(input)) {
       return { steamid64: input };
+    }
+    if (/^\d+$/.test(input)) {
+      return { steamid64: steamFriendCodeToSteamId64(input), source: "friendCode" };
     }
 
     try {
@@ -2039,6 +2052,19 @@
     }
 
     throw new Error(t("invalidAccount"));
+  }
+
+  function steamFriendCodeToSteamId64(friendCode) {
+    if (friendCode.length > MAX_STEAM_ACCOUNT_ID_LENGTH) {
+      throw new Error(t("invalidFriendCode"));
+    }
+
+    const accountId = BigInt(friendCode);
+    if (accountId <= 0n || accountId > MAX_STEAM_ACCOUNT_ID) {
+      throw new Error(t("invalidFriendCode"));
+    }
+
+    return String(STEAMID64_INDIVIDUAL_BASE + accountId);
   }
 
   async function resolveVanity(vanity, apiKey) {
@@ -2086,6 +2112,9 @@
       fetchTargetPlayerSummary(steamid64, apiKey)
     ]);
     setRawData("ownedGames", data);
+    if (identity.source === "friendCode" && !playerSummary.exists) {
+      throw new Error(t("invalidFriendCode"));
+    }
     const response = data.response || {};
     const rawGames = Array.isArray(response.games) ? response.games : [];
     if (rawGames.length === 0) {
@@ -2113,6 +2142,7 @@
     setRawData("targetPlayerSummaries", data);
     const player = data.response?.players?.[0];
     return {
+      exists: String(player?.steamid || "") === String(steamid64),
       personaName: player?.personaname || "",
       avatar: player?.avatarfull || player?.avatarmedium || player?.avatar || "",
       profileUrl: player?.profileurl || ""

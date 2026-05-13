@@ -4,7 +4,7 @@
 
 ## 截图
 
-![Steam 家庭库分析器截图](./ScreenShot.png)
+![Steam 家庭库分析器截图](https://raw.githubusercontent.com/iMoonDay/steam-family-fit-analyzer/main/ScreenShot.png)
 
 ## 功能
 

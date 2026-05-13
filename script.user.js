@@ -44,6 +44,8 @@
   const SHAREABILITY_BATCH_SIZE = 50;
   // 商店请求之间的间隔，单位毫秒。
   const STORE_REQUEST_DELAY_MS = 50;
+  // 搜索输入停止后再刷新表格，避免大列表逐字重绘卡顿。
+  const SEARCH_RENDER_DEBOUNCE_MS = 220;
   // 自动后台刷新家庭库的间隔，默认 24 小时。
   const AUTO_FAMILY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
   // 最近一次分析结果缓存键名。
@@ -67,6 +69,7 @@
     { key: "high", max: 29800 },
     { key: "veryHigh", max: Infinity }
   ]);
+  const REPORT_LIST_TABS = Object.freeze(["all", "new", "relativeNew", "overlap"]);
 
   const STORE_LANG = getDetectedStoreLanguage();
   const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
@@ -87,6 +90,7 @@
       clearStoreCache: "清除商店缓存",
       rawData: "查看原始数据",
       close: "关闭",
+      clear: "清空",
       languageTitle: "语言",
       languageAuto: "自动",
       languageChinese: "中文",
@@ -100,6 +104,7 @@
         all: "全部",
         family: "家庭库",
         new: "新增",
+        relativeNew: "相对新增",
         overlap: "重复",
         search: "搜索"
       },
@@ -246,6 +251,7 @@
       clearStoreCache: "Clear store cache",
       rawData: "View raw data",
       close: "Close",
+      clear: "Clear",
       languageTitle: "Language",
       languageAuto: "Auto",
       languageChinese: "中文",
@@ -259,6 +265,7 @@
         all: "All",
         family: "Family library",
         new: "Added",
+        relativeNew: "Relative added",
         overlap: "Duplicates",
         search: "Search"
       },
@@ -607,6 +614,7 @@
   let rateLimitState = createRateLimitState();
   let comparePriceRangeByTarget = {};
   let analysisHistorySaveTimer = 0;
+  let searchRenderTimer = 0;
   let scriptMenuCommandIds = [];
   let autoFamilyRefreshRunning = false;
   let elements = {};
@@ -1718,6 +1726,83 @@
         min-height: 30px;
         align-items: center;
       }
+      .sffa-list-wrap {
+        position: relative;
+        flex: 0 0 auto;
+      }
+      .sffa-list-select {
+        flex: 0 0 auto;
+        height: 30px;
+        min-width: 92px;
+        padding: 0 24px 0 10px;
+        border-radius: 3px;
+        background: #223344;
+        color: #c2d4df;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font: inherit;
+        text-align: left;
+        outline: none;
+        cursor: pointer;
+        position: relative;
+      }
+      .sffa-list-select::after {
+        content: "";
+        position: absolute;
+        right: 9px;
+        top: 50%;
+        width: 0;
+        height: 0;
+        margin-top: -2px;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 5px solid currentColor;
+        opacity: 0.78;
+      }
+      .sffa-list-select:hover,
+      .sffa-list-select[aria-expanded="true"],
+      .sffa-list-select.is-active {
+        background: #2c4254;
+        border-color: rgba(143, 209, 255, 0.34);
+        color: #ffffff;
+      }
+      .sffa-list-menu {
+        position: absolute;
+        left: 0;
+        top: 36px;
+        min-width: 112px;
+        display: none;
+        padding: 6px;
+        border: 1px solid rgba(102, 192, 244, 0.26);
+        border-radius: 3px;
+        background: #0f141b;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+        z-index: 3;
+      }
+      .sffa-list-wrap.is-open .sffa-list-menu {
+        display: grid;
+        gap: 4px;
+      }
+      .sffa-list-option {
+        width: 100%;
+        min-height: 30px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
+        color: #dbe8f3;
+        text-align: left;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .sffa-list-option:hover {
+        background: rgba(102, 192, 244, 0.14);
+      }
+      .sffa-list-option.is-active {
+        background: rgba(102, 192, 244, 0.22);
+        color: #ffffff;
+      }
       .sffa-tab {
         flex: 0 0 auto;
         height: 30px;
@@ -1746,21 +1831,50 @@
       .sffa-tab[data-tab="family"] {
         margin-left: auto;
       }
+      .sffa-search-wrap {
+        position: relative;
+        flex: 1 1 180px;
+        min-width: 140px;
+        max-width: 260px;
+      }
       .sffa-search-input {
-        display: none;
-        flex: 1 1 130px;
-        margin-left: 6px;
-        width: min(220px, 34%);
-        min-width: 120px;
+        display: block;
+        width: 100%;
         height: 30px;
         border: 1px solid rgba(102, 192, 244, 0.26);
         background: #0f141b;
         color: #f2f7fb;
         border-radius: 3px;
-        padding: 0 9px;
+        padding: 0 30px 0 9px;
         outline: none;
       }
-      .sffa-search-input.is-visible {
+      .sffa-search-clear {
+        position: absolute;
+        top: 50%;
+        right: 4px;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        transform: translateY(-50%);
+        display: grid;
+        place-items: center;
+        border: 0;
+        background: transparent;
+        color: #9fb3c2;
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .sffa-search-wrap.has-value .sffa-search-clear {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .sffa-search-clear:hover {
+        color: #ffffff;
+      }
+      .sffa-search-clear svg {
+        width: 14px;
+        height: 14px;
         display: block;
       }
       .sffa-copy-current {
@@ -1960,11 +2074,23 @@
             </div>
             <div class="sffa-main">
               <div class="sffa-tabs" data-sffa-tabs>
-                <button class="sffa-tab active" type="button" data-tab="all">${escapeHtml(t("tabs.all"))}</button>
-              <button class="sffa-tab" type="button" data-tab="new">${escapeHtml(t("tabs.new"))}</button>
-              <button class="sffa-tab" type="button" data-tab="overlap">${escapeHtml(t("tabs.overlap"))}</button>
-              <button class="sffa-tab" type="button" data-tab="search">${escapeHtml(t("tabs.search"))}</button>
-                <input class="sffa-search-input" data-sffa-search placeholder="${escapeAttr(t("searchPlaceholder"))}" autocomplete="off">
+                <div class="sffa-list-wrap" data-sffa-list-wrap>
+                  <button class="sffa-list-select is-active" type="button" data-sffa-list-select aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("list"))}">${escapeHtml(t("tabs.all"))}</button>
+                  <div class="sffa-list-menu" role="listbox" data-sffa-list-menu>
+                    <button class="sffa-list-option is-active" type="button" role="option" data-sffa-list-option="all" aria-selected="true">${escapeHtml(t("tabs.all"))}</button>
+                    <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="new" aria-selected="false">${escapeHtml(t("tabs.new"))}</button>
+                    <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="relativeNew" aria-selected="false">${escapeHtml(t("tabs.relativeNew"))}</button>
+                    <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="overlap" aria-selected="false">${escapeHtml(t("tabs.overlap"))}</button>
+                  </div>
+                </div>
+                <div class="sffa-search-wrap" data-sffa-search-wrap>
+                  <input class="sffa-search-input" data-sffa-search placeholder="${escapeAttr(t("searchPlaceholder"))}" autocomplete="off">
+                  <button class="sffa-search-clear" type="button" data-sffa-search-clear title="${escapeAttr(t("clear"))}" aria-label="${escapeAttr(t("clear"))}">
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </div>
                 <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
                 <button class="sffa-tab sffa-copy-current" type="button" data-sffa-copy-current>${escapeHtml(t("copyList"))}</button>
               </div>
@@ -2011,7 +2137,12 @@
       moreBtn: root.querySelector("[data-sffa-more]"),
       launcher: root.querySelector(".sffa-launcher"),
       targetInput: root.querySelector("[data-sffa-target]"),
+      listWrap: root.querySelector("[data-sffa-list-wrap]"),
+      listSelect: root.querySelector("[data-sffa-list-select]"),
+      listOptions: Array.from(root.querySelectorAll("[data-sffa-list-option]")),
+      searchWrap: root.querySelector("[data-sffa-search-wrap]"),
       searchInput: root.querySelector("[data-sffa-search]"),
+      searchClearBtn: root.querySelector("[data-sffa-search-clear]"),
       copyCurrentBtn: root.querySelector("[data-sffa-copy-current]"),
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
@@ -2061,12 +2192,30 @@
         analyzeTarget();
       }
     });
+    elements.listSelect.addEventListener("click", toggleListMenu);
+    elements.listOptions.forEach(option => {
+      option.addEventListener("click", () => {
+        setReportTab(option.dataset.sffaListOption);
+      });
+    });
     elements.searchInput.addEventListener("input", () => {
+      renderSearchClearButton();
+      scheduleSearchRender();
+    });
+    elements.searchClearBtn.addEventListener("click", () => {
+      if (!elements.searchInput.value) {
+        return;
+      }
+      elements.searchInput.value = "";
+      cancelSearchRender();
+      renderSearchClearButton();
       renderDetails();
       scheduleAnalysisHistorySave();
+      elements.searchInput.focus();
     });
     elements.tabs.forEach(tab => {
       tab.addEventListener("click", () => {
+        cancelSearchRender();
         currentTab = tab.dataset.tab;
         renderTabs();
         renderDetails();
@@ -2079,6 +2228,7 @@
           closeCompareDialog();
           return;
         }
+        closeListMenu();
         closeMenu();
         closeDialog();
       }
@@ -2086,6 +2236,9 @@
     document.addEventListener("click", event => {
       if (!elements.menuWrap.contains(event.target)) {
         closeMenu();
+      }
+      if (!elements.listWrap.contains(event.target)) {
+        closeListMenu();
       }
     });
     window.addEventListener("beforeunload", () => {
@@ -2176,6 +2329,7 @@
 
   function closeDialog() {
     closeMenu();
+    closeListMenu();
     closeCompareDialog();
     elements.root.classList.remove("is-open");
   }
@@ -2183,6 +2337,7 @@
   function toggleMenu(event) {
     event.stopPropagation();
     closeLocaleMenu();
+    closeListMenu();
     const isOpen = elements.menuWrap.classList.toggle("is-menu-open");
     elements.moreBtn.setAttribute("aria-expanded", String(isOpen));
   }
@@ -2191,6 +2346,7 @@
     event.stopPropagation();
     elements.menuWrap?.classList.remove("is-menu-open");
     elements.moreBtn?.setAttribute("aria-expanded", "false");
+    closeListMenu();
     const isOpen = elements.localeWrap.classList.toggle("is-open");
     elements.localeToggleBtn.setAttribute("aria-expanded", String(isOpen));
   }
@@ -2204,6 +2360,18 @@
   function closeLocaleMenu() {
     elements.localeWrap?.classList.remove("is-open");
     elements.localeToggleBtn?.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleListMenu(event) {
+    event.stopPropagation();
+    closeMenu();
+    const isOpen = elements.listWrap.classList.toggle("is-open");
+    elements.listSelect.setAttribute("aria-expanded", String(isOpen));
+  }
+
+  function closeListMenu() {
+    elements.listWrap?.classList.remove("is-open");
+    elements.listSelect?.setAttribute("aria-expanded", "false");
   }
 
   function setAppLocaleMode(mode) {
@@ -2227,10 +2395,10 @@
     elements.launcherCloseBtn.title = t("hideLauncher");
     elements.launcherCloseBtn.setAttribute("aria-label", t("hideLauncher"));
     elements.root.querySelector(".sffa-title strong").textContent = t("launcher");
-    elements.root.querySelector("[data-tab='all']").textContent = t("tabs.all");
-    elements.root.querySelector("[data-tab='new']").textContent = t("tabs.new");
-    elements.root.querySelector("[data-tab='overlap']").textContent = t("tabs.overlap");
-    elements.root.querySelector("[data-tab='search']").textContent = t("tabs.search");
+    elements.listSelect.setAttribute("aria-label", t("list"));
+    elements.listOptions.forEach(option => {
+      option.textContent = getMainTabLabel(option.dataset.sffaListOption);
+    });
     elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
     elements.localeToggleBtn.textContent = getLocaleModeButtonText();
     elements.localeOptions.forEach(option => {
@@ -2244,6 +2412,8 @@
     elements.refreshBtn.textContent = t("refreshFamily");
     elements.analyzeBtn.textContent = t("analyzeAccount");
     elements.searchInput.placeholder = t("searchPlaceholder");
+    elements.searchClearBtn.title = t("clear");
+    elements.searchClearBtn.setAttribute("aria-label", t("clear"));
     elements.copyCurrentBtn.textContent = t("copyList");
     elements.copyBtn.textContent = t("copyReport");
     elements.rawBtn.textContent = t("rawData");
@@ -2457,7 +2627,7 @@
     }
 
     if (rows.length === 0) {
-      setStatus(currentTab === "search" ? t("enterSearch") : t("currentListEmpty"), "warn");
+      setStatus(t("currentListEmpty"), "warn");
       return;
     }
 
@@ -3621,7 +3791,7 @@
   }
 
   function renderDetailsAfterPriceChange() {
-    if (currentTab === "all" || currentTab === "new" || currentTab === "search") {
+    if (currentTab === "all" || currentTab === "new" || currentTab === "relativeNew") {
       renderDetailsPreserveScroll();
     }
     renderCompareDialogIfOpen();
@@ -3647,6 +3817,7 @@
     lastReport.metrics.filteringTotal = lastReport.filtering?.total || 0;
     lastReport.games.unpriced = unpricedGames;
     lastReport.targetBreakdown = buildTargetBreakdownFromReport(lastReport);
+    renderTabs();
     renderCompareDialogIfOpen();
     scheduleAnalysisHistorySave();
   }
@@ -4008,6 +4179,7 @@
 
     target.selected = checkbox.checked;
     refreshReportMetrics();
+    renderTabs();
     renderSummary(lastReport);
     renderTargetProfile(lastReport);
     renderDetails();
@@ -4584,13 +4756,91 @@
   }
 
   function renderTabs() {
+    const isReportTab = isReportListTab(currentTab);
+    const selectedReportTab = isReportTab ? currentTab : elements.listSelect.dataset.selectedTab || "all";
+    elements.listSelect.dataset.selectedTab = selectedReportTab;
+    elements.listSelect.textContent = getMainTabDisplayLabel(selectedReportTab);
+    elements.listSelect.classList.toggle("is-active", isReportTab);
+    elements.listOptions.forEach(option => {
+      const isActive = option.dataset.sffaListOption === selectedReportTab;
+      option.textContent = getMainTabDisplayLabel(option.dataset.sffaListOption);
+      option.classList.toggle("is-active", isActive);
+      option.setAttribute("aria-selected", String(isActive));
+    });
     elements.tabs.forEach(tab => {
       tab.classList.toggle("active", tab.dataset.tab === currentTab);
     });
-    elements.searchInput.classList.toggle("is-visible", currentTab === "search");
-    if (currentTab === "search") {
-      window.setTimeout(() => elements.searchInput.focus(), 0);
+    renderSearchClearButton();
+  }
+
+  function normalizeMainTab(tab) {
+    return [...REPORT_LIST_TABS, "family"].includes(tab) ? tab : "all";
+  }
+
+  function isReportListTab(tab) {
+    return REPORT_LIST_TABS.includes(tab);
+  }
+
+  function setReportTab(tab) {
+    const nextTab = isReportListTab(tab) ? tab : "all";
+    closeListMenu();
+    if (currentTab === nextTab) {
+      return;
     }
+    cancelSearchRender();
+    currentTab = nextTab;
+    renderTabs();
+    renderDetails();
+    scheduleAnalysisHistorySave();
+  }
+
+  function getMainTabLabel(tab) {
+    return {
+      all: t("tabs.all"),
+      new: t("tabs.new"),
+      relativeNew: t("tabs.relativeNew"),
+      overlap: t("tabs.overlap")
+    }[tab] || t("tabs.all");
+  }
+
+  function getMainTabDisplayLabel(tab) {
+    return `${getMainTabLabel(tab)} (${getReportListCount(tab)})`;
+  }
+
+  function getReportListCount(tab) {
+    if (!lastReport) {
+      return 0;
+    }
+    if (tab === "relativeNew") {
+      return getRelativeNewRowsForCurrentSelection(lastReport).length;
+    }
+    if (tab === "all" || tab === "new" || tab === "overlap") {
+      return getReportRowsForCurrentSelection(tab).length;
+    }
+    return 0;
+  }
+
+  function renderSearchClearButton() {
+    elements.searchWrap.classList.toggle("has-value", Boolean(elements.searchInput.value));
+  }
+
+  function scheduleSearchRender() {
+    if (searchRenderTimer) {
+      window.clearTimeout(searchRenderTimer);
+    }
+    searchRenderTimer = window.setTimeout(() => {
+      searchRenderTimer = 0;
+      renderDetails();
+      scheduleAnalysisHistorySave();
+    }, SEARCH_RENDER_DEBOUNCE_MS);
+  }
+
+  function cancelSearchRender() {
+    if (!searchRenderTimer) {
+      return;
+    }
+    window.clearTimeout(searchRenderTimer);
+    searchRenderTimer = 0;
   }
 
   function buildCurrentListCopyTable(rows) {
@@ -4623,6 +4873,17 @@
             ])
       };
     }
+    if (currentTab === "relativeNew") {
+      return {
+        headers: ["AppID", t("game"), t("owners"), t("price")],
+        rows: rows.map(game => [
+          game.appid,
+          getGameDisplayName(game),
+          formatOwners(game.owners || []) || "-",
+          formatOriginalPriceText(game.price || {})
+        ])
+      };
+    }
     if (currentTab === "overlap") {
       return {
         headers: ["AppID", t("game"), t("owners")],
@@ -4630,17 +4891,6 @@
           game.appid,
           getGameDisplayName(game),
           formatOwners(game.owners || []) || "-"
-        ])
-      };
-    }
-    if (currentTab === "search") {
-      return {
-        headers: ["AppID", t("game"), t("list"), t("info")],
-        rows: rows.map(game => [
-          game.appid,
-          getGameDisplayName(game),
-          game.listType || "",
-          getSearchInfoText(game)
         ])
       };
     }
@@ -4679,9 +4929,10 @@
 
   function renderDetails() {
     if (currentTab === "family") {
-      const rows = getSortedRows("family", getFamilyLibraryRows());
+      const sourceRows = getFamilyLibraryRows();
+      const rows = getSortedRows("family", filterRowsBySearchQuery(sourceRows));
       if (rows.length === 0) {
-        elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("noFamilyRefresh"))}</div>`;
+        elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(sourceRows.length ? t("noMatches") : t("noFamilyRefresh"))}</div>`;
         return;
       }
       elements.tableWrap.innerHTML = buildFamilyLibraryTable(rows);
@@ -4693,14 +4944,14 @@
       return;
     }
 
-    if (currentTab === "search") {
-      renderSearchDetails();
-      return;
+    const sourceRows = getReportRowsForCurrentSelection(currentTab);
+    const rows = getSortedRows(currentTab, filterRowsBySearchQuery(sourceRows));
+    if (currentTab === "relativeNew") {
+      prepareOriginalPricesForMissingRows(rows);
     }
-
-    const rows = getSortedRows(currentTab, getReportRowsForCurrentSelection(currentTab));
     if (rows.length === 0) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("tabEmpty", { tab: getTabLabel(currentTab) }))}</div>`;
+      const emptyText = sourceRows.length ? t("noMatches") : t("tabEmpty", { tab: getTabLabel(currentTab) });
+      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(emptyText)}</div>`;
       return;
     }
 
@@ -4715,6 +4966,9 @@
     if (tab === "family") {
       return buildFamilyLibraryTable(rows);
     }
+    if (tab === "relativeNew") {
+      return buildRelativeNewTable(rows);
+    }
     if (tab === "overlap") {
       return buildOverlapTable(rows);
     }
@@ -4722,7 +4976,66 @@
   }
 
   function getReportRowsForCurrentSelection(tab) {
+    if (tab === "relativeNew") {
+      return getRelativeNewRowsForCurrentSelection(lastReport);
+    }
     return (lastReport.games[tab] || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+  }
+
+  function getRelativeNewRowsForCurrentSelection(report = lastReport) {
+    if (!report) {
+      return [];
+    }
+    return getFamilyRowsMissingFromAppids(getSelectedTargetOwnedAppids(report));
+  }
+
+  function getSelectedTargetOwnedAppids(report = lastReport) {
+    if (!report) {
+      return new Set();
+    }
+    if (!isMultiTargetReport(report)) {
+      return new Set((report.games?.all || []).map(game => String(game.appid)));
+    }
+
+    const selectedIds = new Set(getSelectedTargetSteamIds(report));
+    const ownedAppids = new Set();
+    (report.games?.all || []).forEach(game => {
+      const owners = (game.targetOwners || []).map(String);
+      if (owners.some(steamid => selectedIds.has(steamid))) {
+        ownedAppids.add(String(game.appid));
+      }
+    });
+    return ownedAppids;
+  }
+
+  function getFamilyRowsMissingFromAppids(ownedAppids) {
+    return getFamilyLibraryRows()
+      .filter(game => !ownedAppids.has(String(game.appid)));
+  }
+
+  function prepareOriginalPricesForMissingRows(rows) {
+    rows.forEach(game => {
+      if (game.price && !game.price.pending) {
+        return;
+      }
+      prepareOriginalPriceForGame(game);
+    });
+  }
+
+  function filterRowsBySearchQuery(rows) {
+    const query = getCurrentSearchQuery();
+    if (!query) {
+      return rows;
+    }
+    return rows.filter(game => {
+      const name = String(getGameDisplayName(game)).toLowerCase();
+      const appid = String(game.appid || "");
+      return name.includes(query) || appid.includes(query);
+    });
+  }
+
+  function getCurrentSearchQuery() {
+    return String(elements.searchInput?.value || "").trim().toLowerCase();
   }
 
   function getSortedRows(tab, rows) {
@@ -4799,78 +5112,14 @@
     return getGameListLabel(game.appid);
   }
 
-  function renderSearchDetails() {
-    const rows = getSearchFilteredRows();
-    if (!rows) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("searchEmpty"))}</div>`;
-      return;
-    }
-
-    if (rows.length === 0) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("noMatches"))}</div>`;
-      return;
-    }
-
-    elements.tableWrap.innerHTML = buildSearchTable(getSortedRows("search", rows));
-  }
-
-  function getSearchRows() {
-    const rowsById = new Map();
-    (lastReport.games.all || []).forEach(game => {
-      if (!isGameIncludedBySelectedTargets(game, lastReport)) {
-        return;
-      }
-      rowsById.set(String(game.appid), {
-        ...game,
-        listType: getGameListLabel(game.appid)
-      });
-    });
-    (lastReport.games.new || []).forEach(game => {
-      if (!isGameIncludedBySelectedTargets(game, lastReport)) {
-        return;
-      }
-      rowsById.set(String(game.appid), {
-        ...game,
-        listType: t("addedGames")
-      });
-    });
-    (lastReport.games.overlap || []).forEach(game => {
-      if (!isGameIncludedBySelectedTargets(game, lastReport)) {
-        return;
-      }
-      const appid = String(game.appid);
-      rowsById.set(appid, {
-        ...game,
-        listType: t("duplicatedGames")
-      });
-    });
-    return Array.from(rowsById.values()).sort(sortByName);
-  }
-
-  function getSearchFilteredRows() {
-    const query = elements.searchInput.value.trim().toLowerCase();
-    if (!query) {
-      return null;
-    }
-
-    return getSearchRows().filter(game => {
-      const name = String(getGameDisplayName(game)).toLowerCase();
-      const appid = String(game.appid || "");
-      return name.includes(query) || appid.includes(query);
-    });
-  }
-
   function getCurrentListRows() {
     if (currentTab === "family") {
-      return getSortedRows("family", getFamilyLibraryRows());
+      return getSortedRows("family", filterRowsBySearchQuery(getFamilyLibraryRows()));
     }
     if (!lastReport) {
       return [];
     }
-    if (currentTab === "search") {
-      return getSortedRows("search", getSearchFilteredRows() || []);
-    }
-    return getSortedRows(currentTab, getReportRowsForCurrentSelection(currentTab));
+    return getSortedRows(currentTab, filterRowsBySearchQuery(getReportRowsForCurrentSelection(currentTab)));
   }
 
   function getFamilyLibraryRows() {
@@ -4879,7 +5128,8 @@
       .filter(Boolean)
       .map(game => ({
         ...game,
-        localizedName: getCachedLocalizedName(game.appid) || game.localizedName || ""
+        localizedName: getCachedLocalizedName(game.appid) || game.localizedName || "",
+        price: getCachedOriginalPrice(game.appid)
       }))
       .sort(sortFamilyLibraryRows);
   }
@@ -4925,6 +5175,26 @@
     `, body);
   }
 
+  function buildRelativeNewTable(rows) {
+    const body = rows.map(game => `
+      <tr data-price-appid="${escapeAttr(game.appid)}">
+        <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
+        <td>${escapeHtml(getGameDisplayName(game))}</td>
+        <td>${escapeHtml(formatOwners(game.owners || []) || "-")}</td>
+        <td>${formatOriginalPriceCell(game.price || {})}</td>
+      </tr>
+    `).join("");
+
+    return tableHtml(`
+      <tr>
+        ${sortableTh("AppID", "appid", "width: 82px;")}
+        ${sortableTh(t("game"), "name")}
+        ${sortableTh(t("owners"), "owners", "width: 160px;")}
+        ${sortableTh(t("price"), "price", "width: 110px;")}
+      </tr>
+    `, body);
+  }
+
   function buildNewGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
     const body = rows.map(game => `
@@ -4964,46 +5234,6 @@
     `, body);
   }
 
-  function buildSearchTable(rows) {
-    const body = rows.map(game => `
-      <tr ${game.listType === t("addedGames") ? `data-price-appid="${escapeAttr(game.appid)}"` : ""}>
-        <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
-        <td>${escapeHtml(getGameDisplayName(game))}</td>
-        <td>${escapeHtml(game.listType || "")}</td>
-        <td>${getSearchInfoHtml(game)}</td>
-      </tr>
-    `).join("");
-
-    return tableHtml(`
-      <tr>
-        ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh(t("game"), "name")}
-        ${sortableTh(t("list"), "listType", "width: 120px;")}
-        ${sortableTh(t("info"), "info", "width: 170px;")}
-      </tr>
-    `, body);
-  }
-
-  function getSearchInfoHtml(game) {
-    if (game.listType === t("duplicatedGames")) {
-      return escapeHtml(formatOwners(game.owners || []) || "-");
-    }
-    if (game.listType !== t("addedGames")) {
-      return getGameListStatusHtml(game.appid);
-    }
-    return formatOriginalPriceCell(game.price || {});
-  }
-
-  function getSearchInfoText(game) {
-    if (game.listType === t("duplicatedGames")) {
-      return formatOwners(game.owners || []) || "-";
-    }
-    if (game.listType !== t("addedGames")) {
-      return getGameListLabel(game.appid);
-    }
-    return formatOriginalPriceText(game.price || {});
-  }
-
   function getGameListLabel(appid) {
     const status = lastReport?.classificationById?.[String(appid)]?.status;
     return {
@@ -5035,6 +5265,11 @@
   function getCachedLocalizedName(appid) {
     const entry = state.storeCache?.[String(appid)];
     return entry?.localizedName || entry?.price?.localizedName || "";
+  }
+
+  function getCachedOriginalPrice(appid) {
+    const price = state.storeCache?.[String(appid)]?.price;
+    return isFreshOriginalPriceCacheEntry(price) ? price : null;
   }
 
   function normalizeGameName(name) {
@@ -5336,7 +5571,7 @@
       lastReport.filtering.running = false;
       lastReport.filtering.paused = Boolean(lastReport.filtering.paused);
     }
-    currentTab = saved.currentTab || "all";
+    currentTab = normalizeMainTab(saved.currentTab);
     tableSortByTab = saved.tableSortByTab || {};
     comparePriceRangeByTarget = {};
     if (elements.targetInput && saved.inputValue != null) {
@@ -5846,6 +6081,7 @@
       all: t("tabs.all"),
       family: t("tabs.family"),
       new: t("tabs.new"),
+      relativeNew: t("tabs.relativeNew"),
       overlap: t("tabs.overlap"),
       search: t("tabs.search")
     }[tab] || t("list");

@@ -2,6 +2,12 @@
 
 A Tampermonkey userscript that analyzes a public Steam account against the Steam Family shared library of your currently signed-in Steam account. It helps estimate added games, duplicate games, and the original-price value of the added library.
 
+## Usage Notice
+
+- This tool is best used as a private reference. Please do not use the result to judge whether a friend, family member, or partner is "worth" adding to a Steam Family.
+- Steam Family Sharing involves trust, member slots, region rules, cooldowns, and real relationships. Game count and price cannot represent the value of a relationship.
+- Please respect other people's privacy settings. If a target account's game details are private, the script will not and cannot bypass that restriction.
+
 ## Screenshot
 
 ![Steam Family Library Analyzer screenshot](https://raw.githubusercontent.com/iMoonDay/steam-family-fit-analyzer/main/ScreenShot.en.png)
@@ -46,7 +52,9 @@ You can also install directly from GitHub:
 - Added value uses original prices in the current store region and does not use current discount prices.
 - Money is formatted according to the store region.
 - Free or zero-price games are not counted as added games. Unpriced, delisted, or region-unavailable games are shown as `N/A`.
+- Results come from Steam pages and APIs. Different Steam interfaces may use different scopes, so the result should be treated as a reference only.
 - The script does not bypass Steam privacy restrictions and does not require you to manually enter a Steam Web API key.
+- The script runs locally in your browser and does not upload your Steam data to any third-party server.
 
 ## Configurable Constants
 

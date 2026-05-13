@@ -6,6 +6,8 @@
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
+// @homepageURL  https://github.com/iMoonDay/steam-family-fit-analyzer
+// @supportURL   https://github.com/iMoonDay/steam-family-fit-analyzer/issues
 // @match        https://store.steampowered.com/*
 // @match        https://steamcommunity.com/profiles/*
 // @icon         https://store.steampowered.com/favicon.ico

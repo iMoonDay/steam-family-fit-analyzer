@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.6
+// @version      0.1.7
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -46,12 +46,27 @@
   const STORE_REQUEST_DELAY_MS = 50;
   // 自动后台刷新家庭库的间隔，默认 24 小时。
   const AUTO_FAMILY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  // 最近一次分析结果缓存键名。
+  const ANALYSIS_HISTORY_KEY = `${STORAGE_KEY}_analysis_v1`;
   // Steam 商店分类中“家庭共享”特性的 category id。
   const FAMILY_SHARING_CATEGORY_ID = 62;
   // 普通用户 SteamID64 = 该基数 + Steam 好友码 / accountid。
   const STEAMID64_INDIVIDUAL_BASE = 76561197960265728n;
   const MAX_STEAM_ACCOUNT_ID = 4294967295n;
   const MAX_STEAM_ACCOUNT_ID_LENGTH = String(MAX_STEAM_ACCOUNT_ID).length;
+  const COMPARE_PRICE_RANGES = Object.freeze([
+    { key: "0-48", label: "¥0-¥48", min: 0, max: 4800 },
+    { key: "48-98", label: "¥48-¥98", min: 4800, max: 9800 },
+    { key: "98-198", label: "¥98-¥198", min: 9800, max: 19800 },
+    { key: "198+", label: "¥198+", min: 19800, max: Infinity }
+  ]);
+  const COMPARE_QUALITY_LEVELS = Object.freeze([
+    { key: "veryLow", max: 4800 },
+    { key: "low", max: 9800 },
+    { key: "medium", max: 19800 },
+    { key: "high", max: 29800 },
+    { key: "veryHigh", max: Infinity }
+  ]);
 
   const STORE_LANG = getDetectedStoreLanguage();
   const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
@@ -100,6 +115,39 @@
       showLauncherMenu: "显示侧边按钮",
       hideLauncherMenu: "隐藏侧边按钮",
       openDialogMenu: "打开分析弹窗",
+      compare: "对比",
+      compareTitle: "账号游戏对比",
+      compareHint: "按当前输入的 {count} 个账号对比，聚焦游戏差异。",
+      compareLoadingHint: "统计进行中，完成后会显示完整对比。",
+      compareExcluded: "已排除",
+      compareSectionExclusive: "仅 1 个账号拥有",
+      compareSectionPartial: "部分账号共有",
+      compareSectionAll: "全部账号共有",
+      compareNoData: "暂无可对比游戏",
+      compareNoUniqueAdded: "暂无独有新增游戏",
+      compareNoRangeGames: "该价格区间暂无游戏",
+      compareGames: "游戏",
+      compareOwners: "拥有者",
+      compareStatus: "状态",
+      comparePrice: "原价",
+      compareUnique: "独占",
+      compareShared: "共有",
+      compareAdded: "新增",
+      compareUniqueAdded: "独有新增",
+      compareQuality: "游戏质量",
+      compareQualitySummary: "游戏质量：{quality}",
+      compareQualityNone: "游戏质量：无新增游戏",
+      compareAverageValue: "平均价值",
+      compareQualityVeryLow: "超低",
+      compareQualityLow: "低",
+      compareQualityMedium: "中",
+      compareQualityHigh: "高",
+      compareQualityVeryHigh: "超高",
+      compareUniqueTip: "独占/总游戏：该账号单独拥有的游戏数 / 该账号总游戏数。",
+      compareUniqueAddedTip: "独有新增/新增：该账号单独拥有且对家庭库有新增价值的游戏数 / 该账号带来的新增游戏数。",
+      comparePriceDistribution: "价格分布：¥0-¥48 {low} 款，¥48-¥98 {mid} 款，¥98-¥198 {high} 款，¥198+ {top} 款",
+      compareStructure: "结构：独占 {unique} 款，共享 {shared} 款",
+      compareTotal: "总游戏",
       refreshing: "刷新中...",
       notLoggedInOrExpired: "未登录或页面过期",
       refreshedCount: "已刷新：{count} 款",
@@ -226,6 +274,39 @@
       showLauncherMenu: "Show side button",
       hideLauncherMenu: "Hide side button",
       openDialogMenu: "Open analyzer",
+      compare: "Compare",
+      compareTitle: "Account game comparison",
+      compareHint: "Compare the {count} entered accounts with a focus on game differences.",
+      compareLoadingHint: "Statistics are still running. The full comparison will appear when they finish.",
+      compareExcluded: "Excluded",
+      compareSectionExclusive: "Owned by 1 account",
+      compareSectionPartial: "Shared by some accounts",
+      compareSectionAll: "Owned by all accounts",
+      compareNoData: "No games to compare",
+      compareNoUniqueAdded: "No exclusive added games",
+      compareNoRangeGames: "No games in this price range",
+      compareGames: "Games",
+      compareOwners: "Owners",
+      compareStatus: "Status",
+      comparePrice: "Price",
+      compareUnique: "Exclusive",
+      compareShared: "Shared",
+      compareAdded: "Added",
+      compareUniqueAdded: "Exclusive added",
+      compareQuality: "Game quality",
+      compareQualitySummary: "Game quality: {quality}",
+      compareQualityNone: "Game quality: no added games",
+      compareAverageValue: "Average value",
+      compareQualityVeryLow: "Very low",
+      compareQualityLow: "Low",
+      compareQualityMedium: "Medium",
+      compareQualityHigh: "High",
+      compareQualityVeryHigh: "Very high",
+      compareUniqueTip: "Exclusive/total: games owned only by this account / total games on this account.",
+      compareUniqueAddedTip: "Exclusive added/added: games owned only by this account that add value to the family library / all added games from this account.",
+      comparePriceDistribution: "Price distribution: ¥0-¥48 {low} games, ¥48-¥98 {mid} games, ¥98-¥198 {high} games, ¥198+ {top} games",
+      compareStructure: "Structure: {unique} exclusive games, {shared} shared games",
+      compareTotal: "Total",
       refreshing: "Refreshing...",
       notLoggedInOrExpired: "Not signed in or page expired",
       refreshedCount: "Refreshed: {count}",
@@ -524,6 +605,8 @@
   let shareabilityFilterState = createShareabilityFilterState();
   let shareabilityProgressUiState = createShareabilityProgressUiState();
   let rateLimitState = createRateLimitState();
+  let comparePriceRangeByTarget = {};
+  let analysisHistorySaveTimer = 0;
   let scriptMenuCommandIds = [];
   let autoFamilyRefreshRunning = false;
   let elements = {};
@@ -535,6 +618,7 @@
     state = loadState();
     injectStyles();
     mountPanel();
+    const restoredAnalysis = restoreAnalysisHistory();
     autoFillTargetInputFromProfilePage();
     const session = getSteamSession();
     if (!session.isLoggedIn) {
@@ -548,9 +632,9 @@
       saveState();
     } else if (state.activeSteamId !== session.steamid) {
       setStatus(t("accountSwitched"), "warn");
-    } else if (state.familyLibrary.appidSet.length > 0) {
+    } else if (!restoredAnalysis && state.familyLibrary.appidSet.length > 0) {
       setStatus(t("loadedCount", { count: state.familyLibrary.appidSet.length }), "ok");
-    } else {
+    } else if (!restoredAnalysis) {
       setStatus(t("refreshFirst"), "warn");
     }
     renderLauncherVisibility();
@@ -1049,8 +1133,13 @@
         width: 48px;
         height: 48px;
         flex: 0 0 auto;
+        display: grid;
+        place-items: center;
         border-radius: 3px;
         background: #223344;
+        color: #dbe8f3;
+        font-size: 15px;
+        font-weight: 700;
         object-fit: cover;
       }
       .sffa-profile-name {
@@ -1097,6 +1186,531 @@
       .sffa-profile-row span:last-child {
         color: #d8e4ee;
         overflow-wrap: anywhere;
+      }
+      .sffa-compare-btn {
+        width: 48px;
+        height: 48px;
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 1px solid rgba(102, 192, 244, 0.34);
+        border-radius: 3px;
+        background: linear-gradient(180deg, #2a475e 0%, #1f3242 100%);
+        color: #ffffff;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: 0;
+        text-align: center;
+        transition: filter 0.12s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+      }
+      .sffa-compare-btn:hover:not(:disabled) {
+        background: linear-gradient(180deg, #315169 0%, #264050 100%);
+        border-color: rgba(143, 209, 255, 0.6);
+        filter: brightness(1.05);
+      }
+      .sffa-compare-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+      .sffa-compare-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 999998;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.16s ease, visibility 0.16s ease;
+      }
+      .sffa-compare-overlay-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(8, 12, 18, 0.76);
+        backdrop-filter: blur(2px);
+      }
+      .sffa-compare-shell {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: min(1120px, calc(100vw - 28px));
+        height: min(840px, calc(100vh - 28px));
+        transform: translate(-50%, -50%) scale(0.985);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid rgba(102, 192, 244, 0.34);
+        border-radius: 4px;
+        background: #121820;
+        box-shadow: 0 28px 72px rgba(0, 0, 0, 0.58);
+      }
+      #sffa-root.is-compare-open .sffa-compare-overlay {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+      }
+      .sffa-compare-header {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        background: linear-gradient(180deg, #23384a 0%, #17222e 100%);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      }
+      .sffa-compare-title {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .sffa-compare-title strong {
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+      .sffa-compare-title span {
+        color: #b8c7d3;
+        font-size: 12px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+      .sffa-compare-close {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+        cursor: pointer;
+        font: inherit;
+        font-size: 18px;
+        line-height: 1;
+      }
+      .sffa-compare-close:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .sffa-compare-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(252px, 1fr));
+        gap: 8px;
+        padding: 10px 12px 12px;
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: auto;
+      }
+      .sffa-compare-card {
+        position: relative;
+        min-width: 0;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 3px;
+        background: #11161d;
+      }
+      .sffa-compare-card.is-muted {
+        opacity: 0.72;
+      }
+      .sffa-compare-card-head {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+        margin-bottom: 10px;
+        padding-right: 0;
+      }
+      .sffa-compare-card-head.has-status {
+        padding-right: 84px;
+      }
+      .sffa-compare-card-title {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .sffa-compare-card-title strong {
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+      }
+      .sffa-compare-card-title span {
+        color: #9fb3c2;
+        font-size: 12px;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+      .sffa-compare-card-summary {
+        color: #dbe8f3;
+        font-size: 12px;
+        line-height: 1.35;
+        display: block;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .sffa-compare-card-status {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: inline-flex;
+        align-items: center;
+        min-height: 20px;
+        padding: 0 7px;
+        border-radius: 999px;
+        background: rgba(225, 92, 92, 0.18);
+        color: #ffd0d0;
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .sffa-compare-card-stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .sffa-compare-stat {
+        min-width: 0;
+        min-height: 42px;
+        padding: 7px 8px;
+        border-radius: 3px;
+        background: #1a2230;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .sffa-compare-stat.is-wide {
+        grid-column: 1 / -1;
+      }
+      .sffa-compare-stat span {
+        display: block;
+        margin-bottom: 3px;
+        color: #9fb3c2;
+        font-size: 11px;
+        line-height: 1.2;
+      }
+      .sffa-compare-stat strong {
+        display: block;
+        color: #ffffff;
+        font-size: 14px;
+        line-height: 1.1;
+        overflow-wrap: anywhere;
+      }
+      .sffa-compare-stat.is-highlight {
+        background: linear-gradient(180deg, rgba(102, 192, 244, 0.22) 0%, rgba(31, 43, 54, 0.92) 100%);
+        border-color: rgba(143, 209, 255, 0.34);
+      }
+      .sffa-compare-price-ranges {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .sffa-compare-price-range {
+        min-width: 0;
+        min-height: 46px;
+        padding: 7px 8px;
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: #1a2230;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+        text-align: left;
+        transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+      }
+      .sffa-compare-price-range:hover {
+        transform: translateY(-1px);
+        background: #223044;
+        border-color: rgba(143, 209, 255, 0.34);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+      }
+      .sffa-compare-price-range.is-active {
+        background: linear-gradient(180deg, rgba(111, 201, 132, 0.24) 0%, rgba(31, 43, 54, 0.94) 100%);
+        border-color: rgba(111, 201, 132, 0.58);
+        box-shadow: inset 0 0 0 1px rgba(111, 201, 132, 0.18);
+      }
+      .sffa-compare-price-range.is-active:hover {
+        border-color: rgba(163, 238, 181, 0.72);
+        box-shadow: inset 0 0 0 1px rgba(111, 201, 132, 0.24), 0 8px 18px rgba(0, 0, 0, 0.22);
+      }
+      .sffa-compare-price-range span {
+        display: block;
+        margin-bottom: 3px;
+        color: #9fb3c2;
+        font-size: 11px;
+        line-height: 1.2;
+        white-space: nowrap;
+      }
+      .sffa-compare-price-range strong {
+        display: block;
+        color: #ffffff;
+        font-size: 14px;
+        line-height: 1.1;
+      }
+      .sffa-compare-card-games {
+        display: grid;
+        gap: 6px;
+        margin-top: 10px;
+        min-height: 0;
+      }
+      .sffa-compare-card-games-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .sffa-compare-card-games-head strong {
+        color: #ffffff;
+        font-size: 12px;
+        line-height: 1.2;
+      }
+      .sffa-compare-card-games-head span {
+        color: #9fb3c2;
+        font-size: 11px;
+      }
+      .sffa-compare-card-games-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+        gap: 8px;
+      }
+      .sffa-compare-card-game {
+        position: relative;
+        min-width: 0;
+        min-height: 148px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+        background-color: #121820;
+        background-image: linear-gradient(180deg, rgba(9, 13, 19, 0.12) 0%, rgba(9, 13, 19, 0.68) 100%), var(--sffa-cover, none);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        box-shadow: inset 0 -44px 72px rgba(0, 0, 0, 0.42);
+        overflow: hidden;
+      }
+      .sffa-compare-card-game-link {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 10px;
+        color: inherit;
+        text-decoration: none;
+      }
+      .sffa-compare-card-game-link:hover {
+        text-decoration: none;
+      }
+      .sffa-compare-card-game-title {
+        min-width: 0;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        align-self: flex-start;
+        max-width: calc(100% - 4px);
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.25;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+        overflow-wrap: anywhere;
+      }
+      .sffa-compare-card-game-price {
+        display: flex;
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        align-items: center;
+        justify-content: center;
+        min-height: 23px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: rgba(8, 12, 18, 0.72);
+        color: #ffffff;
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.65);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.28);
+      }
+      .sffa-compare-card-game-price.is-new {
+        background: rgba(111, 201, 132, 0.22);
+        color: #d5ffe0;
+      }
+      .sffa-compare-card-game-price.is-overlap {
+        background: rgba(102, 192, 244, 0.2);
+        color: #d7f0ff;
+      }
+      .sffa-compare-card-game-price.is-no-value {
+        background: rgba(8, 12, 18, 0.68);
+        color: #dbe8f3;
+      }
+      .sffa-compare-card-game-price.is-unsupported {
+        background: rgba(225, 170, 92, 0.18);
+        color: #ffe4b4;
+      }
+      .sffa-compare-card-game-price.is-pending {
+        background: rgba(150, 156, 167, 0.2);
+        color: #f1f4f7;
+      }
+      .sffa-compare-card-empty {
+        padding: 8px 0 2px;
+        color: #9fb3c2;
+        font-size: 12px;
+      }
+      .sffa-compare-body {
+        display: none;
+      }
+      .sffa-compare-group {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 3px;
+        background: #11161d;
+      }
+      .sffa-compare-group:first-child {
+        margin-top: 0;
+      }
+      .sffa-compare-group-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .sffa-compare-group-head strong {
+        color: #ffffff;
+        font-size: 13px;
+        line-height: 1.2;
+      }
+      .sffa-compare-group-head span {
+        color: #9fb3c2;
+        font-size: 12px;
+      }
+      .sffa-compare-list {
+        display: grid;
+        gap: 6px;
+      }
+      .sffa-compare-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.9fr) 120px 110px;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+        padding: 8px 9px;
+        border-radius: 3px;
+        background: #151d27;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .sffa-compare-item.is-exclusive {
+        border-color: rgba(143, 209, 255, 0.16);
+      }
+      .sffa-compare-item.is-new {
+        background: linear-gradient(180deg, rgba(71, 129, 85, 0.24) 0%, rgba(21, 29, 39, 0.96) 100%);
+        border-color: rgba(111, 201, 132, 0.28);
+      }
+      .sffa-compare-item.is-overlap {
+        background: linear-gradient(180deg, rgba(55, 96, 145, 0.2) 0%, rgba(21, 29, 39, 0.96) 100%);
+        border-color: rgba(102, 192, 244, 0.24);
+      }
+      .sffa-compare-item.is-unsupported {
+        background: linear-gradient(180deg, rgba(127, 94, 36, 0.18) 0%, rgba(21, 29, 39, 0.96) 100%);
+        border-color: rgba(225, 170, 92, 0.24);
+      }
+      .sffa-compare-item.is-no-value {
+        background: linear-gradient(180deg, rgba(97, 104, 112, 0.16) 0%, rgba(21, 29, 39, 0.96) 100%);
+      }
+      .sffa-compare-item.is-pending {
+        background: linear-gradient(180deg, rgba(80, 80, 86, 0.18) 0%, rgba(21, 29, 39, 0.96) 100%);
+      }
+      .sffa-compare-game {
+        min-width: 0;
+      }
+      .sffa-compare-game a {
+        color: #8fd1ff;
+        text-decoration: none;
+        font-weight: 700;
+      }
+      .sffa-compare-game a:hover {
+        text-decoration: underline;
+      }
+      .sffa-compare-game-meta {
+        margin-top: 3px;
+        color: #9fb3c2;
+        font-size: 11px;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+      }
+      .sffa-compare-owner-tags {
+        min-width: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .sffa-compare-tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 20px;
+        padding: 0 7px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #dbe8f3;
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .sffa-compare-tag.is-active {
+        background: rgba(102, 192, 244, 0.18);
+        color: #8fd1ff;
+      }
+      .sffa-compare-tag.is-muted {
+        background: rgba(255, 255, 255, 0.05);
+        color: #9fb3c2;
+      }
+      .sffa-compare-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .sffa-compare-chip.is-new {
+        background: rgba(111, 201, 132, 0.18);
+        color: #a8efb5;
+      }
+      .sffa-compare-chip.is-muted {
+        background: rgba(255, 255, 255, 0.08);
+        color: #dbe8f3;
+      }
+      .sffa-compare-chip.is-overlap {
+        background: rgba(102, 192, 244, 0.16);
+        color: #8fd1ff;
+      }
+      .sffa-compare-chip.is-no-value {
+        background: rgba(125, 132, 141, 0.16);
+        color: #d7dde2;
+      }
+      .sffa-compare-chip.is-unsupported {
+        background: rgba(225, 170, 92, 0.16);
+        color: #ffd28f;
+      }
+      .sffa-compare-chip.is-pending {
+        background: rgba(150, 156, 167, 0.16);
+        color: #d7dde2;
+      }
+      .sffa-compare-empty {
+        padding: 18px 0;
+        color: #9fb3c2;
+        text-align: center;
       }
       .sffa-tabs {
         display: flex;
@@ -1265,6 +1879,28 @@
         .sffa-table {
           min-width: 640px;
         }
+        .sffa-compare-shell {
+          width: calc(100vw - 16px);
+          height: calc(100vh - 16px);
+        }
+        .sffa-compare-summary {
+          grid-template-columns: 1fr;
+        }
+        .sffa-compare-price-ranges {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .sffa-compare-item {
+          grid-template-columns: 1fr;
+        }
+        .sffa-compare-item > * {
+          min-width: 0;
+        }
+        .sffa-compare-item .sffa-compare-chip {
+          width: fit-content;
+        }
+        .sffa-compare-item .sffa-compare-price {
+          justify-self: start;
+        }
       }
     `;
     document.head.appendChild(style);
@@ -1339,6 +1975,20 @@
           </div>
         </div>
       </section>
+      <div class="sffa-compare-overlay" data-sffa-compare-overlay>
+        <div class="sffa-compare-overlay-backdrop" data-sffa-compare-backdrop></div>
+        <section class="sffa-compare-shell" role="dialog" aria-modal="true" aria-label="${escapeAttr(t("compareTitle"))}">
+          <header class="sffa-compare-header">
+            <div class="sffa-compare-title">
+              <strong data-sffa-compare-title>${escapeHtml(t("compareTitle"))}</strong>
+              <span data-sffa-compare-hint></span>
+            </div>
+            <button class="sffa-compare-close" type="button" data-sffa-compare-close title="${escapeAttr(t("close"))}" aria-label="${escapeAttr(t("close"))}">×</button>
+          </header>
+          <div class="sffa-compare-summary" data-sffa-compare-summary></div>
+          <div class="sffa-compare-body" data-sffa-compare-body></div>
+        </section>
+      </div>
     `;
 
     document.body.appendChild(root);
@@ -1371,6 +2021,13 @@
       rawBtn: root.querySelector("[data-sffa-raw]"),
       rateContinueBtn: root.querySelector("[data-sffa-rate-continue]"),
       rateCheckBtn: root.querySelector("[data-sffa-rate-check]"),
+      compareOverlay: root.querySelector("[data-sffa-compare-overlay]"),
+      compareBackdrop: root.querySelector("[data-sffa-compare-backdrop]"),
+      compareCloseBtn: root.querySelector("[data-sffa-compare-close]"),
+      compareTitle: root.querySelector("[data-sffa-compare-title]"),
+      compareHint: root.querySelector("[data-sffa-compare-hint]"),
+      compareSummary: root.querySelector("[data-sffa-compare-summary]"),
+      compareBody: root.querySelector("[data-sffa-compare-body]"),
       tabs: Array.from(root.querySelectorAll("[data-tab]"))
     };
 
@@ -1392,24 +2049,36 @@
     elements.rawBtn?.addEventListener("click", showRawDataWindow);
     elements.rateContinueBtn?.addEventListener("click", continueAfterRateLimit);
     elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
+    elements.compareBackdrop?.addEventListener("click", closeCompareDialog);
+    elements.compareCloseBtn?.addEventListener("click", closeCompareDialog);
+    elements.compareSummary?.addEventListener("click", handleCompareSummaryClick);
     elements.tableWrap.addEventListener("scroll", () => scheduleVisiblePriceLoads());
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.profile.addEventListener("change", handleTargetSelectionChange);
+    elements.profile.addEventListener("click", handleProfileActionClick);
     elements.targetInput.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         analyzeTarget();
       }
     });
-    elements.searchInput.addEventListener("input", renderDetails);
+    elements.searchInput.addEventListener("input", () => {
+      renderDetails();
+      scheduleAnalysisHistorySave();
+    });
     elements.tabs.forEach(tab => {
       tab.addEventListener("click", () => {
         currentTab = tab.dataset.tab;
         renderTabs();
         renderDetails();
+        scheduleAnalysisHistorySave();
       });
     });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {
+        if (isCompareDialogOpen()) {
+          closeCompareDialog();
+          return;
+        }
         closeMenu();
         closeDialog();
       }
@@ -1417,6 +2086,11 @@
     document.addEventListener("click", event => {
       if (!elements.menuWrap.contains(event.target)) {
         closeMenu();
+      }
+    });
+    window.addEventListener("beforeunload", () => {
+      if (lastReport && !lastReport.filtering?.running) {
+        saveAnalysisHistoryNow();
       }
     });
 
@@ -1502,6 +2176,7 @@
 
   function closeDialog() {
     closeMenu();
+    closeCompareDialog();
     elements.root.classList.remove("is-open");
   }
 
@@ -1574,6 +2249,13 @@
     elements.rawBtn.textContent = t("rawData");
     elements.rateContinueBtn.textContent = t("continue");
     elements.rateCheckBtn.textContent = t("rateCheck");
+    elements.compareTitle.textContent = t("compareTitle");
+    elements.compareHint.textContent = lastReport && isMultiTargetReport(lastReport)
+      ? t("compareHint", { count: lastReport.target.targets.length })
+      : "";
+    elements.compareCloseBtn.title = t("close");
+    elements.compareCloseBtn.setAttribute("aria-label", t("close"));
+    renderCompareDialogIfOpen();
 
     registerScriptMenuCommands();
     renderFamilyMeta();
@@ -2398,9 +3080,11 @@
           return;
         }
 
+        let addedNewGame = false;
         for (const game of batchGames) {
-          applyStoreItemResult(game, shareabilityById[String(game.appid)]);
+          addedNewGame = applyStoreItemResult(game, shareabilityById[String(game.appid)]) || addedNewGame;
         }
+        flushShareabilityBatchRender(addedNewGame);
         await sleep(0);
       }
 
@@ -2482,9 +3166,7 @@
 
     const currentStatus = lastReport.classificationById[appid]?.status;
     if (currentStatus === "overlap" || currentStatus === "noValue") {
-      refreshReportMetrics();
-      scheduleShareabilityProgressRender();
-      return;
+      return false;
     }
 
     const status = getStoreItemContributionStatus(shareability);
@@ -2503,13 +3185,21 @@
         prepareOriginalPriceForGame(newGame);
       }
       lastReport.games.new.push(newGame);
-      lastReport.games.new.sort(sortByName);
+      return true;
     } else {
       lastReport.metrics.filteredUnsupportedCount += 1;
     }
+    return false;
+  }
 
-    refreshReportMetrics();
-    scheduleShareabilityProgressRender();
+  function flushShareabilityBatchRender(sortNewGames) {
+    if (!lastReport) {
+      return;
+    }
+    if (sortNewGames) {
+      lastReport.games.new.sort(sortByName);
+    }
+    scheduleShareabilityProgressRender(true);
     scheduleVisiblePriceLoads();
   }
 
@@ -2582,6 +3272,7 @@
         supported: Array.isArray(featureCategoryIds) && featureCategoryIds.some(id => Number(id) === FAMILY_SHARING_CATEGORY_ID),
         context: STORE_CACHE_CONTEXT,
         localizedName: item.name || price?.localizedName || "",
+        coverUrl: getStoreCoverUrl(appid),
         price,
         updatedAt: Date.now()
       };
@@ -2602,6 +3293,7 @@
     return {
       supported: Array.isArray(categories) && categories.some(category => Number(category.id) === FAMILY_SHARING_CATEGORY_ID),
       context: STORE_CACHE_CONTEXT,
+      coverUrl: getStoreCoverUrl(appid),
       updatedAt: Date.now()
     };
   }
@@ -2711,6 +3403,7 @@
     const priceUrl = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(appid)}&filters=basic,price_overview&cc=${STORE_CC}&l=${STORE_LANG}`;
     const priceData = await requestStoreJson(priceUrl, `prices.${appid}`);
     setRawData(`prices.${appid}`, priceData);
+    cacheStoreCoverUrl(appid, extractStoreCoverUrlFromAppdetails(priceData?.[appid]));
     return normalizeOriginalPrice(priceData?.[appid]);
   }
 
@@ -2724,6 +3417,7 @@
     const prices = new Map();
     for (const appid of uniqueAppids) {
       const item = priceData?.[appid];
+      cacheStoreCoverUrl(appid, extractStoreCoverUrlFromAppdetails(item));
       if (hasPriceOverview(item)) {
         prices.set(appid, normalizeOriginalPrice(item));
         continue;
@@ -2919,15 +3613,18 @@
       if (cell) {
         cell.innerHTML = getGameListStatusHtml(appid);
       }
+      renderCompareDialogIfOpen();
       return;
     }
     renderDetailsPreserveScroll();
+    renderCompareDialogIfOpen();
   }
 
   function renderDetailsAfterPriceChange() {
     if (currentTab === "all" || currentTab === "new" || currentTab === "search") {
       renderDetailsPreserveScroll();
     }
+    renderCompareDialogIfOpen();
   }
 
   function refreshReportMetrics() {
@@ -2950,6 +3647,8 @@
     lastReport.metrics.filteringTotal = lastReport.filtering?.total || 0;
     lastReport.games.unpriced = unpricedGames;
     lastReport.targetBreakdown = buildTargetBreakdownFromReport(lastReport);
+    renderCompareDialogIfOpen();
+    scheduleAnalysisHistorySave();
   }
 
   function pruneZeroValueAddedGames() {
@@ -3265,7 +3964,7 @@
       }).join("");
       elements.profile.innerHTML = `
         <div class="sffa-profile-head">
-          <div class="sffa-avatar"></div>
+          <button class="sffa-compare-btn" type="button" data-sffa-open-compare title="${escapeAttr(t("compare"))}" aria-label="${escapeAttr(t("compare"))}">${escapeHtml(t("compare"))}</button>
           <div>
             <div class="sffa-profile-name">${escapeHtml(target.displayName || t("targetAccountCount", { count: targets.length }))}</div>
           </div>
@@ -3312,6 +4011,562 @@
     renderSummary(lastReport);
     renderTargetProfile(lastReport);
     renderDetails();
+    renderCompareDialogIfOpen();
+    scheduleAnalysisHistorySave();
+  }
+
+  function handleProfileActionClick(event) {
+    const button = event.target.closest("[data-sffa-open-compare]");
+    if (!button) {
+      return;
+    }
+    openCompareDialog();
+  }
+
+  function isCompareDialogOpen() {
+    return Boolean(elements.root?.classList.contains("is-compare-open"));
+  }
+
+  function openCompareDialog() {
+    if (!lastReport || !isMultiTargetReport(lastReport)) {
+      setStatus(t("noSummary"), "warn");
+      return;
+    }
+
+    closeMenu();
+    comparePriceRangeByTarget = {};
+    renderCompareDialog(lastReport);
+    elements.root.classList.add("is-compare-open");
+    if (elements.compareSummary) {
+      elements.compareSummary.scrollTop = 0;
+    }
+  }
+
+  function closeCompareDialog() {
+    elements.root.classList.remove("is-compare-open");
+    comparePriceRangeByTarget = {};
+  }
+
+  function renderCompareDialogIfOpen() {
+    if (!isCompareDialogOpen() || !lastReport) {
+      return;
+    }
+    if (lastReport.filtering?.running) {
+      return;
+    }
+
+    const scrollTop = elements.compareSummary?.scrollTop || 0;
+    renderCompareDialog(lastReport);
+    if (elements.compareSummary) {
+      elements.compareSummary.scrollTop = scrollTop;
+    }
+  }
+
+  function renderCompareDialog(report) {
+    if (!elements.compareSummary || !elements.compareBody || !elements.compareHint || !elements.compareTitle) {
+      return;
+    }
+
+    if (!report || !isMultiTargetReport(report)) {
+      elements.compareTitle.textContent = t("compareTitle");
+      elements.compareHint.textContent = t("compareHint", { count: Array.isArray(report?.target?.targets) ? report.target.targets.length : 0 });
+      elements.compareSummary.innerHTML = "";
+      elements.compareBody.innerHTML = `<div class="sffa-compare-empty">${escapeHtml(t("compareNoData"))}</div>`;
+      return;
+    }
+
+    elements.compareTitle.textContent = t("compareTitle");
+    if (report?.filtering?.running) {
+      elements.compareHint.textContent = t("compareLoadingHint");
+      elements.compareSummary.innerHTML = renderCompareLoadingHtml(report);
+      elements.compareBody.innerHTML = "";
+      return;
+    }
+
+    const compare = buildCompareView(report);
+    elements.compareHint.textContent = t("compareHint", { count: compare.targets.length });
+    elements.compareSummary.innerHTML = compare.targets.map(target => renderCompareCardHtml(target, compare)).join("");
+    elements.compareBody.innerHTML = "";
+  }
+
+  function renderCompareLoadingHtml(report) {
+    const targets = Array.isArray(report?.target?.targets) ? report.target.targets : [];
+    const percent = report?.filtering?.total
+      ? formatPercent((report.filtering.processed || 0) / report.filtering.total)
+      : formatPercent(0);
+    const cards = targets.map(target => {
+      const name = getTargetProfileDisplayName(target);
+      const steamid64 = String(target?.steamid64 || "");
+      const totalCount = Array.isArray(target?.gameAppids) ? target.gameAppids.length : 0;
+      const statusText = target.selected === false ? t("compareExcluded") : "";
+      return `
+        <section class="sffa-compare-card">
+          <div class="sffa-compare-card-head${statusText ? " has-status" : ""}">
+            ${renderAvatarHtml(target?.avatar || "", name)}
+            <div class="sffa-compare-card-title">
+              <strong>${escapeHtml(name)}</strong>
+              <span>${escapeHtml(steamid64 || "-")}</span>
+              <span class="sffa-compare-card-summary">${escapeHtml(t("compareLoadingHint"))}</span>
+            </div>
+            ${statusText ? `<span class="sffa-compare-card-status">${escapeHtml(statusText)}</span>` : ""}
+          </div>
+          <div class="sffa-compare-card-stats">
+            ${metricCardHtml(t("compareTotal"), totalCount, false)}
+            ${metricCardHtml(t("progress"), percent, false, true)}
+          </div>
+          <div class="sffa-compare-card-empty">${escapeHtml(t("compareLoadingHint"))}</div>
+        </section>
+      `;
+    }).join("");
+
+    if (!cards) {
+      return `<div class="sffa-compare-empty">${escapeHtml(t("compareLoadingHint"))}</div>`;
+    }
+
+    return cards;
+  }
+
+  function buildCompareView(report) {
+    const targets = Array.isArray(report?.target?.targets) ? report.target.targets : [];
+    const activeTargets = targets.length ? targets : [report?.target].filter(Boolean);
+    const activeIdSet = new Set(activeTargets.map(target => String(target?.steamid64 || "")).filter(Boolean));
+    const allGames = Array.isArray(report?.games?.all) ? report.games.all : [];
+    const familySet = new Set(state.familyLibrary.appidSet.map(String));
+    const newIdSet = new Set((report?.games?.new || []).map(game => String(game.appid)));
+    const overlapIdSet = new Set((report?.games?.overlap || []).map(game => String(game.appid)));
+    const gameById = new Map();
+
+    allGames.forEach(game => {
+      const appid = String(game?.appid || "");
+      if (!appid) {
+        return;
+      }
+      const owners = Array.from(new Set((game.targetOwners || []).map(String).filter(steamid => activeIdSet.has(steamid))));
+      if (!owners.length) {
+        return;
+      }
+      gameById.set(appid, {
+        ...game,
+        appid,
+        owners,
+        ownerCount: owners.length
+      });
+    });
+
+    const games = Array.from(gameById.values()).map(game => {
+      const status = getCompareGameStatus(report, game.appid, familySet, newIdSet, overlapIdSet);
+      const price = resolveCompareGamePrice(game);
+      const groupKey = game.ownerCount === 1
+        ? "exclusive"
+        : game.ownerCount === activeTargets.length
+          ? "all"
+          : "partial";
+      return {
+        ...game,
+        price,
+        status,
+        groupKey,
+        statusLabel: getCompareStatusLabel(status),
+        priceText: getCompareGamePriceText(price, status),
+        statusClass: getCompareStatusClass(status)
+      };
+    }).sort(compareGameRows);
+
+    const targetStats = activeTargets.map(target => buildCompareTargetStats(target, games, activeTargets.length));
+    const statMax = {
+      unique: Math.max(...targetStats.map(item => item.uniqueCount), 0),
+      added: Math.max(...targetStats.map(item => item.uniqueAddedCount), 0),
+      addedValue: Math.max(...targetStats.map(item => item.addedValue), 0),
+      averageValue: Math.max(...targetStats.map(item => item.qualityValue), 0)
+    };
+
+    return {
+      targets: activeTargets,
+      targetStats,
+      statMax
+    };
+  }
+
+  function buildCompareTargetStats(target, games, targetTotal) {
+    const steamid64 = String(target?.steamid64 || "");
+    const ownedGames = games.filter(game => game.owners.includes(steamid64));
+    const uniqueGames = ownedGames.filter(game => game.ownerCount === 1);
+    const sharedGames = ownedGames.filter(game => game.ownerCount > 1);
+    const newGames = ownedGames.filter(game => game.status === "new");
+    const uniqueNewGames = newGames.filter(game => game.ownerCount === 1).sort(compareUniqueNewGames);
+    const addedValue = newGames
+      .map(game => resolveCompareGamePrice(game))
+      .filter(price => price && !price.pending && !price.unavailable)
+      .reduce((sum, price) => sum + Number(price?.initial || 0), 0);
+    const qualityValue = newGames.length ? addedValue / newGames.length : 0;
+
+    return {
+      steamid64,
+      displayName: getTargetProfileDisplayName(target),
+      profileUrl: target?.profileUrl || "",
+      avatar: target?.avatar || "",
+      selected: target?.selected !== false,
+      totalCount: Array.isArray(target?.gameAppids) ? target.gameAppids.length : ownedGames.length,
+      uniqueCount: uniqueGames.length,
+      sharedCount: sharedGames.length,
+      addedCount: newGames.length,
+      uniqueAddedCount: uniqueNewGames.length,
+      addedValue,
+      qualityValue,
+      newGames,
+      uniqueNewGames,
+      ownedGames,
+      targetTotal
+    };
+  }
+
+  function renderCompareCardHtml(target, compare) {
+    const stats = compare.targetStats.find(item => item.steamid64 === target.steamid64) || buildCompareTargetStats(target, [], compare.targets.length);
+    const uniqueBest = compare.statMax.unique > 0;
+    const addedBest = compare.statMax.added > 0;
+    const addedValueBest = compare.statMax.addedValue > 0;
+    const averageValueBest = compare.statMax.averageValue > 0;
+    const selectedRange = getCompareSelectedPriceRange(stats.steamid64);
+    const uniqueGames = Array.isArray(stats.uniqueNewGames) ? stats.uniqueNewGames : [];
+    const filteredUniqueGames = selectedRange
+      ? uniqueGames.filter(game => isCompareGameInPriceRange(game, selectedRange))
+      : uniqueGames;
+    const summaryText = getCompareTargetSummaryText(stats);
+    const html = [
+      metricCardHtml(`${t("compareUnique")}/${t("compareTotal")}`, `${stats.uniqueCount}/${stats.totalCount}`, uniqueBest && stats.uniqueCount === compare.statMax.unique, false, t("compareUniqueTip")),
+      metricCardHtml(`${t("compareUniqueAdded")}/${t("compareAdded")}`, `${stats.uniqueAddedCount}/${stats.addedCount}`, addedBest && stats.uniqueAddedCount === compare.statMax.added, false, t("compareUniqueAddedTip")),
+      metricCardHtml(t("addedValue"), formatMoney(Number(stats.addedValue || 0)), addedValueBest && stats.addedValue === compare.statMax.addedValue),
+      metricCardHtml(t("compareAverageValue"), formatMoney(Number(stats.qualityValue || 0)), averageValueBest && stats.qualityValue === compare.statMax.averageValue),
+      renderComparePriceRangeCards(stats, selectedRange)
+    ].join("");
+
+    const statusHtml = stats.selected ? "" : `<span class="sffa-compare-card-status">${escapeHtml(t("compareExcluded"))}</span>`;
+    const emptyText = selectedRange ? t("compareNoRangeGames") : t("compareNoUniqueAdded");
+    const uniqueGamesHtml = filteredUniqueGames.length
+      ? filteredUniqueGames.map(game => renderCompareUniqueGameHtml(game)).join("")
+      : `<div class="sffa-compare-card-empty">${escapeHtml(emptyText)}</div>`;
+    const gamesCountText = selectedRange
+      ? `${filteredUniqueGames.length}/${uniqueGames.length}`
+      : String(uniqueGames.length);
+    return `
+      <section class="sffa-compare-card${stats.selected ? "" : " is-muted"}">
+        <div class="sffa-compare-card-head${statusHtml ? " has-status" : ""}">
+          ${renderAvatarHtml(stats.avatar, stats.displayName)}
+          <div class="sffa-compare-card-title">
+            <strong>${escapeHtml(stats.displayName)}</strong>
+            <span>${escapeHtml(stats.steamid64 || "-")}</span>
+            <span class="sffa-compare-card-summary">${escapeHtml(summaryText)}</span>
+          </div>
+          ${statusHtml}
+        </div>
+        <div class="sffa-compare-card-stats">
+          ${html}
+        </div>
+        <div class="sffa-compare-card-games">
+          <div class="sffa-compare-card-games-head">
+            <strong>${escapeHtml(t("compareUniqueAdded"))}</strong>
+            <span>${escapeHtml(gamesCountText)}</span>
+          </div>
+          <div class="sffa-compare-card-games-list">
+            ${uniqueGamesHtml}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderComparePriceRangeCards(stats, selectedRange) {
+    const counts = getComparePriceRangeCounts(stats.uniqueNewGames || []);
+    return `
+      <div class="sffa-compare-price-ranges">
+        ${COMPARE_PRICE_RANGES.map(range => {
+          const active = selectedRange === range.key;
+          return `
+            <button class="sffa-compare-price-range${active ? " is-active" : ""}" type="button" data-sffa-compare-range="${escapeAttr(range.key)}" data-sffa-compare-target="${escapeAttr(stats.steamid64)}" aria-pressed="${active ? "true" : "false"}">
+              <span>${escapeHtml(range.label)}</span>
+              <strong>${escapeHtml(String(counts[range.key] || 0))}</strong>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function getComparePriceRangeCounts(games) {
+    const counts = {};
+    COMPARE_PRICE_RANGES.forEach(range => {
+      counts[range.key] = 0;
+    });
+    (games || []).forEach(game => {
+      const key = getCompareGamePriceRangeKey(game);
+      if (key && Object.prototype.hasOwnProperty.call(counts, key)) {
+        counts[key] += 1;
+      }
+    });
+    return counts;
+  }
+
+  function getCompareGamePriceRangeKey(game) {
+    const price = resolveCompareGamePrice(game);
+    if (!price || price.pending || price.unavailable || price.initial == null) {
+      return "";
+    }
+    const cents = Number(price.initial || 0);
+    const range = COMPARE_PRICE_RANGES.find(item => cents >= item.min && cents < item.max);
+    return range?.key || "";
+  }
+
+  function isCompareGameInPriceRange(game, rangeKey) {
+    return getCompareGamePriceRangeKey(game) === rangeKey;
+  }
+
+  function getCompareSelectedPriceRange(steamid64) {
+    return String(comparePriceRangeByTarget[String(steamid64 || "")] || "");
+  }
+
+  function handleCompareSummaryClick(event) {
+    const button = event.target.closest("[data-sffa-compare-range]");
+    if (!button || !lastReport) {
+      return;
+    }
+
+    const steamid64 = String(button.dataset.sffaCompareTarget || "");
+    const range = String(button.dataset.sffaCompareRange || "");
+    if (!steamid64 || !range) {
+      return;
+    }
+
+    if (comparePriceRangeByTarget[steamid64] === range) {
+      delete comparePriceRangeByTarget[steamid64];
+    } else {
+      comparePriceRangeByTarget[steamid64] = range;
+    }
+    renderCompareDialog(lastReport);
+  }
+
+  function getCompareTargetSummaryText(stats) {
+    const qualitySummary = getCompareTargetQualitySummaryText(stats);
+    return qualitySummary;
+  }
+
+  function getCompareTargetQualitySummaryText(stats) {
+    const count = Number(stats?.addedCount || 0);
+    if (!count) {
+      return t("compareQualityNone");
+    }
+    const qualityScore = getCompareTargetQualityScore(stats);
+    const quality = getCompareTargetQualityLabel(qualityScore);
+    return t("compareQualitySummary", { quality });
+  }
+
+  function getCompareTargetQualityScore(stats) {
+    const count = Number(stats?.addedCount || 0);
+    if (!count) {
+      return 0;
+    }
+    const average = Number(stats?.addedValue || 0) / count;
+    const multiplier = 1 + Math.log2(count + 1) * 0.2;
+    return average * multiplier;
+  }
+
+  function getCompareTargetQualityLabel(scoreCents) {
+    const value = Number(scoreCents || 0);
+    const level = COMPARE_QUALITY_LEVELS.find(item => value < item.max) || COMPARE_QUALITY_LEVELS[COMPARE_QUALITY_LEVELS.length - 1];
+    return {
+      veryLow: t("compareQualityVeryLow"),
+      low: t("compareQualityLow"),
+      medium: t("compareQualityMedium"),
+      high: t("compareQualityHigh"),
+      veryHigh: t("compareQualityVeryHigh")
+    }[level.key] || "-";
+  }
+
+  function metricCardHtml(label, value, highlight = false, wide = false, title = "") {
+    const classes = ["sffa-compare-stat"];
+    if (highlight) {
+      classes.push("is-highlight");
+    }
+    if (wide) {
+      classes.push("is-wide");
+    }
+    const titleAttr = title ? ` title="${escapeAttr(title)}"` : "";
+    return `
+      <div class="${classes.join(" ")}"${titleAttr}>
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value)}</strong>
+      </div>
+    `;
+  }
+
+  function renderCompareUniqueGameHtml(game) {
+    const priceClass = getComparePriceChipClass(game);
+    const coverUrl = getCompareGameCoverUrl(game.appid);
+    const coverStyle = coverUrl ? ` style="--sffa-cover: url(${escapeAttr(coverUrl)});"` : "";
+    const gameName = getGameDisplayName(game);
+    return `
+      <div class="sffa-compare-card-game"${coverStyle}>
+        <a class="sffa-compare-card-game-link" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener" aria-label="${escapeAttr(gameName)}" title="${escapeAttr(gameName)}">
+          <span class="sffa-compare-card-game-title">${escapeHtml(gameName)}</span>
+          <span class="sffa-compare-card-game-price ${escapeAttr(priceClass)}">${escapeHtml(game.priceText)}</span>
+        </a>
+      </div>
+    `;
+  }
+
+  function resolveCompareGamePrice(game) {
+    if (game?.price && (typeof game.price.initial === "number" || game.price.pending || game.price.unavailable)) {
+      return game.price;
+    }
+    return state.storeCache?.[String(game?.appid || "")]?.price || null;
+  }
+
+  function getComparePriceChipClass(game) {
+    if (game?.price?.pending) {
+      return "is-pending";
+    }
+    if (game?.price?.unavailable) {
+      return game?.status === "unsupported" ? "is-unsupported" : "is-no-value";
+    }
+    if (typeof game?.price?.initial === "number") {
+      return game?.status === "new" ? "is-new" : "is-overlap";
+    }
+    return "is-no-value";
+  }
+
+  function getCompareGameCoverUrl(appid) {
+    return getCachedStoreCoverUrl(appid) || getStoreCoverUrl(appid);
+  }
+
+  function getCachedStoreCoverUrl(appid) {
+    const entry = state.storeCache?.[String(appid || "")];
+    return String(entry?.coverUrl || "");
+  }
+
+  function getStoreCoverUrl(appid) {
+    const value = String(appid || "");
+    if (!/^\d+$/.test(value)) {
+      return "";
+    }
+    return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${value}/header.jpg`;
+  }
+
+  function extractStoreCoverUrlFromAppdetails(item) {
+    return String(item?.data?.header_image || item?.data?.capsule_image || "");
+  }
+
+  function cacheStoreCoverUrl(appid, coverUrl) {
+    const normalized = String(coverUrl || "").trim();
+    if (!normalized) {
+      return;
+    }
+    state.storeCache = state.storeCache || {};
+    state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
+      context: STORE_CACHE_CONTEXT,
+      coverUrl: normalized,
+      updatedAt: Date.now()
+    });
+  }
+
+  function renderAvatarHtml(avatarUrl, label) {
+    if (avatarUrl) {
+      return `<img class="sffa-avatar" src="${escapeAttr(avatarUrl)}" alt="">`;
+    }
+    return `<div class="sffa-avatar">${escapeHtml(getAvatarFallbackText(label))}</div>`;
+  }
+
+  function getAvatarFallbackText(label) {
+    const text = String(label || "").trim();
+    if (!text) {
+      return "?";
+    }
+    return text.slice(0, 1).toUpperCase();
+  }
+
+  function getCompareGameStatus(report, appid, familySet, newIdSet, overlapIdSet) {
+    const status = report?.classificationById?.[String(appid)]?.status;
+    if (status) {
+      return status;
+    }
+    if (newIdSet.has(String(appid))) {
+      return "new";
+    }
+    if (overlapIdSet.has(String(appid)) || familySet.has(String(appid))) {
+      return "overlap";
+    }
+    return "pending";
+  }
+
+  function getCompareStatusLabel(status) {
+    return {
+      new: t("compareAdded"),
+      overlap: t("duplicatedGames"),
+      noValue: t("noAddedValue"),
+      unsupported: t("unsupported"),
+      pending: t("pending")
+    }[status] || t("compareStatus");
+  }
+
+  function getCompareStatusClass(status) {
+    return {
+      new: "new",
+      overlap: "overlap",
+      noValue: "no-value",
+      unsupported: "unsupported",
+      pending: "pending"
+    }[status] || "pending";
+  }
+
+  function getCompareGamePriceText(price, status) {
+    if (price?.pending || status === "pending") {
+      return t("pending");
+    }
+    if (price?.unavailable || status === "unsupported") {
+      return "N/A";
+    }
+    if (price && (typeof price.initial === "number" || price.isFree === true)) {
+      return formatOriginalPriceText(price);
+    }
+    return t("loading");
+  }
+
+  function compareUniqueNewGames(left, right) {
+    const leftPrice = getOriginalPriceSortValue(resolveCompareGamePrice(left));
+    const rightPrice = getOriginalPriceSortValue(resolveCompareGamePrice(right));
+    if (leftPrice !== rightPrice) {
+      return rightPrice - leftPrice;
+    }
+    return String(getGameDisplayName(left) || "").localeCompare(String(getGameDisplayName(right) || ""), getNumberLocale(), { numeric: true, sensitivity: "base" });
+  }
+
+  function compareGameRows(left, right) {
+    const groupOrder = {
+      exclusive: 0,
+      partial: 1,
+      all: 2
+    };
+    const statusOrder = {
+      new: 0,
+      pending: 1,
+      unsupported: 2,
+      noValue: 3,
+      overlap: 4
+    };
+    const leftGroup = groupOrder[left.groupKey] ?? 9;
+    const rightGroup = groupOrder[right.groupKey] ?? 9;
+    if (leftGroup !== rightGroup) {
+      return leftGroup - rightGroup;
+    }
+    const leftStatus = statusOrder[left.status] ?? 9;
+    const rightStatus = statusOrder[right.status] ?? 9;
+    if (leftStatus !== rightStatus) {
+      return leftStatus - rightStatus;
+    }
+    const leftPrice = Number(left.price?.initial || 0);
+    const rightPrice = Number(right.price?.initial || 0);
+    if (leftPrice !== rightPrice) {
+      return rightPrice - leftPrice;
+    }
+    return String(getGameDisplayName(left) || "").localeCompare(String(getGameDisplayName(right) || ""), getNumberLocale(), { numeric: true, sensitivity: "base" });
   }
 
   function renderAutoFamilyRefreshButton() {
@@ -4058,6 +5313,86 @@
     GM_setValue(STORAGE_KEY, state);
   }
 
+  function loadAnalysisHistory() {
+    try {
+      const saved = GM_getValue(ANALYSIS_HISTORY_KEY);
+      if (!saved || saved.version !== 1 || !saved.report) {
+        return null;
+      }
+      return saved;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function restoreAnalysisHistory() {
+    const saved = loadAnalysisHistory();
+    if (!saved) {
+      return false;
+    }
+
+    lastReport = saved.report;
+    if (lastReport?.filtering) {
+      lastReport.filtering.running = false;
+      lastReport.filtering.paused = Boolean(lastReport.filtering.paused);
+    }
+    currentTab = saved.currentTab || "all";
+    tableSortByTab = saved.tableSortByTab || {};
+    comparePriceRangeByTarget = {};
+    if (elements.targetInput && saved.inputValue != null) {
+      elements.targetInput.value = String(saved.inputValue || "");
+    }
+    if (elements.searchInput && saved.searchValue != null) {
+      elements.searchInput.value = String(saved.searchValue || "");
+    }
+
+    refreshReportMetrics();
+    renderTabs();
+    renderSummary(lastReport);
+    renderTargetProfile(lastReport);
+    renderDetailsPreserveScroll();
+    renderCurrentStatusText();
+    return true;
+  }
+
+  function scheduleAnalysisHistorySave(force = false) {
+    if (!lastReport || lastReport.filtering?.running) {
+      return;
+    }
+
+    if (analysisHistorySaveTimer) {
+      window.clearTimeout(analysisHistorySaveTimer);
+      analysisHistorySaveTimer = 0;
+    }
+
+    if (force) {
+      saveAnalysisHistoryNow();
+      return;
+    }
+
+    analysisHistorySaveTimer = window.setTimeout(saveAnalysisHistoryNow, 600);
+  }
+
+  function saveAnalysisHistoryNow() {
+    analysisHistorySaveTimer = 0;
+    if (!lastReport || lastReport.filtering?.running) {
+      return;
+    }
+    GM_setValue(ANALYSIS_HISTORY_KEY, {
+      version: 1,
+      savedAt: Date.now(),
+      inputValue: String(elements.targetInput?.value || "").trim(),
+      searchValue: String(elements.searchInput?.value || ""),
+      currentTab,
+      tableSortByTab,
+      report: lastReport
+    });
+  }
+
+  function clearAnalysisHistory() {
+    GM_deleteValue(ANALYSIS_HISTORY_KEY);
+  }
+
   function cloneDefaultState() {
     return JSON.parse(JSON.stringify(DEFAULT_STATE));
   }
@@ -4112,10 +5447,11 @@
     const normalized = {};
     Object.entries(storeCache || {}).forEach(([appid, entry]) => {
       if (isFreshStoreCacheEntry(entry)) {
-        normalized[String(appid)] = {
+          normalized[String(appid)] = {
           ...(typeof entry.supported === "boolean" ? { supported: entry.supported } : {}),
           context: entry.context,
           localizedName: entry.localizedName || entry.price?.localizedName || "",
+          coverUrl: entry.coverUrl || "",
           price: isFreshOriginalPriceCacheEntry(entry.price) ? entry.price : null,
           updatedAt: Number(entry.updatedAt || Date.now())
         };

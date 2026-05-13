@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.3.1
+// @version      0.1.4
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -129,6 +129,7 @@
       unnamed: "未命名",
       emptyFamilyLibrary: "家庭库为空",
       invalidAccount: "账号格式不对",
+      currentAccountUnsupported: "不能分析当前登录账号，请输入另一个公开 Steam 账号",
       missingVanity: "缺少自定义 ID",
       missingApiKey: "缺少 API Key",
       resolveVanityFailed: "无法解析自定义 ID{message}",
@@ -161,6 +162,7 @@
       searchEmpty: "输入关键词搜索",
       noMatches: "没有匹配游戏",
       unsupported: "不可共享",
+      noAddedValue: "不计入新增",
       pending: "统计中",
       requestTooFast: "请求过快，请稍后再试",
       continueStats: "继续统计...",
@@ -249,6 +251,7 @@
       unnamed: "Unnamed",
       emptyFamilyLibrary: "Family library is empty",
       invalidAccount: "Invalid account format",
+      currentAccountUnsupported: "The current signed-in account cannot be analyzed. Enter another public Steam account.",
       missingVanity: "Missing custom ID",
       missingApiKey: "Missing API key",
       resolveVanityFailed: "Unable to resolve custom ID{message}",
@@ -281,6 +284,7 @@
       searchEmpty: "Enter keywords to search",
       noMatches: "No matching games",
       unsupported: "Not shareable",
+      noAddedValue: "Not counted",
       pending: "Processing",
       requestTooFast: "Too many requests, please try again later",
       continueStats: "Continuing...",
@@ -1658,7 +1662,7 @@
         throw new Error(t("enterAccount"));
       }
       setRawStep("check-family-cache");
-      ensureFamilyReady();
+      const session = ensureFamilyReady();
       setStatus(t("readApiKey"), "warn");
       setRawStep("read-steam-web-api-key");
       await autoReadApiKeyFromCommunity({ keepBusy: true });
@@ -1666,6 +1670,9 @@
       setStatus(t("readTargetLibrary"), "warn");
       setRawStep("fetch-target-owned-games");
       const targetProfile = await getTargetProfile(rawInput);
+      if (targetProfile.steamid64 === session.steamid) {
+        throw new Error(t("currentAccountUnsupported"));
+      }
       setStatus(t("compareLibraries"), "warn");
       setRawStep("compare-libraries");
       const comparison = compareLibraries(targetProfile);
@@ -2304,11 +2311,10 @@
       return;
     }
 
-    lastReport.classificationById[appid] = {
-      status: shareability?.supported ? "new" : "unsupported"
-    };
+    const status = getStoreItemContributionStatus(shareability);
+    lastReport.classificationById[appid] = { status };
 
-    if (shareability?.supported) {
+    if (status === "new") {
       const newGame = {
         ...game,
         familySharingSupported: true,
@@ -2329,6 +2335,13 @@
     refreshReportMetrics();
     scheduleShareabilityProgressRender();
     scheduleVisiblePriceLoads();
+  }
+
+  function getStoreItemContributionStatus(shareability) {
+    if (!shareability?.supported) {
+      return "unsupported";
+    }
+    return isZeroValueOriginalPrice(shareability.price) ? "noValue" : "new";
   }
 
   function updateReportGameLocalizedName(appid, localizedName) {
@@ -2720,7 +2733,7 @@
   }
 
   function renderDetailsAfterPriceChange() {
-    if (currentTab === "new" || currentTab === "search") {
+    if (currentTab === "all" || currentTab === "new" || currentTab === "search") {
       renderDetailsPreserveScroll();
     }
   }
@@ -2729,6 +2742,7 @@
     if (!lastReport) {
       return;
     }
+    pruneZeroValueAddedGames();
     const newGames = lastReport.games.new || [];
     const pricedGames = newGames.filter(game => game.price && !game.price.pending && !game.price.unavailable);
     const unpricedGames = newGames.filter(game => game.price?.unavailable);
@@ -2740,8 +2754,30 @@
     lastReport.games.unpriced = unpricedGames;
   }
 
+  function pruneZeroValueAddedGames() {
+    const newGames = lastReport.games.new || [];
+    const keptGames = [];
+    newGames.forEach(game => {
+      if (isZeroValueOriginalPrice(game.price)) {
+        lastReport.classificationById[String(game.appid)] = { status: "noValue" };
+        return;
+      }
+      keptGames.push(game);
+    });
+    lastReport.games.new = keptGames;
+  }
+
   function hasPriceOverview(item) {
     return Boolean(item?.success && item.data && !Array.isArray(item.data) && item.data.price_overview);
+  }
+
+  function isZeroValueOriginalPrice(price) {
+    return Boolean(
+      price &&
+      !price.pending &&
+      !price.unavailable &&
+      (price.isFree || (price.initial != null && Number(price.initial) <= 0))
+    );
   }
 
   function normalizeOriginalPrice(item) {
@@ -2750,11 +2786,12 @@
     const localizedName = data?.name || "";
     if (hasPriceOverview(item)) {
       const priceOverview = item.data.price_overview;
+      const initial = Number(priceOverview.initial ?? priceOverview.final ?? 0);
       return {
-        initial: Number(priceOverview.initial ?? priceOverview.final ?? 0),
+        initial,
         currency: priceOverview.currency || getStoreCurrency(),
         localizedName,
-        isFree: false,
+        isFree: data?.is_free === true || initial <= 0,
         unavailable: false,
         updatedAt: now
       };
@@ -2787,11 +2824,12 @@
     const purchaseOption = item?.best_purchase_option;
     const initial = purchaseOption?.original_price_in_cents ?? purchaseOption?.final_price_in_cents;
     if (initial != null && initial !== "") {
+      const cents = Number(initial);
       return {
-        initial: Number(initial),
+        initial: cents,
         currency: getStoreCurrency(),
         localizedName,
-        isFree: false,
+        isFree: cents <= 0,
         unavailable: false,
         updatedAt: now
       };
@@ -3340,6 +3378,7 @@
       new: t("addedGames"),
       overlap: t("duplicatedGames"),
       unsupported: t("unsupported"),
+      noValue: t("noAddedValue"),
       pending: t("pending")
     }[status] || "-";
   }

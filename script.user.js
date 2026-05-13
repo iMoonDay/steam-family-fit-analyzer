@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Steam 家庭库分析器
-// @name:en      Steam Family Library Analyzer
+// @name         Steam Family Library Analyzer
+// @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.3
-// @description  基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
-// @description:en Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
+// @version      0.1.3.1
+// @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
+// @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
 // @match        https://store.steampowered.com/*
 // @match        https://steamcommunity.com/profiles/*

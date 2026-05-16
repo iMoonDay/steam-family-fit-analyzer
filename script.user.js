@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.7
+// @version      0.1.8
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -45,6 +45,7 @@
   const ORIGINAL_PRICE_BATCH_SIZE = 50;
   // 家庭共享支持性检测每批 App 的数量；调大可更快，调小可更稳。
   const SHAREABILITY_BATCH_SIZE = 50;
+  const COVER_RELOAD_BATCH_SIZE = 24;
   // 商店请求之间的间隔，单位毫秒；调大更稳，调小更快但更容易撞限流。
   const STORE_REQUEST_DELAY_MS = 50;
   // 搜索输入停止后再刷新表格的延迟，单位毫秒；用于避免大列表逐字重绘卡顿。
@@ -85,6 +86,10 @@
   // ===== 本地化与商店上下文 =====
 
   const I18N = Object.freeze(buildI18nMap({ "zh-CN": "appName=Steam 家庭库分析器|launcher=家庭库分析|waitFamilyScan=等待家庭库扫描|hideLauncher=隐藏侧边按钮|openAnalyzer=打开 Steam 家庭库分析器|more=更多|copyReport=复制报告|clearStoreCache=清除商店缓存|rawData=查看原始数据|close=关闭|clear=清空|languageTitle=语言|languageAuto=自动|languageChinese=中文|languageEnglish=English|targetPlaceholder=SteamID64、好友码、主页链接或自定义 ID，多个用空格分隔|refreshFamily=刷新家庭库|analyzeAccount=分析账号|continue=继续|rateCheck=限流检测|tabs.all=全部|tabs.family=家庭库|tabs.new=新增|tabs.relativeNew=相对新增|tabs.overlap=重复|tabs.search=搜索|searchPlaceholder=搜索游戏名或 AppID|copyList=复制列表|initialEmpty=输入账号后分析|signInFirst=请先登录|accountSwitched=账号已切换，请刷新|loadedCount=已加载：{count} 款|refreshFirst=请先刷新|launcherHidden=侧边按钮已隐藏|launcherVisible=侧边按钮已显示|showLauncherMenu=显示侧边按钮|hideLauncherMenu=隐藏侧边按钮|openDialogMenu=打开分析弹窗|compare=对比|compareTitle=账号游戏对比|compareHint=按当前输入的 {count} 个账号对比，聚焦游戏差异。|compareLoadingHint=统计进行中，完成后会显示完整对比。|compareExcluded=已排除|compareSectionExclusive=仅 1 个账号拥有|compareSectionPartial=部分账号共有|compareSectionAll=全部账号共有|compareNoData=暂无可对比游戏|compareNoUniqueAdded=暂无独有新增游戏|compareNoRangeGames=该价格区间暂无游戏|compareGames=游戏|compareOwners=拥有者|compareStatus=状态|comparePrice=原价|compareUnique=独占|compareShared=共有|compareAdded=新增|compareUniqueAdded=独有新增|compareQuality=游戏质量|compareQualitySummary=游戏质量：{quality}|compareQualityNone=游戏质量：无新增游戏|compareAverageValue=平均价值|compareQualityVeryLow=超低|compareQualityLow=低|compareQualityMedium=中|compareQualityHigh=高|compareQualityVeryHigh=超高|compareUniqueTip=独占/总游戏：该账号单独拥有的游戏数 / 该账号总游戏数。|compareUniqueAddedTip=独有新增/新增：该账号单独拥有且对家庭库有新增价值的游戏数 / 该账号带来的新增游戏数。|comparePriceDistribution=价格分布：¥0-¥48 {low} 款，¥48-¥98 {mid} 款，¥98-¥198 {high} 款，¥198+ {top} 款|compareStructure=结构：独占 {unique} 款，共享 {shared} 款|compareTotal=总游戏|refreshing=刷新中...|notLoggedInOrExpired=未登录或页面过期|refreshedCount=已刷新：{count} 款|autoRefreshedCount=已自动刷新：{count} 款|autoRefreshFailed=自动刷新失败：|enterAccount=请输入账号|readApiKey=读取 API Key...|readTargetLibrary=读取目标库...|compareLibraries=比较游戏库...|shownAllProgress=已显示全部，后台统计 {percent}|noSummary=暂无摘要|reportTitle=Steam 家庭库分析：{target}|totalGames=总游戏|addedGames=新增|duplicatedGames=重复|overlapRate=重复率|addedValue=新增价值|copied=已复制|copyFailed=复制失败|noList=暂无列表|enterSearch=请先输入关键词|currentListEmpty=当前列表为空|copiedList=已复制列表|popupBlocked=弹窗被拦截|rawDataTitle=返回原始数据|autoRefreshOn=自动刷新已开|autoRefreshOff=自动刷新已关|storeCacheCleared=已清除商店缓存|communityNotSignedIn=Community 未登录|apiKeyNotRegistered=未注册 API Key|apiKeyNotFound=找不到 API Key|noFamilyGroup=没有家庭组|unnamed=未命名|emptyFamilyLibrary=家庭库为空|invalidAccount=账号格式不对|invalidFriendCode=Steam 好友码无效|currentAccountUnsupported=不能分析当前登录账号，请输入另一个公开 Steam 账号|missingVanity=缺少自定义 ID|missingApiKey=缺少 API Key|resolveVanityFailed=无法解析自定义 ID{message}|privateTargetLibrary=目标库不可见|backgroundProgress=后台统计：{percent}|done=完成|completedAdded=统计完成：新增 {count} 款|invalidAppid=AppID 无效：{appid}|storeBatchMalformed=共享支持性批量响应格式异常|notRefreshed=未刷新|noCache=无缓存|targetAccount=目标账号|targetAccountCount={count} 个账号|targetOwners=拥有者|deduped=去重|progress=统计进度|unknownAccount=未知账号|time=时间|link=链接|openProfile=打开主页|autoRefreshClose=关闭自动刷新|autoRefreshOpen=开启自动刷新|autoRefreshTitle=每 24 小时刷新上次：{time}|game=游戏|owners=贡献者|acquiredAt=入库时间|price=原价|list=列表|info=信息|status=状态|noFamilyRefresh=请先刷新家庭库|tabEmpty={tab}为空|searchEmpty=输入关键词搜索|noMatches=没有匹配游戏|unsupported=不可共享|noAddedValue=不计入新增|pending=统计中|requestTooFast=请求过快，请稍后再试|continueStats=继续统计...|continuePrices=继续加载价格...|nothingToContinue=没有待继续任务|checking=检测中...|rateLimitCleared=限流已解除，可继续|rateLimitedStill=仍被限流，请稍后再试|checkFailed=检测失败|jsonParseFailed=JSON 无法解析|networkFailed=网络失败|requestTimeout=请求超时|loading=加载中", en: "appName=Steam Family Library Analyzer|launcher=Family Analyzer|waitFamilyScan=Waiting for family library|hideLauncher=Hide side button|openAnalyzer=Open Steam Family Library Analyzer|more=More|copyReport=Copy report|clearStoreCache=Clear store cache|rawData=View raw data|close=Close|clear=Clear|languageTitle=Language|languageAuto=Auto|languageChinese=中文|languageEnglish=English|targetPlaceholder=SteamID64, friend code, profile URL, or custom ID. Separate multiple with spaces|refreshFamily=Refresh family library|analyzeAccount=Analyze account|continue=Continue|rateCheck=Check rate limit|tabs.all=All|tabs.family=Family library|tabs.new=Added|tabs.relativeNew=Relative added|tabs.overlap=Duplicates|tabs.search=Search|searchPlaceholder=Search game name or AppID|copyList=Copy list|initialEmpty=Enter an account to analyze|signInFirst=Please sign in first|accountSwitched=Account changed, please refresh|loadedCount=Loaded: {count}|refreshFirst=Please refresh first|launcherHidden=Side button hidden|launcherVisible=Side button shown|showLauncherMenu=Show side button|hideLauncherMenu=Hide side button|openDialogMenu=Open analyzer|compare=Compare|compareTitle=Account game comparison|compareHint=Compare the {count} entered accounts with a focus on game differences.|compareLoadingHint=Statistics are still running. The full comparison will appear when they finish.|compareExcluded=Excluded|compareSectionExclusive=Owned by 1 account|compareSectionPartial=Shared by some accounts|compareSectionAll=Owned by all accounts|compareNoData=No games to compare|compareNoUniqueAdded=No exclusive added games|compareNoRangeGames=No games in this price range|compareGames=Games|compareOwners=Owners|compareStatus=Status|comparePrice=Price|compareUnique=Exclusive|compareShared=Shared|compareAdded=Added|compareUniqueAdded=Exclusive added|compareQuality=Game quality|compareQualitySummary=Game quality: {quality}|compareQualityNone=Game quality: no added games|compareAverageValue=Average value|compareQualityVeryLow=Very low|compareQualityLow=Low|compareQualityMedium=Medium|compareQualityHigh=High|compareQualityVeryHigh=Very high|compareUniqueTip=Exclusive/total: games owned only by this account / total games on this account.|compareUniqueAddedTip=Exclusive added/added: games owned only by this account that add value to the family library / all added games from this account.|comparePriceDistribution=Price distribution: ¥0-¥48 {low} games, ¥48-¥98 {mid} games, ¥98-¥198 {high} games, ¥198+ {top} games|compareStructure=Structure: {unique} exclusive games, {shared} shared games|compareTotal=Total|refreshing=Refreshing...|notLoggedInOrExpired=Not signed in or page expired|refreshedCount=Refreshed: {count}|autoRefreshedCount=Auto-refreshed: {count}|autoRefreshFailed=Auto refresh failed:|enterAccount=Enter an account|readApiKey=Reading API key...|readTargetLibrary=Reading target library...|compareLibraries=Comparing libraries...|shownAllProgress=Showing all, background progress {percent}|noSummary=No summary yet|reportTitle=Steam family library analysis: {target}|totalGames=Total games|addedGames=Added|duplicatedGames=Duplicates|overlapRate=Duplicate rate|addedValue=Added value|copied=Copied|copyFailed=Copy failed|noList=No list yet|enterSearch=Enter a search term first|currentListEmpty=Current list is empty|copiedList=List copied|popupBlocked=Popup blocked|rawDataTitle=Raw data|autoRefreshOn=Auto refresh on|autoRefreshOff=Auto refresh off|storeCacheCleared=Store cache cleared|communityNotSignedIn=Community not signed in|apiKeyNotRegistered=API key is not registered|apiKeyNotFound=API key not found|noFamilyGroup=No family group|unnamed=Unnamed|emptyFamilyLibrary=Family library is empty|invalidAccount=Invalid account format|invalidFriendCode=Invalid Steam friend code|currentAccountUnsupported=The current signed-in account cannot be analyzed. Enter another public Steam account.|missingVanity=Missing custom ID|missingApiKey=Missing API key|resolveVanityFailed=Unable to resolve custom ID{message}|privateTargetLibrary=Target library is private|backgroundProgress=Background progress: {percent}|done=Done|completedAdded=Completed: {count} added|invalidAppid=Invalid AppID: {appid}|storeBatchMalformed=Unexpected store batch response|notRefreshed=Not refreshed|noCache=No cache|targetAccount=Target account|targetAccountCount={count} accounts|targetOwners=Owners|deduped=deduped|progress=Progress|unknownAccount=Unknown account|time=Time|link=Link|openProfile=Open profile|autoRefreshClose=Disable auto refresh|autoRefreshOpen=Enable auto refresh|autoRefreshTitle=Refreshes every 24 hours. Last: {time}|game=Game|owners=Owners|acquiredAt=Acquired|price=Original price|list=List|info=Info|status=Status|noFamilyRefresh=Refresh family library first|tabEmpty={tab} is empty|searchEmpty=Enter keywords to search|noMatches=No matching games|unsupported=Not shareable|noAddedValue=Not counted|pending=Processing|requestTooFast=Too many requests, please try again later|continueStats=Continuing...|continuePrices=Continuing price loading...|nothingToContinue=Nothing to continue|checking=Checking...|rateLimitCleared=Rate limit cleared, you can continue|rateLimitedStill=Still rate limited, please try later|checkFailed=Check failed|jsonParseFailed=Unable to parse JSON|networkFailed=Network failed|requestTimeout=Request timed out|loading=Loading" }));
+  Object.assign(I18N["zh-CN"], { viewMode: "视图", viewTable: "表格", viewCover: "封面" });
+  Object.assign(I18N.en, { viewMode: "View", viewTable: "Table", viewCover: "Covers" });
+  Object.assign(I18N["zh-CN"], { reloadCovers: "重载封面", coversReloaded: "已重载封面" });
+  Object.assign(I18N.en, { reloadCovers: "Reload covers", coversReloaded: "Cover images reloaded" });
 
   function buildI18nMap(localeEntriesByLocale) {
     return Object.fromEntries(
@@ -275,6 +280,7 @@
     version: 1,
     activeSteamId: "",
     launcherVisible: true,
+    listViewMode: "table",
     familyInfo: null,
     familyLibrary: {
       appidSet: [],
@@ -295,6 +301,8 @@
   let lastRawData = createRawDataSnapshot("init");
   let storeRequestQueue = Promise.resolve();
   let priceLoadState = createPriceLoadState();
+  let coverLoadState = createCoverLoadState();
+  let coverProbeState = createCoverProbeState();
   let activeAnalysisId = 0;
   let shareabilityFilterState = createShareabilityFilterState();
   let shareabilityProgressUiState = createShareabilityProgressUiState();
@@ -304,6 +312,7 @@
   let searchRenderTimer = 0;
   let scriptMenuCommandIds = [];
   let autoFamilyRefreshRunning = false;
+  let coverReloadToken = 0;
   let elements = {};
 
   bootstrap();
@@ -1539,6 +1548,36 @@
         min-width: 140px;
         max-width: 260px;
       }
+      .sffa-view-switch {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        background: #18222c;
+      }
+      .sffa-view-btn {
+        height: 24px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
+        color: #9fb3c2;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .sffa-view-btn:hover {
+        color: #dbe8f3;
+      }
+      .sffa-view-btn.is-active {
+        background: linear-gradient(180deg, rgba(102, 192, 244, 0.26) 0%, rgba(62, 126, 164, 0.26) 100%);
+        color: #ffffff;
+        box-shadow: inset 0 0 0 1px rgba(143, 209, 255, 0.24);
+      }
       .sffa-search-input {
         display: block;
         width: 100%;
@@ -1599,6 +1638,124 @@
         border: 1px solid rgba(255, 255, 255, 0.07);
         border-radius: 3px;
         background: #11161d;
+      }
+      .sffa-table-wrap.is-cover-view {
+        padding: 10px;
+        background:
+          radial-gradient(circle at top left, rgba(102, 192, 244, 0.08), transparent 26%),
+          linear-gradient(180deg, #11161d 0%, #0e141b 100%);
+      }
+      .sffa-cover-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(198px, 1fr));
+        gap: 10px;
+      }
+      .sffa-cover-card {
+        display: grid;
+        grid-template-rows: 156px auto;
+        min-width: 0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+        background: #121820;
+        color: inherit;
+        text-decoration: none;
+        overflow: hidden;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+        transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+      }
+      .sffa-cover-card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(143, 209, 255, 0.28);
+        box-shadow: 0 16px 34px rgba(0, 0, 0, 0.3);
+        filter: brightness(1.03);
+      }
+      .sffa-cover-card-media {
+        position: relative;
+        display: flex;
+        align-items: flex-end;
+        min-width: 0;
+        padding: 10px;
+        background-color: #16202b;
+        background-image: linear-gradient(180deg, rgba(9, 13, 19, 0.08) 0%, rgba(9, 13, 19, 0.74) 100%), var(--sffa-cover, none);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        box-shadow: inset 0 -40px 64px rgba(0, 0, 0, 0.4);
+      }
+      .sffa-cover-card-title {
+        min-width: 0;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.25;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+        overflow-wrap: anywhere;
+      }
+      .sffa-cover-card-chip {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 22px;
+        max-width: calc(100% - 20px);
+        padding: 0 8px;
+        border-radius: 999px;
+        background: rgba(8, 12, 18, 0.72);
+        color: #ffffff;
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.28);
+      }
+      .sffa-cover-card-chip.is-new {
+        background: rgba(111, 201, 132, 0.22);
+        color: #d5ffe0;
+      }
+      .sffa-cover-card-chip.is-overlap {
+        background: rgba(102, 192, 244, 0.2);
+        color: #d7f0ff;
+      }
+      .sffa-cover-card-chip.is-no-value {
+        background: rgba(8, 12, 18, 0.68);
+        color: #dbe8f3;
+      }
+      .sffa-cover-card-chip.is-unsupported {
+        background: rgba(225, 170, 92, 0.18);
+        color: #ffe4b4;
+      }
+      .sffa-cover-card-chip.is-pending {
+        background: rgba(150, 156, 167, 0.2);
+        color: #f1f4f7;
+      }
+      .sffa-cover-card-body {
+        display: grid;
+        gap: 4px;
+        padding: 10px;
+        min-width: 0;
+      }
+      .sffa-cover-card-appid {
+        color: #8fd1ff;
+        font-size: 11px;
+        line-height: 1.2;
+      }
+      .sffa-cover-card-meta {
+        min-width: 0;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        color: #c9d6e0;
+        font-size: 11px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
       .sffa-table {
         width: 100%;
@@ -1695,6 +1852,16 @@
         .sffa-table {
           min-width: 640px;
         }
+        .sffa-table-wrap.is-cover-view {
+          padding: 8px;
+        }
+        .sffa-cover-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .sffa-cover-card {
+          grid-template-rows: 136px auto;
+        }
         .sffa-compare-shell {
           width: calc(100vw - 16px);
           height: calc(100vh - 16px);
@@ -1762,6 +1929,7 @@
             <div class="sffa-menu" data-sffa-menu>
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
               <button class="sffa-menu-item" type="button" data-sffa-copy>${escapeHtml(t("copyReport"))}</button>
+              <button class="sffa-menu-item" type="button" data-sffa-reload-covers>${escapeHtml(t("reloadCovers"))}</button>
               <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-raw>${escapeHtml(t("rawData"))}</button>
             </div>
@@ -1802,6 +1970,10 @@
                       <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                     </svg>
                   </button>
+                </div>
+                <div class="sffa-view-switch" data-sffa-view-switch aria-label="${escapeAttr(t("viewMode"))}">
+                  <button class="sffa-view-btn is-active" type="button" data-sffa-view-mode="table">${escapeHtml(t("viewTable"))}</button>
+                  <button class="sffa-view-btn" type="button" data-sffa-view-mode="cover">${escapeHtml(t("viewCover"))}</button>
                 </div>
                 <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
                 <button class="sffa-tab sffa-copy-current" type="button" data-sffa-copy-current>${escapeHtml(t("copyList"))}</button>
@@ -1856,11 +2028,14 @@
       searchWrap: root.querySelector("[data-sffa-search-wrap]"),
       searchInput: root.querySelector("[data-sffa-search]"),
       searchClearBtn: root.querySelector("[data-sffa-search-clear]"),
+      viewSwitch: root.querySelector("[data-sffa-view-switch]"),
+      viewModeButtons: Array.from(root.querySelectorAll("[data-sffa-view-mode]")),
       copyCurrentBtn: root.querySelector("[data-sffa-copy-current]"),
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
+      reloadCoversBtn: root.querySelector("[data-sffa-reload-covers]"),
       clearStoreCacheBtn: root.querySelector("[data-sffa-clear-store-cache]"),
       rawBtn: root.querySelector("[data-sffa-raw]"),
       rateContinueBtn: root.querySelector("[data-sffa-rate-continue]"),
@@ -1890,6 +2065,7 @@
     elements.analyzeBtn.addEventListener("click", analyzeTarget);
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
     elements.copyBtn.addEventListener("click", copyReportSummary);
+    elements.reloadCoversBtn.addEventListener("click", reloadCovers);
     elements.copyCurrentBtn.addEventListener("click", copyCurrentList);
     elements.clearStoreCacheBtn.addEventListener("click", clearStoreCache);
     elements.rawBtn?.addEventListener("click", showRawDataWindow);
@@ -1898,7 +2074,8 @@
     elements.compareBackdrop?.addEventListener("click", closeCompareDialog);
     elements.compareCloseBtn?.addEventListener("click", closeCompareDialog);
     elements.compareSummary?.addEventListener("click", handleCompareSummaryClick);
-    elements.tableWrap.addEventListener("scroll", () => scheduleVisiblePriceLoads());
+    elements.compareSummary?.addEventListener("scroll", () => scheduleVisibleCoverLoads());
+    elements.tableWrap.addEventListener("scroll", () => { scheduleVisiblePriceLoads(); scheduleVisibleCoverLoads(); });
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.profile.addEventListener("change", handleTargetSelectionChange);
     elements.profile.addEventListener("click", handleProfileActionClick);
@@ -1927,6 +2104,9 @@
       renderDetails();
       scheduleAnalysisHistorySave();
       elements.searchInput.focus();
+    });
+    elements.viewModeButtons.forEach(button => {
+      button.addEventListener("click", () => setListViewMode(button.dataset.sffaViewMode));
     });
     elements.tabs.forEach(tab => {
       tab.addEventListener("click", () => {
@@ -2109,12 +2289,13 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyCurrentBtn, "textContent", t("copyList")], [elements.copyBtn, "textContent", t("copyReport")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyCurrentBtn, "textContent", t("copyList")], [elements.copyBtn, "textContent", t("copyReport")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => { element[key] = value; });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     elements.listOptions.forEach(option => { option.textContent = getMainTabLabel(option.dataset.sffaListOption); });
+    elements.viewModeButtons.forEach(button => { button.textContent = t(button.dataset.sffaViewMode === "cover" ? "viewCover" : "viewTable"); });
     elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
     elements.localeOptions.forEach(option => { option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption); option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode); });
     renderCompareDialogIfOpen();
@@ -2409,6 +2590,105 @@
     saveState();
     renderStoreCacheButton();
     setStatus(t("storeCacheCleared"), "ok");
+  }
+
+  async function reloadCovers() {
+    closeMenu();
+    setBusy(true);
+    try {
+      await refetchVisibleCoverUrls();
+      saveState();
+      renderStoreCacheButton();
+      setStatus(t("coversReloaded"), "ok");
+    } catch (error) {
+      setRawError(error);
+      setStatus(error.message || t("networkFailed"), "err");
+    } finally {
+      setBusy(false);
+    }
+    coverReloadToken = Date.now();
+    renderDetailsPreserveScroll();
+    renderCompareDialogIfOpen();
+  }
+
+  async function refetchVisibleCoverUrls() {
+    const appids = getVisibleCoverAppids();
+    if (!appids.length) {
+      return;
+    }
+    for (const appid of appids) {
+      clearCachedStoreCoverUrl(appid);
+    }
+    for (let index = 0; index < appids.length; index += COVER_RELOAD_BATCH_SIZE) {
+      await fetchCoverUrlBatch(appids.slice(index, index + COVER_RELOAD_BATCH_SIZE));
+    }
+  }
+
+  function getVisibleCoverAppids() {
+    const appids = new Set();
+    getVisibleAppidsFromContainer(elements.tableWrap, getListViewMode() === "cover" ? ".sffa-cover-card" : "tbody tr").forEach(appid => appids.add(appid));
+    if (isCompareDialogOpen()) {
+      getVisibleAppidsFromContainer(elements.compareSummary, ".sffa-compare-card-game-link").forEach(appid => appids.add(appid));
+    }
+    return Array.from(appids);
+  }
+
+  function getVisibleAppidsFromContainer(container, selector) {
+    if (!container) {
+      return [];
+    }
+    const nodes = Array.from(container.querySelectorAll(selector));
+    if (!nodes.length) {
+      return [];
+    }
+    const wrapRect = container.getBoundingClientRect();
+    const visibleNodes = nodes.filter(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.bottom >= wrapRect.top && rect.top <= wrapRect.bottom;
+    });
+    return (visibleNodes.length ? visibleNodes : nodes.slice(0, 20))
+      .map(extractAppidFromNode)
+      .filter(appid => /^\d+$/.test(appid));
+  }
+
+  function extractAppidFromNode(node) {
+    const directHref = String(node?.getAttribute?.("href") || "");
+    if (directHref) {
+      const directMatch = directHref.match(/\/app\/(\d+)\//);
+      if (directMatch) {
+        return directMatch[1];
+      }
+    }
+    const nestedHref = String(node?.querySelector?.("a[href*='/app/']")?.getAttribute?.("href") || "");
+    const nestedMatch = nestedHref.match(/\/app\/(\d+)\//);
+    return nestedMatch ? nestedMatch[1] : "";
+  }
+
+  async function fetchCoverUrlBatch(appids, rawKey = `covers.batch${Date.now()}`) {
+    const uniqueAppids = Array.from(new Set(appids.map(String).filter(appid => /^\d+$/.test(appid))));
+    if (!uniqueAppids.length) {
+      return;
+    }
+    const url = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(uniqueAppids.join(","))}&filters=basic&cc=${STORE_CC}&l=${STORE_LANG}`;
+    const data = await requestStoreJson(url, rawKey);
+    setRawData(rawKey, data);
+    uniqueAppids.forEach(appid => {
+      cacheStoreCoverUrl(appid, extractStoreCoverUrlFromAppdetails(data?.[appid]));
+    });
+  }
+
+  function clearCachedStoreCoverUrl(appid) {
+    const key = String(appid || "");
+    const entry = state.storeCache?.[key];
+    coverProbeState.verifiedUrlByAppid.delete(key);
+    if (!entry) {
+      return;
+    }
+    state.storeCache[key] = {
+      ...entry,
+      coverUrl: "",
+      coverVerified: false
+    };
   }
 
   // ===== Steam 会话与接口访问 =====
@@ -3172,7 +3452,6 @@
         supported: Array.isArray(featureCategoryIds) && featureCategoryIds.some(id => Number(id) === FAMILY_SHARING_CATEGORY_ID),
         context: STORE_CACHE_CONTEXT,
         localizedName: item.name || price?.localizedName || "",
-        coverUrl: getStoreCoverUrl(appid),
         price,
         updatedAt: Date.now()
       };
@@ -3193,7 +3472,6 @@
     return {
       supported: Array.isArray(categories) && categories.some(category => Number(category.id) === FAMILY_SHARING_CATEGORY_ID),
       context: STORE_CACHE_CONTEXT,
-      coverUrl: getStoreCoverUrl(appid),
       updatedAt: Date.now()
     };
   }
@@ -3295,6 +3573,23 @@
     };
   }
 
+  function createCoverLoadState() {
+    return {
+      loadingSet: new Set(),
+      running: false,
+      scheduled: 0
+    };
+  }
+
+  function createCoverProbeState() {
+    return {
+      probingUrlByAppid: new Map(),
+      verifiedUrlByAppid: new Map(),
+      failedUrlByAppid: new Map(),
+      retryingSet: new Set()
+    };
+  }
+
   function applyOriginalPriceToGame(game, price) {
     game.price = price || normalizeOriginalPrice(null);
   }
@@ -3343,6 +3638,7 @@
 
   function startLazyOriginalPriceLoading() {
     scheduleVisiblePriceLoads();
+    scheduleVisibleCoverLoads();
     if (!shareabilityFilterState.running) {
       scheduleBackgroundPriceLoads();
     }
@@ -3380,6 +3676,125 @@
       .filter(appid => priceLoadState.pendingMap.has(String(appid)));
 
     return visible.length ? visible : rows.slice(0, 20).map(row => row.dataset.priceAppid);
+  }
+
+  function scheduleVisibleCoverLoads() {
+    if (rateLimitState.active) {
+      return;
+    }
+    window.clearTimeout(coverLoadState.scheduled);
+    coverLoadState.scheduled = window.setTimeout(runVisibleCoverLoads, 80);
+  }
+
+  async function runVisibleCoverLoads() {
+    coverLoadState.scheduled = 0;
+    if (rateLimitState.active || coverLoadState.running) {
+      return;
+    }
+    const visibleAppids = getVisibleCoverAppids().map(String);
+    visibleAppids.forEach(appid => {
+      const cachedCoverUrl = getCachedStoreCoverUrl(appid);
+      if (cachedCoverUrl) {
+        ensureCoverUrlHealthy(appid, cachedCoverUrl);
+      }
+    });
+    const appids = visibleAppids.filter(appid => !getCachedStoreCoverUrl(appid) && !coverLoadState.loadingSet.has(String(appid)));
+    if (!appids.length) {
+      return;
+    }
+
+    const batch = appids.slice(0, COVER_RELOAD_BATCH_SIZE).map(String);
+    batch.forEach(appid => coverLoadState.loadingSet.add(appid));
+    coverLoadState.running = true;
+    try {
+      await fetchCoverUrlBatch(batch, `covers.visible${Date.now()}`);
+      saveState();
+      renderDetailsPreserveScroll();
+      renderCompareDialogIfOpen();
+    } catch (error) {
+      if (!isRateLimitError(error)) {
+        setRawError(error);
+      }
+    } finally {
+      batch.forEach(appid => coverLoadState.loadingSet.delete(appid));
+      coverLoadState.running = false;
+      if (!rateLimitState.active) {
+        const remaining = getVisibleCoverAppids().some(appid => !getCachedStoreCoverUrl(appid));
+        if (remaining) {
+          scheduleVisibleCoverLoads();
+        }
+      }
+    }
+  }
+
+  function ensureCoverUrlHealthy(appid, url) {
+    const normalizedAppid = String(appid || "");
+    const normalizedUrl = String(url || "").trim();
+    if (!normalizedAppid || !normalizedUrl) {
+      return;
+    }
+    if (coverProbeState.verifiedUrlByAppid.get(normalizedAppid) === normalizedUrl) {
+      return;
+    }
+    if (coverProbeState.failedUrlByAppid.get(normalizedAppid) === normalizedUrl) {
+      return;
+    }
+    if (coverProbeState.probingUrlByAppid.get(normalizedAppid) === normalizedUrl) {
+      return;
+    }
+
+    coverProbeState.probingUrlByAppid.set(normalizedAppid, normalizedUrl);
+    const image = new Image();
+    image.onload = () => {
+      coverProbeState.probingUrlByAppid.delete(normalizedAppid);
+      coverProbeState.verifiedUrlByAppid.set(normalizedAppid, normalizedUrl);
+      coverProbeState.failedUrlByAppid.delete(normalizedAppid);
+      markCachedCoverUrlVerified(normalizedAppid, normalizedUrl);
+    };
+    image.onerror = () => {
+      coverProbeState.probingUrlByAppid.delete(normalizedAppid);
+      if (coverProbeState.failedUrlByAppid.get(normalizedAppid) === normalizedUrl) {
+        return;
+      }
+      coverProbeState.failedUrlByAppid.set(normalizedAppid, normalizedUrl);
+      handleBrokenCoverUrl(normalizedAppid);
+    };
+    image.src = withCoverReloadToken(normalizedUrl);
+  }
+
+  function markCachedCoverUrlVerified(appid, url) {
+    const key = String(appid || "");
+    const entry = state.storeCache?.[key];
+    if (!entry || String(entry.coverUrl || "") !== String(url || "") || entry.coverVerified === true) {
+      return;
+    }
+    state.storeCache[key] = {
+      ...entry,
+      coverVerified: true
+    };
+    saveState();
+  }
+
+  async function handleBrokenCoverUrl(appid) {
+    const key = String(appid || "");
+    if (!key || coverProbeState.retryingSet.has(key)) {
+      return;
+    }
+    coverProbeState.retryingSet.add(key);
+    try {
+      clearCachedStoreCoverUrl(key);
+      await fetchCoverUrlBatch([key], `covers.retry.${key}.${Date.now()}`);
+      saveState();
+      renderDetailsPreserveScroll();
+      renderCompareDialogIfOpen();
+      scheduleVisibleCoverLoads();
+    } catch (error) {
+      if (!isRateLimitError(error)) {
+        setRawError(error);
+      }
+    } finally {
+      coverProbeState.retryingSet.delete(key);
+    }
   }
 
   function scheduleBackgroundPriceLoads() {
@@ -3508,7 +3923,7 @@
   }
 
   function renderDetailsAfterShareabilityChange(appid) {
-    if (currentTab === "all") {
+    if (currentTab === "all" && getListViewMode() === "table") {
       const cell = elements.tableWrap.querySelector(`[data-status-appid="${String(appid)}"]`);
       if (cell) {
         cell.innerHTML = getGameListStatusHtml(appid);
@@ -3524,6 +3939,7 @@
     if (currentTab === "all" || currentTab === "new" || currentTab === "relativeNew") {
       renderDetailsPreserveScroll();
     }
+    scheduleVisibleCoverLoads();
     renderCompareDialogIfOpen();
   }
 
@@ -3946,6 +4362,7 @@
     if (elements.compareSummary) {
       elements.compareSummary.scrollTop = 0;
     }
+    scheduleVisibleCoverLoads();
   }
 
   function closeCompareDialog() {
@@ -3966,6 +4383,7 @@
     if (elements.compareSummary) {
       elements.compareSummary.scrollTop = scrollTop;
     }
+    scheduleVisibleCoverLoads();
   }
 
   function renderCompareDialog(report) {
@@ -4340,7 +4758,15 @@
   }
 
   function getCompareGameCoverUrl(appid) {
-    return getCachedStoreCoverUrl(appid) || getStoreCoverUrl(appid);
+    return withCoverReloadToken(getCachedStoreCoverUrl(appid) || getStoreCoverUrl(appid));
+  }
+
+  function withCoverReloadToken(url) {
+    const normalized = String(url || "").trim();
+    if (!normalized || !coverReloadToken) {
+      return normalized;
+    }
+    return `${normalized}${normalized.includes("?") ? "&" : "?"}t=${coverReloadToken}`;
   }
 
   function getCachedStoreCoverUrl(appid) {
@@ -4369,6 +4795,7 @@
     state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
       context: STORE_CACHE_CONTEXT,
       coverUrl: normalized,
+      coverVerified: true,
       updatedAt: Date.now()
     });
   }
@@ -4490,6 +4917,7 @@
   }
 
   function renderTabs() {
+    const listViewMode = getListViewMode();
     const isReportTab = isReportListTab(currentTab);
     const selectedReportTab = isReportTab ? currentTab : elements.listSelect.dataset.selectedTab || "all";
     elements.listSelect.dataset.selectedTab = selectedReportTab;
@@ -4504,7 +4932,31 @@
     elements.tabs.forEach(tab => {
       tab.classList.toggle("active", tab.dataset.tab === currentTab);
     });
+    elements.viewModeButtons.forEach(button => {
+      const active = button.dataset.sffaViewMode === listViewMode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
     renderSearchClearButton();
+  }
+
+  function normalizeListViewMode(mode) {
+    return mode === "cover" ? "cover" : "table";
+  }
+
+  function getListViewMode() {
+    return normalizeListViewMode(state.listViewMode);
+  }
+
+  function setListViewMode(mode) {
+    const nextMode = normalizeListViewMode(mode);
+    if (nextMode === getListViewMode()) {
+      return;
+    }
+    state.listViewMode = nextMode;
+    saveState();
+    renderTabs();
+    renderDetailsPreserveScroll();
   }
 
   function normalizeMainTab(tab) {
@@ -4662,6 +5114,7 @@
   }
 
   function renderDetails() {
+    elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() === "cover");
     if (currentTab === "family") {
       const sourceRows = getFamilyLibraryRows();
       const rows = getSortedRows("family", filterRowsBySearchQuery(sourceRows));
@@ -4669,7 +5122,9 @@
         elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(sourceRows.length ? t("noMatches") : t("noFamilyRefresh"))}</div>`;
         return;
       }
-      elements.tableWrap.innerHTML = buildFamilyLibraryTable(rows);
+      elements.tableWrap.innerHTML = buildDetailsView("family", rows);
+      scheduleVisibleCoverLoads();
+      scheduleVisiblePriceLoads();
       return;
     }
 
@@ -4689,8 +5144,13 @@
       return;
     }
 
-    elements.tableWrap.innerHTML = buildDetailsTable(currentTab, rows);
+    elements.tableWrap.innerHTML = buildDetailsView(currentTab, rows);
+    scheduleVisibleCoverLoads();
     scheduleVisiblePriceLoads();
+  }
+
+  function buildDetailsView(tab, rows) {
+    return getListViewMode() === "cover" ? buildDetailsCoverGrid(tab, rows) : buildDetailsTable(tab, rows);
   }
 
   function buildDetailsTable(tab, rows) {
@@ -4707,6 +5167,68 @@
       return buildOverlapTable(rows);
     }
     return buildNewGamesTable(rows);
+  }
+
+  function buildDetailsCoverGrid(tab, rows) {
+    return `<div class="sffa-cover-grid">${rows.map(game => renderDetailsCoverCard(tab, game)).join("")}</div>`;
+  }
+
+  function renderDetailsCoverCard(tab, game) {
+    const title = getGameDisplayName(game);
+    const coverUrl = getCompareGameCoverUrl(game.appid);
+    const coverStyle = coverUrl ? ` style="--sffa-cover: url(${escapeAttr(coverUrl)});"` : "";
+    const chip = getDetailsCoverChip(tab, game);
+    const metaLines = getDetailsCoverMetaLines(tab, game).filter(Boolean);
+    const priceAttr = needsCoverPriceTracking(tab) ? ` data-price-appid="${escapeAttr(game.appid)}"` : "";
+    return `
+      <a class="sffa-cover-card" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener"${priceAttr} aria-label="${escapeAttr(title)}" title="${escapeAttr(title)}">
+        <span class="sffa-cover-card-media"${coverStyle}>
+          ${chip ? `<span class="sffa-cover-card-chip ${escapeAttr(chip.className)}">${escapeHtml(chip.text)}</span>` : ""}
+          <span class="sffa-cover-card-title">${escapeHtml(title)}</span>
+        </span>
+        <span class="sffa-cover-card-body">
+          <span class="sffa-cover-card-appid">AppID ${escapeHtml(String(game.appid || "-"))}</span>
+          ${metaLines.map(line => `<span class="sffa-cover-card-meta">${escapeHtml(line)}</span>`).join("")}
+        </span>
+      </a>
+    `;
+  }
+
+  function needsCoverPriceTracking(tab) {
+    return tab === "new" || tab === "relativeNew";
+  }
+
+  function getDetailsCoverChip(tab, game) {
+    if (tab === "all") {
+      const status = lastReport?.classificationById?.[String(game.appid)]?.status || "pending";
+      return { text: getGameListLabel(game.appid), className: `is-${getCompareStatusClass(status)}` };
+    }
+    if (tab === "new" || tab === "relativeNew") {
+      return { text: formatOriginalPriceText(game.price || {}), className: `is-${getComparePriceChipClass({ price: game.price, status: "new" })}` };
+    }
+    if (tab === "overlap") {
+      return { text: t("duplicatedGames"), className: "is-overlap" };
+    }
+    return null;
+  }
+
+  function getDetailsCoverMetaLines(tab, game) {
+    if (tab === "all") {
+      return isMultiTargetReport() ? [`${t("targetOwners")} · ${formatTargetOwners(game.targetOwners || []) || "-"}`] : [];
+    }
+    if (tab === "new") {
+      return isMultiTargetReport() ? [`${t("targetOwners")} · ${formatTargetOwners(game.targetOwners || []) || "-"}`] : [];
+    }
+    if (tab === "relativeNew") {
+      return [`${t("owners")} · ${formatOwners(game.owners || []) || "-"}`];
+    }
+    if (tab === "family") {
+      return [`${t("owners")} · ${formatOwners(game.owners || []) || "-"}`, `${t("acquiredAt")} · ${formatFamilyAcquireTime(game.time)}`];
+    }
+    if (tab === "overlap") {
+      return [`${t("owners")} · ${formatOwners(game.owners || []) || "-"}`];
+    }
+    return [];
   }
 
   function getReportRowsForCurrentSelection(tab) {
@@ -5227,7 +5749,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.reloadCoversBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -5250,6 +5772,7 @@
         },
         storeCache: normalizeSavedStoreCache(saved.storeCache || {}),
         launcherVisible: saved.launcherVisible !== false,
+        listViewMode: normalizeListViewMode(saved.listViewMode),
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
         appLocaleMode,
         lastAutoFamilyRefreshAttemptAt: Number(saved.lastAutoFamilyRefreshAttemptAt || 0)
@@ -5367,6 +5890,27 @@
     );
   }
 
+  function isRestorableStoreCacheEntry(entry) {
+    return Boolean(
+      isFreshStoreCacheEntry(entry) ||
+      isFreshCoverCacheEntry(entry) ||
+      (entry &&
+        entry.context === STORE_CACHE_CONTEXT &&
+        isFreshOriginalPriceCacheEntry(entry.price))
+    );
+  }
+
+  function isFreshCoverCacheEntry(entry) {
+    return Boolean(
+      entry &&
+      entry.context === STORE_CACHE_CONTEXT &&
+      entry.coverVerified === true &&
+      typeof entry.coverUrl === "string" &&
+      entry.coverUrl &&
+      Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
+    );
+  }
+
   function getStoreCacheCount() {
     return Object.keys(state.storeCache || {}).length;
   }
@@ -5407,12 +5951,13 @@
   function normalizeSavedStoreCache(storeCache) {
     const normalized = {};
     Object.entries(storeCache || {}).forEach(([appid, entry]) => {
-      if (isFreshStoreCacheEntry(entry)) {
-          normalized[String(appid)] = {
+      if (isRestorableStoreCacheEntry(entry)) {
+        normalized[String(appid)] = {
           ...(typeof entry.supported === "boolean" ? { supported: entry.supported } : {}),
-          context: entry.context,
+          context: entry.context || STORE_CACHE_CONTEXT,
           localizedName: entry.localizedName || entry.price?.localizedName || "",
           coverUrl: entry.coverUrl || "",
+          coverVerified: entry.coverVerified === true,
           price: isFreshOriginalPriceCacheEntry(entry.price) ? entry.price : null,
           updatedAt: Number(entry.updatedAt || Date.now())
         };

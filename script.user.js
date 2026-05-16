@@ -28,31 +28,34 @@
 (function() {
   "use strict";
 
-  // 无法从 Steam 页面识别时使用的商店地区代码，例如 CN / US / JP。
+  // ===== 可按需修改的脚本参数 =====
+  // 改完下面这组常量后保存脚本即可生效；如果不确定含义，优先保持默认值。
+
+  // 无法从 Steam 页面识别商店地区时使用的兜底地区代码，例如 CN / US / JP。
   const FALLBACK_STORE_CC = "CN";
-  // 无法从 Steam 页面识别时使用的商店语言代码，例如 schinese / english / japanese。
+  // 无法从 Steam 页面识别商店语言时使用的兜底语言代码，例如 schinese / english / japanese。
   const FALLBACK_STORE_LANG = "schinese";
-  // 界面语言；auto 会根据当前 Steam 页面语言在中文和英文之间选择。
+  // 脚本界面语言；auto 会根据当前 Steam 页面语言在中文和英文之间自动选择。
   const APP_LOCALE = "auto";
-  // 本地存储键名。
+  // 本地存储键名；只有在你想主动清空旧缓存、与旧版本隔离时才需要修改。
   const STORAGE_KEY = "steam_family_fit_analyzer_state_v1";
-  // 商店条目缓存有效期，默认 7 天。
+  // 商店条目缓存有效期，单位毫秒；默认 7 天。
   const STORE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  // 原价读取每批 app 数量。
+  // 原价读取每批 App 的数量；调大可减少请求轮次，调小可降低单批压力。
   const ORIGINAL_PRICE_BATCH_SIZE = 50;
-  // 共享支持性检测每批 app 数量。
+  // 家庭共享支持性检测每批 App 的数量；调大可更快，调小可更稳。
   const SHAREABILITY_BATCH_SIZE = 50;
-  // 商店请求之间的间隔，单位毫秒。
+  // 商店请求之间的间隔，单位毫秒；调大更稳，调小更快但更容易撞限流。
   const STORE_REQUEST_DELAY_MS = 50;
-  // 搜索输入停止后再刷新表格，避免大列表逐字重绘卡顿。
+  // 搜索输入停止后再刷新表格的延迟，单位毫秒；用于避免大列表逐字重绘卡顿。
   const SEARCH_RENDER_DEBOUNCE_MS = 220;
-  // 自动后台刷新家庭库的间隔，默认 24 小时。
+  // 自动后台刷新家庭库的间隔，单位毫秒；默认 24 小时。
   const AUTO_FAMILY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
   // 最近一次分析结果缓存键名。
   const ANALYSIS_HISTORY_KEY = `${STORAGE_KEY}_analysis_v1`;
-  // Steam 商店分类中“家庭共享”特性的 category id。
+  // Steam 商店分类中“家庭共享”特性的分类 ID。
   const FAMILY_SHARING_CATEGORY_ID = 62;
-  // 普通用户 SteamID64 = 该基数 + Steam 好友码 / accountid。
+  // 普通用户 SteamID64 = 该基数 + Steam 好友码 / 账号 ID（accountid）。
   const STEAMID64_INDIVIDUAL_BASE = 76561197960265728n;
   const MAX_STEAM_ACCOUNT_ID = 4294967295n;
   const MAX_STEAM_ACCOUNT_ID_LENGTH = String(MAX_STEAM_ACCOUNT_ID).length;
@@ -70,6 +73,7 @@
     { key: "veryHigh", max: Infinity }
   ]);
   const REPORT_LIST_TABS = Object.freeze(["all", "new", "relativeNew", "overlap"]);
+  const STEAM_LANGUAGE_ALIASES = parseI18nEntries("english=english|en=english|en-us=english|en-gb=english|schinese=schinese|zh-cn=schinese|zh-hans=schinese|tchinese=tchinese|zh-tw=tchinese|zh-hk=tchinese|japanese=japanese|ja=japanese|ja-jp=japanese|koreana=koreana|ko=koreana|ko-kr=koreana|german=german|de=german|de-de=german|french=french|fr=french|fr-fr=french|italian=italian|it=italian|spanish=spanish|es=spanish|es-es=spanish|brazilian=brazilian|pt-br=brazilian|russian=russian|ru=russian");
 
   const STORE_LANG = getDetectedStoreLanguage();
   const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
@@ -78,330 +82,43 @@
   let appLocaleMode = getSavedAppLocaleMode();
   let UI_LOCALE = resolveUiLocale(appLocaleMode, STORE_LANG);
 
-  const I18N = {
-    "zh-CN": {
-      appName: "Steam 家庭库分析器",
-      launcher: "家庭库分析",
-      waitFamilyScan: "等待家庭库扫描",
-      hideLauncher: "隐藏侧边按钮",
-      openAnalyzer: "打开 Steam 家庭库分析器",
-      more: "更多",
-      copyReport: "复制报告",
-      clearStoreCache: "清除商店缓存",
-      rawData: "查看原始数据",
-      close: "关闭",
-      clear: "清空",
-      languageTitle: "语言",
-      languageAuto: "自动",
-      languageChinese: "中文",
-      languageEnglish: "English",
-      targetPlaceholder: "SteamID64、好友码、主页链接或自定义 ID，多个用空格分隔",
-      refreshFamily: "刷新家庭库",
-      analyzeAccount: "分析账号",
-      continue: "继续",
-      rateCheck: "限流检测",
-      tabs: {
-        all: "全部",
-        family: "家庭库",
-        new: "新增",
-        relativeNew: "相对新增",
-        overlap: "重复",
-        search: "搜索"
-      },
-      searchPlaceholder: "搜索游戏名或 AppID",
-      copyList: "复制列表",
-      initialEmpty: "输入账号后分析",
-      signInFirst: "请先登录",
-      accountSwitched: "账号已切换，请刷新",
-      loadedCount: "已加载：{count} 款",
-      refreshFirst: "请先刷新",
-      launcherHidden: "侧边按钮已隐藏",
-      launcherVisible: "侧边按钮已显示",
-      showLauncherMenu: "显示侧边按钮",
-      hideLauncherMenu: "隐藏侧边按钮",
-      openDialogMenu: "打开分析弹窗",
-      compare: "对比",
-      compareTitle: "账号游戏对比",
-      compareHint: "按当前输入的 {count} 个账号对比，聚焦游戏差异。",
-      compareLoadingHint: "统计进行中，完成后会显示完整对比。",
-      compareExcluded: "已排除",
-      compareSectionExclusive: "仅 1 个账号拥有",
-      compareSectionPartial: "部分账号共有",
-      compareSectionAll: "全部账号共有",
-      compareNoData: "暂无可对比游戏",
-      compareNoUniqueAdded: "暂无独有新增游戏",
-      compareNoRangeGames: "该价格区间暂无游戏",
-      compareGames: "游戏",
-      compareOwners: "拥有者",
-      compareStatus: "状态",
-      comparePrice: "原价",
-      compareUnique: "独占",
-      compareShared: "共有",
-      compareAdded: "新增",
-      compareUniqueAdded: "独有新增",
-      compareQuality: "游戏质量",
-      compareQualitySummary: "游戏质量：{quality}",
-      compareQualityNone: "游戏质量：无新增游戏",
-      compareAverageValue: "平均价值",
-      compareQualityVeryLow: "超低",
-      compareQualityLow: "低",
-      compareQualityMedium: "中",
-      compareQualityHigh: "高",
-      compareQualityVeryHigh: "超高",
-      compareUniqueTip: "独占/总游戏：该账号单独拥有的游戏数 / 该账号总游戏数。",
-      compareUniqueAddedTip: "独有新增/新增：该账号单独拥有且对家庭库有新增价值的游戏数 / 该账号带来的新增游戏数。",
-      comparePriceDistribution: "价格分布：¥0-¥48 {low} 款，¥48-¥98 {mid} 款，¥98-¥198 {high} 款，¥198+ {top} 款",
-      compareStructure: "结构：独占 {unique} 款，共享 {shared} 款",
-      compareTotal: "总游戏",
-      refreshing: "刷新中...",
-      notLoggedInOrExpired: "未登录或页面过期",
-      refreshedCount: "已刷新：{count} 款",
-      autoRefreshedCount: "已自动刷新：{count} 款",
-      autoRefreshFailed: "自动刷新失败：",
-      enterAccount: "请输入账号",
-      readApiKey: "读取 API Key...",
-      readTargetLibrary: "读取目标库...",
-      compareLibraries: "比较游戏库...",
-      shownAllProgress: "已显示全部，后台统计 {percent}",
-      noSummary: "暂无摘要",
-      reportTitle: "Steam 家庭库分析：{target}",
-      totalGames: "总游戏",
-      addedGames: "新增",
-      duplicatedGames: "重复",
-      overlapRate: "重复率",
-      addedValue: "新增价值",
-      copied: "已复制",
-      copyFailed: "复制失败",
-      noList: "暂无列表",
-      enterSearch: "请先输入关键词",
-      currentListEmpty: "当前列表为空",
-      copiedList: "已复制列表",
-      popupBlocked: "弹窗被拦截",
-      rawDataTitle: "返回原始数据",
-      autoRefreshOn: "自动刷新已开",
-      autoRefreshOff: "自动刷新已关",
-      storeCacheCleared: "已清除商店缓存",
-      communityNotSignedIn: "Community 未登录",
-      apiKeyNotRegistered: "未注册 API Key",
-      apiKeyNotFound: "找不到 API Key",
-      noFamilyGroup: "没有家庭组",
-      unnamed: "未命名",
-      emptyFamilyLibrary: "家庭库为空",
-      invalidAccount: "账号格式不对",
-      invalidFriendCode: "Steam 好友码无效",
-      currentAccountUnsupported: "不能分析当前登录账号，请输入另一个公开 Steam 账号",
-      missingVanity: "缺少自定义 ID",
-      missingApiKey: "缺少 API Key",
-      resolveVanityFailed: "无法解析自定义 ID{message}",
-      privateTargetLibrary: "目标库不可见",
-      backgroundProgress: "后台统计：{percent}",
-      done: "完成",
-      completedAdded: "统计完成：新增 {count} 款",
-      invalidAppid: "AppID 无效：{appid}",
-      storeBatchMalformed: "共享支持性批量响应格式异常",
-      notRefreshed: "未刷新",
-      noCache: "无缓存",
-      targetAccount: "目标账号",
-      targetAccountCount: "{count} 个账号",
-      targetOwners: "拥有者",
-      deduped: "去重",
-      progress: "统计进度",
-      unknownAccount: "未知账号",
-      time: "时间",
-      link: "链接",
-      openProfile: "打开主页",
-      autoRefreshClose: "关闭自动刷新",
-      autoRefreshOpen: "开启自动刷新",
-      autoRefreshTitle: "每 24 小时刷新上次：{time}",
-      game: "游戏",
-      owners: "贡献者",
-      acquiredAt: "入库时间",
-      price: "原价",
-      list: "列表",
-      info: "信息",
-      status: "状态",
-      noFamilyRefresh: "请先刷新家庭库",
-      tabEmpty: "{tab}为空",
-      searchEmpty: "输入关键词搜索",
-      noMatches: "没有匹配游戏",
-      unsupported: "不可共享",
-      noAddedValue: "不计入新增",
-      pending: "统计中",
-      requestTooFast: "请求过快，请稍后再试",
-      continueStats: "继续统计...",
-      continuePrices: "继续加载价格...",
-      nothingToContinue: "没有待继续任务",
-      checking: "检测中...",
-      rateLimitCleared: "限流已解除，可继续",
-      rateLimitedStill: "仍被限流，请稍后再试",
-      checkFailed: "检测失败",
-      jsonParseFailed: "JSON 无法解析",
-      networkFailed: "网络失败",
-      requestTimeout: "请求超时",
-      loading: "加载中"
-    },
-    en: {
-      appName: "Steam Family Library Analyzer",
-      launcher: "Family Analyzer",
-      waitFamilyScan: "Waiting for family library",
-      hideLauncher: "Hide side button",
-      openAnalyzer: "Open Steam Family Library Analyzer",
-      more: "More",
-      copyReport: "Copy report",
-      clearStoreCache: "Clear store cache",
-      rawData: "View raw data",
-      close: "Close",
-      clear: "Clear",
-      languageTitle: "Language",
-      languageAuto: "Auto",
-      languageChinese: "中文",
-      languageEnglish: "English",
-      targetPlaceholder: "SteamID64, friend code, profile URL, or custom ID. Separate multiple with spaces",
-      refreshFamily: "Refresh family library",
-      analyzeAccount: "Analyze account",
-      continue: "Continue",
-      rateCheck: "Check rate limit",
-      tabs: {
-        all: "All",
-        family: "Family library",
-        new: "Added",
-        relativeNew: "Relative added",
-        overlap: "Duplicates",
-        search: "Search"
-      },
-      searchPlaceholder: "Search game name or AppID",
-      copyList: "Copy list",
-      initialEmpty: "Enter an account to analyze",
-      signInFirst: "Please sign in first",
-      accountSwitched: "Account changed, please refresh",
-      loadedCount: "Loaded: {count}",
-      refreshFirst: "Please refresh first",
-      launcherHidden: "Side button hidden",
-      launcherVisible: "Side button shown",
-      showLauncherMenu: "Show side button",
-      hideLauncherMenu: "Hide side button",
-      openDialogMenu: "Open analyzer",
-      compare: "Compare",
-      compareTitle: "Account game comparison",
-      compareHint: "Compare the {count} entered accounts with a focus on game differences.",
-      compareLoadingHint: "Statistics are still running. The full comparison will appear when they finish.",
-      compareExcluded: "Excluded",
-      compareSectionExclusive: "Owned by 1 account",
-      compareSectionPartial: "Shared by some accounts",
-      compareSectionAll: "Owned by all accounts",
-      compareNoData: "No games to compare",
-      compareNoUniqueAdded: "No exclusive added games",
-      compareNoRangeGames: "No games in this price range",
-      compareGames: "Games",
-      compareOwners: "Owners",
-      compareStatus: "Status",
-      comparePrice: "Price",
-      compareUnique: "Exclusive",
-      compareShared: "Shared",
-      compareAdded: "Added",
-      compareUniqueAdded: "Exclusive added",
-      compareQuality: "Game quality",
-      compareQualitySummary: "Game quality: {quality}",
-      compareQualityNone: "Game quality: no added games",
-      compareAverageValue: "Average value",
-      compareQualityVeryLow: "Very low",
-      compareQualityLow: "Low",
-      compareQualityMedium: "Medium",
-      compareQualityHigh: "High",
-      compareQualityVeryHigh: "Very high",
-      compareUniqueTip: "Exclusive/total: games owned only by this account / total games on this account.",
-      compareUniqueAddedTip: "Exclusive added/added: games owned only by this account that add value to the family library / all added games from this account.",
-      comparePriceDistribution: "Price distribution: ¥0-¥48 {low} games, ¥48-¥98 {mid} games, ¥98-¥198 {high} games, ¥198+ {top} games",
-      compareStructure: "Structure: {unique} exclusive games, {shared} shared games",
-      compareTotal: "Total",
-      refreshing: "Refreshing...",
-      notLoggedInOrExpired: "Not signed in or page expired",
-      refreshedCount: "Refreshed: {count}",
-      autoRefreshedCount: "Auto-refreshed: {count}",
-      autoRefreshFailed: "Auto refresh failed:",
-      enterAccount: "Enter an account",
-      readApiKey: "Reading API key...",
-      readTargetLibrary: "Reading target library...",
-      compareLibraries: "Comparing libraries...",
-      shownAllProgress: "Showing all, background progress {percent}",
-      noSummary: "No summary yet",
-      reportTitle: "Steam family library analysis: {target}",
-      totalGames: "Total games",
-      addedGames: "Added",
-      duplicatedGames: "Duplicates",
-      overlapRate: "Duplicate rate",
-      addedValue: "Added value",
-      copied: "Copied",
-      copyFailed: "Copy failed",
-      noList: "No list yet",
-      enterSearch: "Enter a search term first",
-      currentListEmpty: "Current list is empty",
-      copiedList: "List copied",
-      popupBlocked: "Popup blocked",
-      rawDataTitle: "Raw data",
-      autoRefreshOn: "Auto refresh on",
-      autoRefreshOff: "Auto refresh off",
-      storeCacheCleared: "Store cache cleared",
-      communityNotSignedIn: "Community not signed in",
-      apiKeyNotRegistered: "API key is not registered",
-      apiKeyNotFound: "API key not found",
-      noFamilyGroup: "No family group",
-      unnamed: "Unnamed",
-      emptyFamilyLibrary: "Family library is empty",
-      invalidAccount: "Invalid account format",
-      invalidFriendCode: "Invalid Steam friend code",
-      currentAccountUnsupported: "The current signed-in account cannot be analyzed. Enter another public Steam account.",
-      missingVanity: "Missing custom ID",
-      missingApiKey: "Missing API key",
-      resolveVanityFailed: "Unable to resolve custom ID{message}",
-      privateTargetLibrary: "Target library is private",
-      backgroundProgress: "Background progress: {percent}",
-      done: "Done",
-      completedAdded: "Completed: {count} added",
-      invalidAppid: "Invalid AppID: {appid}",
-      storeBatchMalformed: "Unexpected store batch response",
-      notRefreshed: "Not refreshed",
-      noCache: "No cache",
-      targetAccount: "Target account",
-      targetAccountCount: "{count} accounts",
-      targetOwners: "Owners",
-      deduped: "deduped",
-      progress: "Progress",
-      unknownAccount: "Unknown account",
-      time: "Time",
-      link: "Link",
-      openProfile: "Open profile",
-      autoRefreshClose: "Disable auto refresh",
-      autoRefreshOpen: "Enable auto refresh",
-      autoRefreshTitle: "Refreshes every 24 hours. Last: {time}",
-      game: "Game",
-      owners: "Owners",
-      acquiredAt: "Acquired",
-      price: "Original price",
-      list: "List",
-      info: "Info",
-      status: "Status",
-      noFamilyRefresh: "Refresh family library first",
-      tabEmpty: "{tab} is empty",
-      searchEmpty: "Enter keywords to search",
-      noMatches: "No matching games",
-      unsupported: "Not shareable",
-      noAddedValue: "Not counted",
-      pending: "Processing",
-      requestTooFast: "Too many requests, please try again later",
-      continueStats: "Continuing...",
-      continuePrices: "Continuing price loading...",
-      nothingToContinue: "Nothing to continue",
-      checking: "Checking...",
-      rateLimitCleared: "Rate limit cleared, you can continue",
-      rateLimitedStill: "Still rate limited, please try later",
-      checkFailed: "Check failed",
-      jsonParseFailed: "Unable to parse JSON",
-      networkFailed: "Network failed",
-      requestTimeout: "Request timed out",
-      loading: "Loading"
+  // ===== 本地化与商店上下文 =====
+
+  const I18N = Object.freeze(buildI18nMap({ "zh-CN": "appName=Steam 家庭库分析器|launcher=家庭库分析|waitFamilyScan=等待家庭库扫描|hideLauncher=隐藏侧边按钮|openAnalyzer=打开 Steam 家庭库分析器|more=更多|copyReport=复制报告|clearStoreCache=清除商店缓存|rawData=查看原始数据|close=关闭|clear=清空|languageTitle=语言|languageAuto=自动|languageChinese=中文|languageEnglish=English|targetPlaceholder=SteamID64、好友码、主页链接或自定义 ID，多个用空格分隔|refreshFamily=刷新家庭库|analyzeAccount=分析账号|continue=继续|rateCheck=限流检测|tabs.all=全部|tabs.family=家庭库|tabs.new=新增|tabs.relativeNew=相对新增|tabs.overlap=重复|tabs.search=搜索|searchPlaceholder=搜索游戏名或 AppID|copyList=复制列表|initialEmpty=输入账号后分析|signInFirst=请先登录|accountSwitched=账号已切换，请刷新|loadedCount=已加载：{count} 款|refreshFirst=请先刷新|launcherHidden=侧边按钮已隐藏|launcherVisible=侧边按钮已显示|showLauncherMenu=显示侧边按钮|hideLauncherMenu=隐藏侧边按钮|openDialogMenu=打开分析弹窗|compare=对比|compareTitle=账号游戏对比|compareHint=按当前输入的 {count} 个账号对比，聚焦游戏差异。|compareLoadingHint=统计进行中，完成后会显示完整对比。|compareExcluded=已排除|compareSectionExclusive=仅 1 个账号拥有|compareSectionPartial=部分账号共有|compareSectionAll=全部账号共有|compareNoData=暂无可对比游戏|compareNoUniqueAdded=暂无独有新增游戏|compareNoRangeGames=该价格区间暂无游戏|compareGames=游戏|compareOwners=拥有者|compareStatus=状态|comparePrice=原价|compareUnique=独占|compareShared=共有|compareAdded=新增|compareUniqueAdded=独有新增|compareQuality=游戏质量|compareQualitySummary=游戏质量：{quality}|compareQualityNone=游戏质量：无新增游戏|compareAverageValue=平均价值|compareQualityVeryLow=超低|compareQualityLow=低|compareQualityMedium=中|compareQualityHigh=高|compareQualityVeryHigh=超高|compareUniqueTip=独占/总游戏：该账号单独拥有的游戏数 / 该账号总游戏数。|compareUniqueAddedTip=独有新增/新增：该账号单独拥有且对家庭库有新增价值的游戏数 / 该账号带来的新增游戏数。|comparePriceDistribution=价格分布：¥0-¥48 {low} 款，¥48-¥98 {mid} 款，¥98-¥198 {high} 款，¥198+ {top} 款|compareStructure=结构：独占 {unique} 款，共享 {shared} 款|compareTotal=总游戏|refreshing=刷新中...|notLoggedInOrExpired=未登录或页面过期|refreshedCount=已刷新：{count} 款|autoRefreshedCount=已自动刷新：{count} 款|autoRefreshFailed=自动刷新失败：|enterAccount=请输入账号|readApiKey=读取 API Key...|readTargetLibrary=读取目标库...|compareLibraries=比较游戏库...|shownAllProgress=已显示全部，后台统计 {percent}|noSummary=暂无摘要|reportTitle=Steam 家庭库分析：{target}|totalGames=总游戏|addedGames=新增|duplicatedGames=重复|overlapRate=重复率|addedValue=新增价值|copied=已复制|copyFailed=复制失败|noList=暂无列表|enterSearch=请先输入关键词|currentListEmpty=当前列表为空|copiedList=已复制列表|popupBlocked=弹窗被拦截|rawDataTitle=返回原始数据|autoRefreshOn=自动刷新已开|autoRefreshOff=自动刷新已关|storeCacheCleared=已清除商店缓存|communityNotSignedIn=Community 未登录|apiKeyNotRegistered=未注册 API Key|apiKeyNotFound=找不到 API Key|noFamilyGroup=没有家庭组|unnamed=未命名|emptyFamilyLibrary=家庭库为空|invalidAccount=账号格式不对|invalidFriendCode=Steam 好友码无效|currentAccountUnsupported=不能分析当前登录账号，请输入另一个公开 Steam 账号|missingVanity=缺少自定义 ID|missingApiKey=缺少 API Key|resolveVanityFailed=无法解析自定义 ID{message}|privateTargetLibrary=目标库不可见|backgroundProgress=后台统计：{percent}|done=完成|completedAdded=统计完成：新增 {count} 款|invalidAppid=AppID 无效：{appid}|storeBatchMalformed=共享支持性批量响应格式异常|notRefreshed=未刷新|noCache=无缓存|targetAccount=目标账号|targetAccountCount={count} 个账号|targetOwners=拥有者|deduped=去重|progress=统计进度|unknownAccount=未知账号|time=时间|link=链接|openProfile=打开主页|autoRefreshClose=关闭自动刷新|autoRefreshOpen=开启自动刷新|autoRefreshTitle=每 24 小时刷新上次：{time}|game=游戏|owners=贡献者|acquiredAt=入库时间|price=原价|list=列表|info=信息|status=状态|noFamilyRefresh=请先刷新家庭库|tabEmpty={tab}为空|searchEmpty=输入关键词搜索|noMatches=没有匹配游戏|unsupported=不可共享|noAddedValue=不计入新增|pending=统计中|requestTooFast=请求过快，请稍后再试|continueStats=继续统计...|continuePrices=继续加载价格...|nothingToContinue=没有待继续任务|checking=检测中...|rateLimitCleared=限流已解除，可继续|rateLimitedStill=仍被限流，请稍后再试|checkFailed=检测失败|jsonParseFailed=JSON 无法解析|networkFailed=网络失败|requestTimeout=请求超时|loading=加载中", en: "appName=Steam Family Library Analyzer|launcher=Family Analyzer|waitFamilyScan=Waiting for family library|hideLauncher=Hide side button|openAnalyzer=Open Steam Family Library Analyzer|more=More|copyReport=Copy report|clearStoreCache=Clear store cache|rawData=View raw data|close=Close|clear=Clear|languageTitle=Language|languageAuto=Auto|languageChinese=中文|languageEnglish=English|targetPlaceholder=SteamID64, friend code, profile URL, or custom ID. Separate multiple with spaces|refreshFamily=Refresh family library|analyzeAccount=Analyze account|continue=Continue|rateCheck=Check rate limit|tabs.all=All|tabs.family=Family library|tabs.new=Added|tabs.relativeNew=Relative added|tabs.overlap=Duplicates|tabs.search=Search|searchPlaceholder=Search game name or AppID|copyList=Copy list|initialEmpty=Enter an account to analyze|signInFirst=Please sign in first|accountSwitched=Account changed, please refresh|loadedCount=Loaded: {count}|refreshFirst=Please refresh first|launcherHidden=Side button hidden|launcherVisible=Side button shown|showLauncherMenu=Show side button|hideLauncherMenu=Hide side button|openDialogMenu=Open analyzer|compare=Compare|compareTitle=Account game comparison|compareHint=Compare the {count} entered accounts with a focus on game differences.|compareLoadingHint=Statistics are still running. The full comparison will appear when they finish.|compareExcluded=Excluded|compareSectionExclusive=Owned by 1 account|compareSectionPartial=Shared by some accounts|compareSectionAll=Owned by all accounts|compareNoData=No games to compare|compareNoUniqueAdded=No exclusive added games|compareNoRangeGames=No games in this price range|compareGames=Games|compareOwners=Owners|compareStatus=Status|comparePrice=Price|compareUnique=Exclusive|compareShared=Shared|compareAdded=Added|compareUniqueAdded=Exclusive added|compareQuality=Game quality|compareQualitySummary=Game quality: {quality}|compareQualityNone=Game quality: no added games|compareAverageValue=Average value|compareQualityVeryLow=Very low|compareQualityLow=Low|compareQualityMedium=Medium|compareQualityHigh=High|compareQualityVeryHigh=Very high|compareUniqueTip=Exclusive/total: games owned only by this account / total games on this account.|compareUniqueAddedTip=Exclusive added/added: games owned only by this account that add value to the family library / all added games from this account.|comparePriceDistribution=Price distribution: ¥0-¥48 {low} games, ¥48-¥98 {mid} games, ¥98-¥198 {high} games, ¥198+ {top} games|compareStructure=Structure: {unique} exclusive games, {shared} shared games|compareTotal=Total|refreshing=Refreshing...|notLoggedInOrExpired=Not signed in or page expired|refreshedCount=Refreshed: {count}|autoRefreshedCount=Auto-refreshed: {count}|autoRefreshFailed=Auto refresh failed:|enterAccount=Enter an account|readApiKey=Reading API key...|readTargetLibrary=Reading target library...|compareLibraries=Comparing libraries...|shownAllProgress=Showing all, background progress {percent}|noSummary=No summary yet|reportTitle=Steam family library analysis: {target}|totalGames=Total games|addedGames=Added|duplicatedGames=Duplicates|overlapRate=Duplicate rate|addedValue=Added value|copied=Copied|copyFailed=Copy failed|noList=No list yet|enterSearch=Enter a search term first|currentListEmpty=Current list is empty|copiedList=List copied|popupBlocked=Popup blocked|rawDataTitle=Raw data|autoRefreshOn=Auto refresh on|autoRefreshOff=Auto refresh off|storeCacheCleared=Store cache cleared|communityNotSignedIn=Community not signed in|apiKeyNotRegistered=API key is not registered|apiKeyNotFound=API key not found|noFamilyGroup=No family group|unnamed=Unnamed|emptyFamilyLibrary=Family library is empty|invalidAccount=Invalid account format|invalidFriendCode=Invalid Steam friend code|currentAccountUnsupported=The current signed-in account cannot be analyzed. Enter another public Steam account.|missingVanity=Missing custom ID|missingApiKey=Missing API key|resolveVanityFailed=Unable to resolve custom ID{message}|privateTargetLibrary=Target library is private|backgroundProgress=Background progress: {percent}|done=Done|completedAdded=Completed: {count} added|invalidAppid=Invalid AppID: {appid}|storeBatchMalformed=Unexpected store batch response|notRefreshed=Not refreshed|noCache=No cache|targetAccount=Target account|targetAccountCount={count} accounts|targetOwners=Owners|deduped=deduped|progress=Progress|unknownAccount=Unknown account|time=Time|link=Link|openProfile=Open profile|autoRefreshClose=Disable auto refresh|autoRefreshOpen=Enable auto refresh|autoRefreshTitle=Refreshes every 24 hours. Last: {time}|game=Game|owners=Owners|acquiredAt=Acquired|price=Original price|list=List|info=Info|status=Status|noFamilyRefresh=Refresh family library first|tabEmpty={tab} is empty|searchEmpty=Enter keywords to search|noMatches=No matching games|unsupported=Not shareable|noAddedValue=Not counted|pending=Processing|requestTooFast=Too many requests, please try again later|continueStats=Continuing...|continuePrices=Continuing price loading...|nothingToContinue=Nothing to continue|checking=Checking...|rateLimitCleared=Rate limit cleared, you can continue|rateLimitedStill=Still rate limited, please try later|checkFailed=Check failed|jsonParseFailed=Unable to parse JSON|networkFailed=Network failed|requestTimeout=Request timed out|loading=Loading" }));
+
+  function buildI18nMap(localeEntriesByLocale) {
+    return Object.fromEntries(
+      Object.entries(localeEntriesByLocale).map(([locale, rawEntries]) => [locale, parseI18nEntries(rawEntries)])
+    );
+  }
+
+  function parseI18nEntries(rawEntries) {
+    const localeMap = {};
+    String(rawEntries || "").split("|").filter(Boolean).forEach(entry => {
+      const separatorIndex = entry.indexOf("=");
+      if (separatorIndex <= 0) {
+        throw new Error(`本地化条目格式无效：${entry}`);
+      }
+      assignI18nValue(localeMap, entry.slice(0, separatorIndex), entry.slice(separatorIndex + 1));
+    });
+    return localeMap;
+  }
+
+  function assignI18nValue(target, path, value) {
+    const parts = String(path || "").split(".").filter(Boolean);
+    if (!parts.length) {
+      throw new Error("本地化键不能为空");
     }
-  };
+    let cursor = target;
+    parts.slice(0, -1).forEach(part => {
+      cursor[part] = cursor[part] && typeof cursor[part] === "object" ? cursor[part] : {};
+      cursor = cursor[part];
+    });
+    cursor[parts[parts.length - 1]] = value;
+  }
+
+  const STORE_CC_TO_LOCALE = parseI18nEntries("US=en-US|GB=en-GB|AU=en-AU|CA=en-CA|MX=es-MX|JP=ja-JP|KR=ko-KR|CN=zh-CN|TW=zh-TW|HK=zh-HK|SG=en-SG|NZ=en-NZ|DE=de-DE|FR=fr-FR|IT=it-IT|ES=es-ES|NL=nl-NL|BE=nl-BE|AT=de-AT|FI=fi-FI|IE=en-IE|PT=pt-PT|GR=el-GR|BR=pt-BR|RU=ru-RU|TR=tr-TR|IN=en-IN|ZA=en-ZA|PL=pl-PL|NO=nb-NO|SE=sv-SE|DK=da-DK|CH=de-CH|CL=es-CL|CO=es-CO|PE=es-PE|PH=en-PH|ID=id-ID|MY=ms-MY|TH=th-TH|VN=vi-VN|UA=uk-UA|AR=es-AR|SA=ar-SA|AE=ar-AE|IL=he-IL|KZ=kk-KZ|UY=es-UY|CR=es-CR|KW=ar-KW|QA=ar-QA|EU=en-IE");
+  const STORE_CC_TO_CURRENCY = parseI18nEntries("US=USD|CA=CAD|MX=MXN|BR=BRL|GB=GBP|EU=EUR|DE=EUR|FR=EUR|IT=EUR|ES=EUR|NL=EUR|BE=EUR|AT=EUR|FI=EUR|IE=EUR|PT=EUR|GR=EUR|JP=JPY|KR=KRW|CN=CNY|TW=TWD|HK=HKD|SG=SGD|AU=AUD|NZ=NZD|RU=RUB|TR=TRY|IN=INR|ZA=ZAR|PL=PLN|NO=NOK|SE=SEK|DK=DKK|CH=CHF|CL=CLP|CO=COP|PE=PEN|PH=PHP|ID=IDR|MY=MYR|TH=THB|VN=VND|UA=UAH|AR=ARS|SA=SAR|AE=AED|IL=ILS|KZ=KZT|UY=UYU|CR=CRC|KW=KWD|QA=QAR");
 
   function t(key, vars = {}) {
     const value = key.split(".").reduce((cursor, part) => cursor?.[part], I18N[UI_LOCALE])
@@ -476,39 +193,7 @@
 
   function normalizeSteamLanguage(value) {
     const normalized = String(value || "").trim().toLowerCase().replace("_", "-");
-    return {
-      english: "english",
-      en: "english",
-      "en-us": "english",
-      "en-gb": "english",
-      schinese: "schinese",
-      "zh-cn": "schinese",
-      "zh-hans": "schinese",
-      tchinese: "tchinese",
-      "zh-tw": "tchinese",
-      "zh-hk": "tchinese",
-      japanese: "japanese",
-      ja: "japanese",
-      "ja-jp": "japanese",
-      koreana: "koreana",
-      ko: "koreana",
-      "ko-kr": "koreana",
-      german: "german",
-      de: "german",
-      "de-de": "german",
-      french: "french",
-      fr: "french",
-      "fr-fr": "french",
-      italian: "italian",
-      it: "italian",
-      spanish: "spanish",
-      es: "spanish",
-      "es-es": "spanish",
-      "brazilian": "brazilian",
-      "pt-br": "brazilian",
-      russian: "russian",
-      ru: "russian"
-    }[normalized] || "";
+    return STEAM_LANGUAGE_ALIASES[normalized] || "";
   }
 
   function getStoreCacheContext() {
@@ -569,7 +254,7 @@
       const doc = new DOMParser().parseFromString(html, "text/html");
       setStoreCountry(getDetectedStoreCountryFromPage(doc, {}));
     } catch (error) {
-      // Keep the fallback country if the account region cannot be read from the store page.
+      // 如果无法从商店页面读取账号地区，则保留兜底地区配置。
     }
   }
 
@@ -583,6 +268,8 @@
     const match = document.cookie.match(pattern);
     return match ? decodeURIComponent(match[1]) : "";
   }
+
+  // ===== 应用状态与启动流程 =====
 
   const DEFAULT_STATE = Object.freeze({
     version: 1,
@@ -623,16 +310,27 @@
 
   async function bootstrap() {
     await resolveStoreCountryFromAccount();
-    state = loadState();
-    injectStyles();
-    mountPanel();
+    initializeRuntime();
     const restoredAnalysis = restoreAnalysisHistory();
     autoFillTargetInputFromProfilePage();
     const session = getSteamSession();
+    if (!syncBootstrapSession(session, restoredAnalysis)) {
+      return;
+    }
+    finalizeBootstrap(session);
+  }
+
+  function initializeRuntime() {
+    state = loadState();
+    injectStyles();
+    mountPanel();
+  }
+
+  function syncBootstrapSession(session, restoredAnalysis) {
     if (!session.isLoggedIn) {
       setStatus(t("signInFirst"), "warn");
       setBusy(false);
-      return;
+      return false;
     }
 
     if (!state.activeSteamId) {
@@ -645,6 +343,10 @@
     } else if (!restoredAnalysis) {
       setStatus(t("refreshFirst"), "warn");
     }
+    return true;
+  }
+
+  function finalizeBootstrap(session) {
     renderLauncherVisibility();
     registerScriptMenuCommands();
     renderFamilyMeta();
@@ -2020,7 +1722,17 @@
     document.head.appendChild(style);
   }
 
+  // ===== 界面挂载与交互 =====
+
   function mountPanel() {
+    const root = createPanelRoot();
+    document.body.appendChild(root);
+    elements = collectPanelElements(root);
+    bindPanelEvents();
+    initializePanelView();
+  }
+
+  function createPanelRoot() {
     const root = document.createElement("div");
     root.id = "sffa-root";
     root.innerHTML = `
@@ -2116,10 +1828,11 @@
         </section>
       </div>
     `;
+    return root;
+  }
 
-    document.body.appendChild(root);
-
-    elements = {
+  function collectPanelElements(root) {
+    return {
       root,
       familyMeta: root.querySelector("[data-sffa-family-meta]"),
       status: root.querySelector("[data-sffa-status]"),
@@ -2161,7 +1874,9 @@
       compareBody: root.querySelector("[data-sffa-compare-body]"),
       tabs: Array.from(root.querySelectorAll("[data-tab]"))
     };
+  }
 
+  function bindPanelEvents() {
     elements.launcher.addEventListener("click", openDialog);
     elements.launcherCloseBtn.addEventListener("click", hideLauncherButton);
     elements.closeBtn.addEventListener("click", closeDialog);
@@ -2246,7 +1961,9 @@
         saveAnalysisHistoryNow();
       }
     });
+  }
 
+  function initializePanelView() {
     renderSummary(null);
     renderTargetProfile(null);
     renderAutoFamilyRefreshButton();
@@ -2321,7 +2038,7 @@
       try {
         GM_unregisterMenuCommand(id);
       } catch (error) {
-        // Ignore.
+        // 忽略异常。
       }
     });
     scriptMenuCommandIds = [];
@@ -2390,53 +2107,21 @@
   }
 
   function renderLocalizedUi() {
-    elements.root.querySelector(".sffa-launcher span").textContent = t("launcher");
-    elements.launcher.title = t("openAnalyzer");
-    elements.launcherCloseBtn.title = t("hideLauncher");
-    elements.launcherCloseBtn.setAttribute("aria-label", t("hideLauncher"));
-    elements.root.querySelector(".sffa-title strong").textContent = t("launcher");
-    elements.listSelect.setAttribute("aria-label", t("list"));
-    elements.listOptions.forEach(option => {
-      option.textContent = getMainTabLabel(option.dataset.sffaListOption);
-    });
+    const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
+    [
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyCurrentBtn, "textContent", t("copyList")], [elements.copyBtn, "textContent", t("copyReport")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")]
+    ].forEach(([element, key, value]) => { element[key] = value; });
+    [
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")]
+    ].forEach(([element, key, value]) => element.setAttribute(key, value));
+    elements.listOptions.forEach(option => { option.textContent = getMainTabLabel(option.dataset.sffaListOption); });
     elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
-    elements.localeToggleBtn.textContent = getLocaleModeButtonText();
-    elements.localeOptions.forEach(option => {
-      option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption);
-      option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode);
-    });
-    elements.moreBtn.title = t("more");
-    elements.moreBtn.setAttribute("aria-label", t("more"));
-    elements.closeBtn.title = t("close");
-    elements.targetInput.placeholder = t("targetPlaceholder");
-    elements.refreshBtn.textContent = t("refreshFamily");
-    elements.analyzeBtn.textContent = t("analyzeAccount");
-    elements.searchInput.placeholder = t("searchPlaceholder");
-    elements.searchClearBtn.title = t("clear");
-    elements.searchClearBtn.setAttribute("aria-label", t("clear"));
-    elements.copyCurrentBtn.textContent = t("copyList");
-    elements.copyBtn.textContent = t("copyReport");
-    elements.rawBtn.textContent = t("rawData");
-    elements.rateContinueBtn.textContent = t("continue");
-    elements.rateCheckBtn.textContent = t("rateCheck");
-    elements.compareTitle.textContent = t("compareTitle");
-    elements.compareHint.textContent = lastReport && isMultiTargetReport(lastReport)
-      ? t("compareHint", { count: lastReport.target.targets.length })
-      : "";
-    elements.compareCloseBtn.title = t("close");
-    elements.compareCloseBtn.setAttribute("aria-label", t("close"));
+    elements.localeOptions.forEach(option => { option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption); option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode); });
     renderCompareDialogIfOpen();
-
-    registerScriptMenuCommands();
-    renderFamilyMeta();
-    renderAutoFamilyRefreshButton();
-    renderStoreCacheButton();
-    renderRateLimitControls();
+    [registerScriptMenuCommands, renderFamilyMeta, renderAutoFamilyRefreshButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
     renderSummary(lastReport);
     renderTargetProfile(lastReport);
-    renderTabs();
-    renderDetailsPreserveScroll();
-    renderCurrentStatusText();
+    [renderTabs, renderDetailsPreserveScroll, renderCurrentStatusText].forEach(fn => fn());
   }
 
   function renderCurrentStatusText() {
@@ -2466,19 +2151,14 @@
     }
   }
 
+  // ===== 家庭库刷新与分析流程 =====
+
   async function refreshFamilyLibrary() {
     try {
       openDialog();
       setBusy(true);
-      resetRawData("refresh-family-library");
-      setStatus(t("refreshing"), "warn");
-      const session = getSteamSession();
-      if (!session.isLoggedIn || !session.accessToken || !session.steamid) {
-        throw new Error(t("notLoggedInOrExpired"));
-      }
-
+      const session = prepareFamilyRefreshSession();
       const familyLibrary = await updateFamilyLibraryCache(session);
-
       renderFamilyMeta();
       renderAutoFamilyRefreshButton();
       setStatus(t("refreshedCount", { count: familyLibrary.appidSet.length }), "ok");
@@ -2487,6 +2167,16 @@
     } finally {
       setBusy(false);
     }
+  }
+
+  function prepareFamilyRefreshSession() {
+    resetRawData("refresh-family-library");
+    setStatus(t("refreshing"), "warn");
+    const session = getSteamSession();
+    if (!session.isLoggedIn || !session.accessToken || !session.steamid) {
+      throw new Error(t("notLoggedInOrExpired"));
+    }
+    return session;
   }
 
   async function updateFamilyLibraryCache(session) {
@@ -2539,59 +2229,95 @@
     try {
       openDialog();
       setBusy(true);
-      resetRawData("analyze-target");
-      const rawInput = elements.targetInput.value.trim();
-      if (!rawInput) {
-        throw new Error(t("enterAccount"));
-      }
-      setRawStep("check-family-cache");
-      const session = ensureFamilyReady();
-      setStatus(t("readApiKey"), "warn");
-      setRawStep("read-steam-web-api-key");
-      await autoReadApiKeyFromCommunity({ keepBusy: true });
-
-      setStatus(t("readTargetLibrary"), "warn");
-      setRawStep("fetch-target-owned-games");
-      const targetProfile = await getTargetProfile(rawInput);
-      if (getTargetSteamIds(targetProfile).includes(session.steamid)) {
-        throw new Error(t("currentAccountUnsupported"));
-      }
-      setRawStep("fetch-current-owned-games");
-      const currentOwnedAppids = await fetchCurrentOwnedAppids(session.steamid, state.apiKey);
-      setStatus(t("compareLibraries"), "warn");
-      setRawStep("compare-libraries");
-      const comparison = compareLibraries(targetProfile, currentOwnedAppids);
-      const analysisId = ++activeAnalysisId;
-      priceLoadState = createPriceLoadState();
-      shareabilityFilterState = createShareabilityFilterState(analysisId, 0, targetProfile.games.length, targetProfile.games.length);
-      if (shareabilityProgressUiState?.timer) {
-        window.clearTimeout(shareabilityProgressUiState.timer);
-      }
-      shareabilityProgressUiState = createShareabilityProgressUiState(analysisId);
-      setRawStep("build-report");
-      lastReport = buildReport(targetProfile, {
-        ...comparison,
-        allGames: targetProfile.games,
-        pendingNewGames: comparison.newGames,
-        newGames: []
-      });
-
-      currentTab = "all";
-      renderTabs();
-      renderSummary(lastReport);
-      renderTargetProfile(lastReport);
-      renderDetails();
-      setStatus(t("shownAllProgress", { percent: formatPercent(targetProfile.games.length ? comparison.overlapGames.length / targetProfile.games.length : 0) }), "warn");
-      setRawStep("background-load-store-items");
-      window.setTimeout(() => {
-        startBackgroundShareabilityFilter(analysisId, targetProfile.games);
-      }, 0);
+      const rawInput = prepareAnalyzeInput();
+      const session = prepareAnalyzeSession();
+      const targetProfile = await loadAnalyzeTargetProfile(rawInput, session);
+      const comparison = await buildAnalyzeComparison(targetProfile, session);
+      const analysisId = initializeAnalysisRuntime(targetProfile);
+      lastReport = createPendingAnalysisReport(targetProfile, comparison);
+      renderInitialAnalysisResult(lastReport);
+      startAnalysisBackgroundWork(analysisId, targetProfile, comparison);
     } catch (error) {
       setRawError(error);
       setStatus(error.message, "err");
     } finally {
       setBusy(false);
     }
+  }
+
+  function prepareAnalyzeInput() {
+    resetRawData("analyze-target");
+    const rawInput = elements.targetInput.value.trim();
+    if (!rawInput) {
+      throw new Error(t("enterAccount"));
+    }
+    return rawInput;
+  }
+
+  function prepareAnalyzeSession() {
+    setRawStep("check-family-cache");
+    return ensureFamilyReady();
+  }
+
+  async function loadAnalyzeTargetProfile(rawInput, session) {
+    setStatus(t("readApiKey"), "warn");
+    setRawStep("read-steam-web-api-key");
+    await autoReadApiKeyFromCommunity({ keepBusy: true });
+
+    setStatus(t("readTargetLibrary"), "warn");
+    setRawStep("fetch-target-owned-games");
+    const targetProfile = await getTargetProfile(rawInput);
+    if (getTargetSteamIds(targetProfile).includes(session.steamid)) {
+      throw new Error(t("currentAccountUnsupported"));
+    }
+    return targetProfile;
+  }
+
+  async function buildAnalyzeComparison(targetProfile, session) {
+    setRawStep("fetch-current-owned-games");
+    const currentOwnedAppids = await fetchCurrentOwnedAppids(session.steamid, state.apiKey);
+    setStatus(t("compareLibraries"), "warn");
+    setRawStep("compare-libraries");
+    return compareLibraries(targetProfile, currentOwnedAppids);
+  }
+
+  function initializeAnalysisRuntime(targetProfile) {
+    const analysisId = ++activeAnalysisId;
+    priceLoadState = createPriceLoadState();
+    shareabilityFilterState = createShareabilityFilterState(analysisId, 0, targetProfile.games.length, targetProfile.games.length);
+    if (shareabilityProgressUiState?.timer) {
+      window.clearTimeout(shareabilityProgressUiState.timer);
+    }
+    shareabilityProgressUiState = createShareabilityProgressUiState(analysisId);
+    return analysisId;
+  }
+
+  function createPendingAnalysisReport(targetProfile, comparison) {
+    setRawStep("build-report");
+    return buildReport(targetProfile, {
+      ...comparison,
+      allGames: targetProfile.games,
+      pendingNewGames: comparison.newGames,
+      newGames: []
+    });
+  }
+
+  function renderInitialAnalysisResult(report) {
+    currentTab = "all";
+    renderTabs();
+    renderSummary(report);
+    renderTargetProfile(report);
+    renderDetails();
+  }
+
+  function startAnalysisBackgroundWork(analysisId, targetProfile, comparison) {
+    setStatus(t("shownAllProgress", {
+      percent: formatPercent(targetProfile.games.length ? comparison.overlapGames.length / targetProfile.games.length : 0)
+    }), "warn");
+    setRawStep("background-load-store-items");
+    window.setTimeout(() => {
+      startBackgroundShareabilityFilter(analysisId, targetProfile.games);
+    }, 0);
   }
 
   async function copyReportSummary() {
@@ -2684,6 +2410,8 @@
     renderStoreCacheButton();
     setStatus(t("storeCacheCleared"), "ok");
   }
+
+  // ===== Steam 会话与接口访问 =====
 
   async function fetchExistingSteamApiKey() {
     const html = await requestText("https://steamcommunity.com/dev/apikey");
@@ -2779,7 +2507,7 @@
             return result;
           }
         } catch (error) {
-          // Ignore.
+          // 忽略异常。
         }
       }
     }
@@ -2938,7 +2666,7 @@
         return { vanity: decodeURIComponent(vanityMatch[1]) };
       }
     } catch (error) {
-      // Plain vanity strings are handled below.
+      // 纯自定义 ID 字符串会在下方继续处理。
     }
 
     const vanity = input.replace(/^@/, "");
@@ -3178,6 +2906,8 @@
       checkPassed: false
     };
   }
+
+  // ===== 共享性与价格补全 =====
 
   function scheduleShareabilityProgressRender(force = false) {
     if (!lastReport || !shareabilityFilterState.running || !shareabilityProgressUiState) {
@@ -3906,6 +3636,8 @@
     return null;
   }
 
+  // ===== 报告构建与派生指标 =====
+
   function buildReport(targetProfile, comparison) {
     const newGames = comparison.newGames;
     const allGames = (comparison.allGames || targetProfile.games || []).slice().sort(sortByName);
@@ -4017,6 +3749,8 @@
       )
     };
   }
+
+  // ===== 摘要、明细与对比渲染 =====
 
   function buildTargetBreakdownFromReport(report) {
     const targets = Array.isArray(report?.target?.targets) ? report.target.targets : [];
@@ -5136,102 +4870,65 @@
 
   function buildAllGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
-    const body = rows.map(game => `
-      <tr>
-        <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
-        <td>${escapeHtml(getGameDisplayName(game))}</td>
-        ${includeTargetOwners ? `<td>${escapeHtml(formatTargetOwners(game.targetOwners || []))}</td>` : ""}
-        <td data-status-appid="${escapeAttr(game.appid)}">${getGameListStatusHtml(game.appid)}</td>
-      </tr>
-    `).join("");
-
-    return tableHtml(`
-      <tr>
-        ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh(t("game"), "name")}
-        ${includeTargetOwners ? sortableTh(t("targetOwners"), "targetOwners", "width: 150px;") : ""}
-        ${sortableTh(t("status"), "status", "width: 110px;")}
-      </tr>
-    `, body);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(t("status"), "status", statusCell, "width: 110px;")]);
   }
 
   function buildFamilyLibraryTable(rows) {
-    const body = rows.map(game => `
-      <tr>
-        <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
-        <td>${escapeHtml(getGameDisplayName(game))}</td>
-        <td>${escapeHtml(formatOwners(game.owners || []) || "-")}</td>
-        <td>${escapeHtml(formatFamilyAcquireTime(game.time))}</td>
-      </tr>
-    `).join("");
-
-    return tableHtml(`
-      <tr>
-        ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh(t("game"), "name")}
-        ${sortableTh(t("owners"), "owners", "width: 160px;")}
-        ${sortableTh(t("acquiredAt"), "time", "width: 130px;")}
-      </tr>
-    `, body);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(t("acquiredAt"), "time", timeCell, "width: 130px;")]);
   }
 
   function buildRelativeNewTable(rows) {
-    const body = rows.map(game => `
-      <tr data-price-appid="${escapeAttr(game.appid)}">
-        <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
-        <td>${escapeHtml(getGameDisplayName(game))}</td>
-        <td>${escapeHtml(formatOwners(game.owners || []) || "-")}</td>
-        <td>${formatOriginalPriceCell(game.price || {})}</td>
-      </tr>
-    `).join("");
-
-    return tableHtml(`
-      <tr>
-        ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh(t("game"), "name")}
-        ${sortableTh(t("owners"), "owners", "width: 160px;")}
-        ${sortableTh(t("price"), "price", "width: 110px;")}
-      </tr>
-    `, body);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(t("price"), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
   }
 
   function buildNewGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
-    const body = rows.map(game => `
-      <tr data-price-appid="${escapeAttr(game.appid)}">
-        <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
-        <td>${escapeHtml(getGameDisplayName(game))}</td>
-        ${includeTargetOwners ? `<td>${escapeHtml(formatTargetOwners(game.targetOwners || []))}</td>` : ""}
-        <td>${formatOriginalPriceCell(game.price || {})}</td>
-      </tr>
-    `).join("");
-
-    return tableHtml(`
-      <tr>
-        ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh(t("game"), "name")}
-        ${includeTargetOwners ? sortableTh(t("targetOwners"), "targetOwners", "width: 150px;") : ""}
-        ${sortableTh(t("price"), "price", "width: 110px;")}
-      </tr>
-    `, body);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(t("price"), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
   }
 
   function buildOverlapTable(rows) {
-    const body = rows.map(game => `
-      <tr>
-        <td><a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a></td>
-        <td>${escapeHtml(getGameDisplayName(game))}</td>
-        <td>${escapeHtml(formatOwners(game.owners || []))}</td>
-      </tr>
-    `).join("");
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell, "width: calc((100% - 82px) / 2);"), col(t("owners"), "owners", ownersCell, "width: calc((100% - 82px) / 2);")]);
+  }
 
-    return tableHtml(`
-      <tr>
-        ${sortableTh("AppID", "appid", "width: 82px;")}
-        ${sortableTh(t("game"), "name", "width: calc((100% - 82px) / 2);")}
-        ${sortableTh(t("owners"), "owners", "width: calc((100% - 82px) / 2);")}
-      </tr>
-    `, body);
+  function col(label, key, cell, style = "") {
+    return { label, key, cell, style };
+  }
+
+  function buildGameTable(rows, columns, rowAttrs = () => "") {
+    const activeColumns = columns.filter(Boolean);
+    return tableHtml(`<tr>${activeColumns.map(column => sortableTh(column.label, column.key, column.style)).join("")}</tr>`, rows.map(game => `<tr${rowAttrs(game)}>${activeColumns.map(column => column.cell(game)).join("")}</tr>`).join(""));
+  }
+
+  function buildCell(content, attrs = "") {
+    return `<td${attrs}>${content}</td>`;
+  }
+
+  function appLinkCell(game) {
+    return buildCell(`<a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a>`);
+  }
+
+  function nameCell(game) {
+    return buildCell(escapeHtml(getGameDisplayName(game)));
+  }
+
+  function ownersCell(game) {
+    return buildCell(escapeHtml(formatOwners(game.owners || []) || "-"));
+  }
+
+  function targetOwnersCell(game) {
+    return buildCell(escapeHtml(formatTargetOwners(game.targetOwners || [])));
+  }
+
+  function priceCell(game) {
+    return buildCell(formatOriginalPriceCell(game.price || {}));
+  }
+
+  function timeCell(game) {
+    return buildCell(escapeHtml(formatFamilyAcquireTime(game.time)));
+  }
+
+  function statusCell(game) {
+    return buildCell(getGameListStatusHtml(game.appid), ` data-status-appid="${escapeAttr(game.appid)}"`);
   }
 
   function getGameListLabel(appid) {
@@ -5303,6 +5000,8 @@
     elements.clearStoreCacheBtn.textContent = `${t("clearStoreCache")} (${count})`;
   }
 
+  // ===== 状态、限流与持久化 =====
+
   function setStatus(message, type) {
     elements.status.textContent = message;
     elements.status.className = `sffa-status ${type || ""}`.trim();
@@ -5369,37 +5068,53 @@
 
     clearRateLimit();
     const pendingShareabilityGames = getPendingShareabilityGames();
-    if (pendingShareabilityGames.length > 0 && lastReport) {
-      const analysisId = activeAnalysisId;
-      shareabilityFilterState = createShareabilityFilterState(
-        analysisId,
-        lastReport.filtering?.processed || 0,
-        pendingShareabilityGames.length,
-        lastReport.filtering?.total || lastReport.metrics.targetCount || 0
-      );
-      if (lastReport.filtering) {
-        lastReport.filtering.running = true;
-        lastReport.filtering.paused = false;
-      }
-      if (shareabilityProgressUiState?.timer) {
-        window.clearTimeout(shareabilityProgressUiState.timer);
-      }
-      shareabilityProgressUiState = createShareabilityProgressUiState(analysisId);
-      setStatus(t("continueStats"), "warn");
-      startBackgroundShareabilityFilter(analysisId, pendingShareabilityGames);
+    if (resumeShareabilityAfterRateLimit(pendingShareabilityGames)) {
       return;
     }
 
-    if (priceLoadState.pendingMap.size > 0) {
-      setStatus(t("continuePrices"), "warn");
-      scheduleVisiblePriceLoads();
-      if (!shareabilityFilterState.running) {
-        scheduleBackgroundPriceLoads();
-      }
+    if (resumePriceLoadingAfterRateLimit()) {
       return;
     }
 
     setStatus(t("nothingToContinue"), "ok");
+  }
+
+  function resumeShareabilityAfterRateLimit(pendingShareabilityGames) {
+    if (pendingShareabilityGames.length === 0 || !lastReport) {
+      return false;
+    }
+
+    const analysisId = activeAnalysisId;
+    shareabilityFilterState = createShareabilityFilterState(
+      analysisId,
+      lastReport.filtering?.processed || 0,
+      pendingShareabilityGames.length,
+      lastReport.filtering?.total || lastReport.metrics.targetCount || 0
+    );
+    if (lastReport.filtering) {
+      lastReport.filtering.running = true;
+      lastReport.filtering.paused = false;
+    }
+    if (shareabilityProgressUiState?.timer) {
+      window.clearTimeout(shareabilityProgressUiState.timer);
+    }
+    shareabilityProgressUiState = createShareabilityProgressUiState(analysisId);
+    setStatus(t("continueStats"), "warn");
+    startBackgroundShareabilityFilter(analysisId, pendingShareabilityGames);
+    return true;
+  }
+
+  function resumePriceLoadingAfterRateLimit() {
+    if (priceLoadState.pendingMap.size <= 0) {
+      return false;
+    }
+
+    setStatus(t("continuePrices"), "warn");
+    scheduleVisiblePriceLoads();
+    if (!shareabilityFilterState.running) {
+      scheduleBackgroundPriceLoads();
+    }
+    return true;
   }
 
   async function checkRateLimit() {
@@ -5566,6 +5281,13 @@
       return false;
     }
 
+    restoreSavedReport(saved);
+    restoreSavedInputs(saved);
+    renderRestoredAnalysis();
+    return true;
+  }
+
+  function restoreSavedReport(saved) {
     lastReport = saved.report;
     if (lastReport?.filtering) {
       lastReport.filtering.running = false;
@@ -5574,20 +5296,24 @@
     currentTab = normalizeMainTab(saved.currentTab);
     tableSortByTab = saved.tableSortByTab || {};
     comparePriceRangeByTarget = {};
+  }
+
+  function restoreSavedInputs(saved) {
     if (elements.targetInput && saved.inputValue != null) {
       elements.targetInput.value = String(saved.inputValue || "");
     }
     if (elements.searchInput && saved.searchValue != null) {
       elements.searchInput.value = String(saved.searchValue || "");
     }
+  }
 
+  function renderRestoredAnalysis() {
     refreshReportMetrics();
     renderTabs();
     renderSummary(lastReport);
     renderTargetProfile(lastReport);
     renderDetailsPreserveScroll();
     renderCurrentStatusText();
-    return true;
   }
 
   function scheduleAnalysisHistorySave(force = false) {
@@ -5694,6 +5420,8 @@
     });
     return normalized;
   }
+
+  // ===== 网络请求与底层工具 =====
 
   function requestJson(url) {
     return request(url, "json");
@@ -5925,117 +5653,11 @@
   }
 
   function localeForStoreCountry() {
-    return {
-      US: "en-US",
-      GB: "en-GB",
-      AU: "en-AU",
-      CA: "en-CA",
-      MX: "es-MX",
-      JP: "ja-JP",
-      KR: "ko-KR",
-      CN: "zh-CN",
-      TW: "zh-TW",
-      HK: "zh-HK",
-      SG: "en-SG",
-      NZ: "en-NZ",
-      DE: "de-DE",
-      FR: "fr-FR",
-      IT: "it-IT",
-      ES: "es-ES",
-      NL: "nl-NL",
-      BE: "nl-BE",
-      AT: "de-AT",
-      FI: "fi-FI",
-      IE: "en-IE",
-      PT: "pt-PT",
-      GR: "el-GR",
-      BR: "pt-BR",
-      RU: "ru-RU",
-      TR: "tr-TR",
-      IN: "en-IN",
-      ZA: "en-ZA",
-      PL: "pl-PL",
-      NO: "nb-NO",
-      SE: "sv-SE",
-      DK: "da-DK",
-      CH: "de-CH",
-      CL: "es-CL",
-      CO: "es-CO",
-      PE: "es-PE",
-      PH: "en-PH",
-      ID: "id-ID",
-      MY: "ms-MY",
-      TH: "th-TH",
-      VN: "vi-VN",
-      UA: "uk-UA",
-      AR: "es-AR",
-      SA: "ar-SA",
-      AE: "ar-AE",
-      IL: "he-IL",
-      KZ: "kk-KZ",
-      UY: "es-UY",
-      CR: "es-CR",
-      KW: "ar-KW",
-      QA: "ar-QA",
-      EU: "en-IE"
-    }[STORE_CC] || "en-US";
+    return STORE_CC_TO_LOCALE[STORE_CC] || "en-US";
   }
 
   function getStoreCurrency() {
-    return {
-      US: "USD",
-      CA: "CAD",
-      MX: "MXN",
-      BR: "BRL",
-      GB: "GBP",
-      EU: "EUR",
-      DE: "EUR",
-      FR: "EUR",
-      IT: "EUR",
-      ES: "EUR",
-      NL: "EUR",
-      BE: "EUR",
-      AT: "EUR",
-      FI: "EUR",
-      IE: "EUR",
-      PT: "EUR",
-      GR: "EUR",
-      JP: "JPY",
-      KR: "KRW",
-      CN: "CNY",
-      TW: "TWD",
-      HK: "HKD",
-      SG: "SGD",
-      AU: "AUD",
-      NZ: "NZD",
-      RU: "RUB",
-      TR: "TRY",
-      IN: "INR",
-      ZA: "ZAR",
-      PL: "PLN",
-      NO: "NOK",
-      SE: "SEK",
-      DK: "DKK",
-      CH: "CHF",
-      CL: "CLP",
-      CO: "COP",
-      PE: "PEN",
-      PH: "PHP",
-      ID: "IDR",
-      MY: "MYR",
-      TH: "THB",
-      VN: "VND",
-      UA: "UAH",
-      AR: "ARS",
-      SA: "SAR",
-      AE: "AED",
-      IL: "ILS",
-      KZ: "KZT",
-      UY: "UYU",
-      CR: "CRC",
-      KW: "KWD",
-      QA: "QAR"
-    }[STORE_CC] || "USD";
+    return STORE_CC_TO_CURRENCY[STORE_CC] || "USD";
   }
 
   function formatPercent(value) {

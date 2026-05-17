@@ -11,7 +11,7 @@ This is the Chromium Manifest V3 extension build of the Steam Family Group Helpe
 5. Select this `extension` folder.
 6. Open `https://store.steampowered.com/` or a supported Steam Community profile page.
 
-The extension injects an in-page Steam Family helper panel. Clicking the browser toolbar icon opens the panel on supported Steam pages.
+The extension injects an in-page Steam Family helper panel. Clicking the browser toolbar icon opens the panel on supported Steam pages; from other pages, it opens Steam Store in a new tab and shows the panel there.
 
 ## Supported Pages
 

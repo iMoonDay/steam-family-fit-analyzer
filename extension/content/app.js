@@ -1007,13 +1007,17 @@
       storeLanguage: STORE_LANG
     });
     initializeRuntime();
+    const shouldOpenFromToolbar = consumeToolbarOpenHash();
     const restoredAnalysis = restoreAnalysisHistory();
     autoFillTargetInputFromProfilePage();
     const session = getSteamSession();
     if (!syncBootstrapSession(session, restoredAnalysis)) {
+      if (shouldOpenFromToolbar) {
+        openDialog();
+      }
       return;
     }
-    finalizeBootstrap(session);
+    finalizeBootstrap(session, shouldOpenFromToolbar);
   }
 
   function initializeRuntime() {
@@ -1042,10 +1046,27 @@
     return true;
   }
 
-  function finalizeBootstrap(session) {
+  function finalizeBootstrap(session, shouldOpenFromToolbar) {
     renderLauncherVisibility();
     renderFamilyMeta();
+    if (shouldOpenFromToolbar) {
+      openDialog();
+    }
     window.setTimeout(() => maybeAutoRefreshFamilyLibrary(session), 0);
+  }
+
+  function consumeToolbarOpenHash() {
+    if (location.hash !== "#sffa-open-helper") {
+      return false;
+    }
+    try {
+      const url = new URL(location.href);
+      url.hash = "";
+      window.history.replaceState(window.history.state, document.title, url.href);
+    } catch (error) {
+      // The panel can still open even if the browser refuses URL cleanup.
+    }
+    return true;
   }
 
   function injectStyles() {
@@ -1074,7 +1095,11 @@
   }
 
   function openDialog() {
+    const wasOpen = elements.root.classList.contains("is-open");
     elements.root.classList.add("is-open");
+    if (wasOpen) {
+      return;
+    }
     window.setTimeout(() => {
       elements.targetInput.focus();
       elements.targetInput.select();
@@ -1131,6 +1156,8 @@
     if (!option) {
       return;
     }
+    event.preventDefault();
+    event.stopPropagation();
 
     const inputValue = option.dataset.sffaHistoryOption || "";
     if (!inputValue) {

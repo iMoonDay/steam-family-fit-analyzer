@@ -2,9 +2,11 @@ const SUPPORTED_PAGE_HOSTS = new Set([
   "store.steampowered.com",
   "steamcommunity.com"
 ]);
+const FALLBACK_HELPER_URL = "https://store.steampowered.com/#sffa-open-helper";
 
 export function openHelperPanel(tab) {
   if (!isSupportedSteamTab(tab?.url)) {
+    chrome.tabs.create({ url: FALLBACK_HELPER_URL });
     return;
   }
 

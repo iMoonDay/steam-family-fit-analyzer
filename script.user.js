@@ -75,6 +75,7 @@
   ]);
   const REPORT_LIST_TABS = Object.freeze(["all", "new", "relativeNew", "overlap"]);
   const STEAM_LANGUAGE_ALIASES = parseI18nEntries("english=english|en=english|en-us=english|en-gb=english|schinese=schinese|zh-cn=schinese|zh-hans=schinese|tchinese=tchinese|zh-tw=tchinese|zh-hk=tchinese|japanese=japanese|ja=japanese|ja-jp=japanese|koreana=koreana|ko=koreana|ko-kr=koreana|german=german|de=german|de-de=german|french=french|fr=french|fr-fr=french|italian=italian|it=italian|spanish=spanish|es=spanish|es-es=spanish|brazilian=brazilian|pt-br=brazilian|russian=russian|ru=russian");
+  const STORE_ITEM_ASSET_BASE_URL = "https://shared.fastly.steamstatic.com/store_item_assets/";
 
   const STORE_LANG = getDetectedStoreLanguage();
   const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
@@ -90,6 +91,8 @@
   Object.assign(I18N.en, { viewMode: "View", viewTable: "Table", viewCover: "Covers" });
   Object.assign(I18N["zh-CN"], { reloadCovers: "重载封面", coversReloaded: "已重载封面" });
   Object.assign(I18N.en, { reloadCovers: "Reload covers", coversReloaded: "Cover images reloaded" });
+  Object.assign(I18N["zh-CN"], { continueCovers: "继续加载封面..." });
+  Object.assign(I18N.en, { continueCovers: "Continuing cover loading..." });
 
   function buildI18nMap(localeEntriesByLocale) {
     return Object.fromEntries(
@@ -2601,8 +2604,12 @@
       renderStoreCacheButton();
       setStatus(t("coversReloaded"), "ok");
     } catch (error) {
-      setRawError(error);
-      setStatus(error.message || t("networkFailed"), "err");
+      if (isRateLimitError(error)) {
+        setRateLimited(error, "cover");
+      } else {
+        setRawError(error);
+        setStatus(error.message || t("networkFailed"), "err");
+      }
     } finally {
       setBusy(false);
     }
@@ -2626,11 +2633,17 @@
 
   function getVisibleCoverAppids() {
     const appids = new Set();
-    getVisibleAppidsFromContainer(elements.tableWrap, getListViewMode() === "cover" ? ".sffa-cover-card" : "tbody tr").forEach(appid => appids.add(appid));
+    if (getListViewMode() === "cover") {
+      getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-cover-card").forEach(appid => appids.add(appid));
+    }
     if (isCompareDialogOpen()) {
       getVisibleAppidsFromContainer(elements.compareSummary, ".sffa-compare-card-game-link").forEach(appid => appids.add(appid));
     }
     return Array.from(appids);
+  }
+
+  function shouldProcessVisibleCovers() {
+    return getListViewMode() === "cover" || isCompareDialogOpen();
   }
 
   function getVisibleAppidsFromContainer(container, selector) {
@@ -2664,16 +2677,16 @@
     return nestedMatch ? nestedMatch[1] : "";
   }
 
-  async function fetchCoverUrlBatch(appids, rawKey = `covers.batch${Date.now()}`) {
-    const uniqueAppids = Array.from(new Set(appids.map(String).filter(appid => /^\d+$/.test(appid))));
-    if (!uniqueAppids.length) {
-      return;
-    }
-    const url = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(uniqueAppids.join(","))}&filters=basic&cc=${STORE_CC}&l=${STORE_LANG}`;
-    const data = await requestStoreJson(url, rawKey);
-    setRawData(rawKey, data);
-    uniqueAppids.forEach(appid => {
-      cacheStoreCoverUrl(appid, extractStoreCoverUrlFromAppdetails(data?.[appid]));
+  async function fetchCoverUrlBatch(appids, rawKey = `covers.batch${Date.now()}`, failedUrlByAppid = {}) {
+    const itemById = await fetchStoreItemBatch(appids, {
+      include_basic_info: true,
+      include_assets: true
+    }, rawKey);
+    Object.entries(itemById).forEach(([appid, item]) => {
+      const coverUrl = extractStoreCoverUrlFromStoreItem(item, failedUrlByAppid[String(appid)]);
+      if (coverUrl) {
+        cacheStoreCoverUrl(appid, coverUrl);
+      }
     });
   }
 
@@ -2681,6 +2694,7 @@
     const key = String(appid || "");
     const entry = state.storeCache?.[key];
     coverProbeState.verifiedUrlByAppid.delete(key);
+    coverProbeState.failedUrlByAppid.delete(key);
     if (!entry) {
       return;
     }
@@ -3418,20 +3432,11 @@
   }
 
   async function fetchShareabilityBatch(appids) {
-    const url = buildShareabilityBatchUrl(appids);
-    const rawKey = `shareability.batch${Date.now()}`;
-    const data = await requestStoreJson(url, rawKey);
-    setRawData(rawKey, data);
-    if (!Array.isArray(data?.response?.store_items)) {
-      throw new Error(t("storeBatchMalformed"));
-    }
-    const items = data.response.store_items;
-    const itemById = {};
-    items.forEach(item => {
-      if (item?.appid) {
-        itemById[String(item.appid)] = item;
-      }
-    });
+    const itemById = await fetchStoreItemBatch(appids, {
+      include_basic_info: true,
+      include_assets: true,
+      include_all_purchase_options: true
+    }, `shareability.batch${Date.now()}`);
 
     const results = {};
     for (const appid of appids) {
@@ -3476,7 +3481,26 @@
     };
   }
 
-  function buildShareabilityBatchUrl(appids) {
+  async function fetchStoreItemBatch(appids, dataRequest = {}, rawKey = `storeItems.batch${Date.now()}`) {
+    const url = buildStoreItemBatchUrl(appids, dataRequest);
+    const data = await requestStoreJson(url, rawKey);
+    setRawData(rawKey, data);
+    if (!Array.isArray(data?.response?.store_items)) {
+      throw new Error(t("storeBatchMalformed"));
+    }
+    const itemById = {};
+    data.response.store_items.forEach(item => {
+      if (!item?.appid) {
+        return;
+      }
+      const appid = String(item.appid);
+      itemById[appid] = item;
+      cacheStoreItem(appid, item);
+    });
+    return itemById;
+  }
+
+  function buildStoreItemBatchUrl(appids, dataRequest = {}) {
     const input = {
       ids: appids.map(appid => ({ appid: Number(appid) })),
       context: {
@@ -3485,8 +3509,10 @@
       },
       data_request: {
         include_basic_info: false,
-        include_all_purchase_options: true,
-        include_tag_count: 0
+        include_assets: false,
+        include_all_purchase_options: false,
+        include_tag_count: 0,
+        ...dataRequest
       }
     };
     return `https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(JSON.stringify(input))}`;
@@ -3679,7 +3705,7 @@
   }
 
   function scheduleVisibleCoverLoads() {
-    if (rateLimitState.active) {
+    if (rateLimitState.active || !shouldProcessVisibleCovers()) {
       return;
     }
     window.clearTimeout(coverLoadState.scheduled);
@@ -3691,14 +3717,15 @@
     if (rateLimitState.active || coverLoadState.running) {
       return;
     }
+    applyVisibleCoverImages();
     const visibleAppids = getVisibleCoverAppids().map(String);
     visibleAppids.forEach(appid => {
-      const cachedCoverUrl = getCachedStoreCoverUrl(appid);
+      const cachedCoverUrl = hasVerifiedStoreCoverUrl(appid) ? getCachedStoreCoverUrl(appid) : "";
       if (cachedCoverUrl) {
         ensureCoverUrlHealthy(appid, cachedCoverUrl);
       }
     });
-    const appids = visibleAppids.filter(appid => !getCachedStoreCoverUrl(appid) && !coverLoadState.loadingSet.has(String(appid)));
+    const appids = visibleAppids.filter(appid => !hasVerifiedStoreCoverUrl(appid) && !coverLoadState.loadingSet.has(String(appid)));
     if (!appids.length) {
       return;
     }
@@ -3709,22 +3736,65 @@
     try {
       await fetchCoverUrlBatch(batch, `covers.visible${Date.now()}`);
       saveState();
-      renderDetailsPreserveScroll();
-      renderCompareDialogIfOpen();
+      applyVisibleCoverImages();
     } catch (error) {
-      if (!isRateLimitError(error)) {
+      if (isRateLimitError(error)) {
+        setRateLimited(error, "cover");
+      } else {
         setRawError(error);
       }
     } finally {
       batch.forEach(appid => coverLoadState.loadingSet.delete(appid));
       coverLoadState.running = false;
       if (!rateLimitState.active) {
-        const remaining = getVisibleCoverAppids().some(appid => !getCachedStoreCoverUrl(appid));
+        const remaining = getVisibleCoverAppids().some(appid => !hasVerifiedStoreCoverUrl(appid));
         if (remaining) {
           scheduleVisibleCoverLoads();
         }
       }
     }
+  }
+
+  function hasVerifiedStoreCoverUrl(appid) {
+    const entry = state.storeCache?.[String(appid || "")];
+    return Boolean(entry?.coverVerified === true && entry.coverUrl);
+  }
+
+  function applyVisibleCoverImages() {
+    if (getListViewMode() === "cover") {
+      applyVisibleCoverImagesInContainer(elements.tableWrap, ".sffa-cover-card-media[data-sffa-cover-appid]");
+    }
+    if (isCompareDialogOpen()) {
+      applyVisibleCoverImagesInContainer(elements.compareSummary, ".sffa-compare-card-game[data-sffa-cover-appid]");
+    }
+  }
+
+  function applyVisibleCoverImagesInContainer(container, selector) {
+    if (!container) {
+      return;
+    }
+    const nodes = Array.from(container.querySelectorAll(selector));
+    if (!nodes.length) {
+      return;
+    }
+    const wrapRect = container.getBoundingClientRect();
+    const visibleNodes = nodes.filter(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.bottom >= wrapRect.top && rect.top <= wrapRect.bottom;
+    });
+    const targets = visibleNodes.length ? visibleNodes : nodes.slice(0, 20);
+    targets.forEach(node => {
+      const appid = String(node.dataset.sffaCoverAppid || "").trim();
+      const coverUrl = getCompareGameCoverUrl(appid);
+      if (!coverUrl) {
+        return;
+      }
+      if (node.dataset.sffaAppliedCoverUrl === coverUrl) {
+        return;
+      }
+      node.style.setProperty("--sffa-cover", `url(${coverUrl})`);
+      node.dataset.sffaAppliedCoverUrl = coverUrl;
+    });
   }
 
   function ensureCoverUrlHealthy(appid, url) {
@@ -3782,14 +3852,17 @@
     }
     coverProbeState.retryingSet.add(key);
     try {
+      const failedUrl = String(coverProbeState.failedUrlByAppid.get(key) || "");
       clearCachedStoreCoverUrl(key);
-      await fetchCoverUrlBatch([key], `covers.retry.${key}.${Date.now()}`);
+      await fetchCoverUrlBatch([key], `covers.retry.${key}.${Date.now()}`, { [key]: failedUrl });
       saveState();
       renderDetailsPreserveScroll();
       renderCompareDialogIfOpen();
       scheduleVisibleCoverLoads();
     } catch (error) {
-      if (!isRateLimitError(error)) {
+      if (isRateLimitError(error)) {
+        setRateLimited(error, "cover");
+      } else {
         setRawError(error);
       }
     } finally {
@@ -3939,6 +4012,7 @@
     if (currentTab === "all" || currentTab === "new" || currentTab === "relativeNew") {
       renderDetailsPreserveScroll();
     }
+    applyVisibleCoverImages();
     scheduleVisibleCoverLoads();
     renderCompareDialogIfOpen();
   }
@@ -4362,6 +4436,7 @@
     if (elements.compareSummary) {
       elements.compareSummary.scrollTop = 0;
     }
+    applyVisibleCoverImages();
     scheduleVisibleCoverLoads();
   }
 
@@ -4383,6 +4458,7 @@
     if (elements.compareSummary) {
       elements.compareSummary.scrollTop = scrollTop;
     }
+    applyVisibleCoverImages();
     scheduleVisibleCoverLoads();
   }
 
@@ -4724,11 +4800,9 @@
 
   function renderCompareUniqueGameHtml(game) {
     const priceClass = getComparePriceChipClass(game);
-    const coverUrl = getCompareGameCoverUrl(game.appid);
-    const coverStyle = coverUrl ? ` style="--sffa-cover: url(${escapeAttr(coverUrl)});"` : "";
     const gameName = getGameDisplayName(game);
     return `
-      <div class="sffa-compare-card-game"${coverStyle}>
+      <div class="sffa-compare-card-game" data-sffa-cover-appid="${escapeAttr(game.appid)}">
         <a class="sffa-compare-card-game-link" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener" aria-label="${escapeAttr(gameName)}" title="${escapeAttr(gameName)}">
           <span class="sffa-compare-card-game-title">${escapeHtml(gameName)}</span>
           <span class="sffa-compare-card-game-price ${escapeAttr(priceClass)}">${escapeHtml(game.priceText)}</span>
@@ -4758,7 +4832,7 @@
   }
 
   function getCompareGameCoverUrl(appid) {
-    return withCoverReloadToken(getCachedStoreCoverUrl(appid) || getStoreCoverUrl(appid));
+    return withCoverReloadToken(getCachedStoreCoverUrl(appid));
   }
 
   function withCoverReloadToken(url) {
@@ -4774,16 +4848,30 @@
     return String(entry?.coverUrl || "");
   }
 
-  function getStoreCoverUrl(appid) {
-    const value = String(appid || "");
-    if (!/^\d+$/.test(value)) {
-      return "";
-    }
-    return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${value}/header.jpg`;
+  function extractStoreCoverUrlFromStoreItem(item, failedUrl = "") {
+    const assets = item?.assets || {};
+    const urls = [assets.header, assets.main_capsule, assets.small_capsule]
+      .map(filename => buildStoreItemAssetUrl(assets.asset_url_format, filename))
+      .filter(Boolean);
+    const normalizedFailedUrl = String(failedUrl || "").trim();
+    return urls.find(url => url !== normalizedFailedUrl) || urls[0] || "";
   }
 
-  function extractStoreCoverUrlFromAppdetails(item) {
-    return String(item?.data?.header_image || item?.data?.capsule_image || "");
+  function buildStoreItemAssetUrl(assetUrlFormat, filename) {
+    const normalizedFormat = String(assetUrlFormat || "").trim();
+    const normalizedFilename = String(filename || "").trim();
+    if (!normalizedFormat || !normalizedFilename) {
+      return "";
+    }
+    return `${STORE_ITEM_ASSET_BASE_URL}${normalizedFormat.replace("${FILENAME}", normalizedFilename)}`;
+  }
+
+  function extractStoreCoverUrlFromAppdetails(item, failedUrl = "") {
+    const urls = [item?.data?.header_image, item?.data?.capsule_image]
+      .map(value => String(value || "").trim())
+      .filter(Boolean);
+    const normalizedFailedUrl = String(failedUrl || "").trim();
+    return urls.find(url => url !== normalizedFailedUrl) || urls[0] || "";
   }
 
   function cacheStoreCoverUrl(appid, coverUrl) {
@@ -5123,6 +5211,7 @@
         return;
       }
       elements.tableWrap.innerHTML = buildDetailsView("family", rows);
+      applyVisibleCoverImages();
       scheduleVisibleCoverLoads();
       scheduleVisiblePriceLoads();
       return;
@@ -5145,6 +5234,7 @@
     }
 
     elements.tableWrap.innerHTML = buildDetailsView(currentTab, rows);
+    applyVisibleCoverImages();
     scheduleVisibleCoverLoads();
     scheduleVisiblePriceLoads();
   }
@@ -5175,14 +5265,12 @@
 
   function renderDetailsCoverCard(tab, game) {
     const title = getGameDisplayName(game);
-    const coverUrl = getCompareGameCoverUrl(game.appid);
-    const coverStyle = coverUrl ? ` style="--sffa-cover: url(${escapeAttr(coverUrl)});"` : "";
     const chip = getDetailsCoverChip(tab, game);
     const metaLines = getDetailsCoverMetaLines(tab, game).filter(Boolean);
     const priceAttr = needsCoverPriceTracking(tab) ? ` data-price-appid="${escapeAttr(game.appid)}"` : "";
     return `
       <a class="sffa-cover-card" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener"${priceAttr} aria-label="${escapeAttr(title)}" title="${escapeAttr(title)}">
-        <span class="sffa-cover-card-media"${coverStyle}>
+        <span class="sffa-cover-card-media" data-sffa-cover-appid="${escapeAttr(game.appid)}">
           ${chip ? `<span class="sffa-cover-card-chip ${escapeAttr(chip.className)}">${escapeHtml(chip.text)}</span>` : ""}
           <span class="sffa-cover-card-title">${escapeHtml(title)}</span>
         </span>
@@ -5598,6 +5686,10 @@
       return;
     }
 
+    if (resumeCoverLoadingAfterRateLimit()) {
+      return;
+    }
+
     setStatus(t("nothingToContinue"), "ok");
   }
 
@@ -5636,6 +5728,16 @@
     if (!shareabilityFilterState.running) {
       scheduleBackgroundPriceLoads();
     }
+    return true;
+  }
+
+  function resumeCoverLoadingAfterRateLimit() {
+    if (!getVisibleCoverAppids().some(appid => !hasVerifiedStoreCoverUrl(appid))) {
+      return false;
+    }
+
+    setStatus(t("continueCovers"), "warn");
+    scheduleVisibleCoverLoads();
     return true;
   }
 
@@ -5937,15 +6039,51 @@
     });
   }
 
+  function cacheStoreItem(appid, item) {
+    if (!item || Number(item.success) !== 1) {
+      return;
+    }
+    const coverUrl = extractStoreCoverUrlFromStoreItem(item);
+    const price = normalizeStoreItemOriginalPrice(item);
+    state.storeCache = state.storeCache || {};
+    state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
+      context: STORE_CACHE_CONTEXT,
+      localizedName: item.name || price?.localizedName || "",
+      ...(coverUrl ? { coverUrl, coverVerified: true } : {}),
+      ...(price ? { price } : {}),
+      storeItem: item,
+      updatedAt: Date.now()
+    });
+  }
+
   function mergeStoreCacheEntry(existing, next) {
     const updatedAt = Math.max(Number(existing?.updatedAt || 0), Number(next?.updatedAt || 0));
     return {
       ...(existing || {}),
       ...(next || {}),
       localizedName: next?.localizedName || existing?.localizedName || next?.price?.localizedName || existing?.price?.localizedName || "",
+      coverUrl: next?.coverUrl || existing?.coverUrl || "",
+      coverVerified: next?.coverVerified === true || existing?.coverVerified === true,
       price: next?.price || existing?.price || null,
+      storeItem: mergeStoreItem(existing?.storeItem, next?.storeItem),
       updatedAt: updatedAt || Date.now()
     };
+  }
+
+  function mergeStoreItem(existing, next) {
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      return next || existing || null;
+    }
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+      return next;
+    }
+    const merged = { ...existing };
+    Object.entries(next).forEach(([key, value]) => {
+      merged[key] = value && typeof value === "object" && !Array.isArray(value)
+        ? mergeStoreItem(existing[key], value)
+        : value;
+    });
+    return merged;
   }
 
   function normalizeSavedStoreCache(storeCache) {

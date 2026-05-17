@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.8
+// @version      0.1.9
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -45,6 +45,8 @@
   const ORIGINAL_PRICE_BATCH_SIZE = 50;
   // 家庭共享支持性检测每批 App 的数量；调大可更快，调小可更稳。
   const SHAREABILITY_BATCH_SIZE = 50;
+  // 家庭封面图导出时每行显示的卡片数量；调大更密，调小更疏。
+  const FAMILY_POSTER_COLUMNS = 10;
   const COVER_RELOAD_BATCH_SIZE = 24;
   // 商店请求之间的间隔，单位毫秒；调大更稳，调小更快但更容易撞限流。
   const STORE_REQUEST_DELAY_MS = 50;
@@ -76,6 +78,13 @@
   const REPORT_LIST_TABS = Object.freeze(["all", "new", "relativeNew", "overlap"]);
   const STEAM_LANGUAGE_ALIASES = parseI18nEntries("english=english|en=english|en-us=english|en-gb=english|schinese=schinese|zh-cn=schinese|zh-hans=schinese|tchinese=tchinese|zh-tw=tchinese|zh-hk=tchinese|japanese=japanese|ja=japanese|ja-jp=japanese|koreana=koreana|ko=koreana|ko-kr=koreana|german=german|de=german|de-de=german|french=french|fr=french|fr-fr=french|italian=italian|it=italian|spanish=spanish|es=spanish|es-es=spanish|brazilian=brazilian|pt-br=brazilian|russian=russian|ru=russian");
   const STORE_ITEM_ASSET_BASE_URL = "https://shared.fastly.steamstatic.com/store_item_assets/";
+  const FAMILY_POSTER_WIDTH = 2000;
+  const FAMILY_POSTER_PADDING = 32;
+  const FAMILY_POSTER_GAP = 12;
+  const FAMILY_POSTER_CARD_ASPECT_RATIO = 1.5;
+  const FAMILY_POSTER_HEADER_HEIGHT = 120;
+  const FAMILY_POSTER_MAX_HEIGHT = 30000;
+  const FAMILY_POSTER_IMAGE_CONCURRENCY = 8;
 
   const STORE_LANG = getDetectedStoreLanguage();
   const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
@@ -93,6 +102,24 @@
   Object.assign(I18N.en, { reloadCovers: "Reload covers", coversReloaded: "Cover images reloaded" });
   Object.assign(I18N["zh-CN"], { continueCovers: "继续加载封面..." });
   Object.assign(I18N.en, { continueCovers: "Continuing cover loading..." });
+  Object.assign(I18N["zh-CN"], {
+    saveFamilyPoster: "保存家庭封面图",
+    preparingFamilyPoster: "正在整理家庭封面...",
+    fetchingFamilyPoster: "正在获取家庭封面 {current}/{total}...",
+    renderingFamilyPoster: "正在生成家庭封面图...",
+    familyPosterSaved: "家庭封面图已保存",
+    familyPosterEmpty: "没有可导出的家庭封面",
+    familyPosterTooLarge: "家庭封面图过高，当前尺寸超出浏览器导出上限"
+  });
+  Object.assign(I18N.en, {
+    saveFamilyPoster: "Save family poster",
+    preparingFamilyPoster: "Preparing family covers...",
+    fetchingFamilyPoster: "Fetching family covers {current}/{total}...",
+    renderingFamilyPoster: "Rendering family poster...",
+    familyPosterSaved: "Family cover poster saved",
+    familyPosterEmpty: "No family covers available to export",
+    familyPosterTooLarge: "Family cover poster is too tall to export in one image"
+  });
 
   function buildI18nMap(localeEntriesByLocale) {
     return Object.fromEntries(
@@ -1932,6 +1959,7 @@
             <div class="sffa-menu" data-sffa-menu>
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
               <button class="sffa-menu-item" type="button" data-sffa-copy>${escapeHtml(t("copyReport"))}</button>
+              <button class="sffa-menu-item" type="button" data-sffa-save-family-poster>${escapeHtml(t("saveFamilyPoster"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-reload-covers>${escapeHtml(t("reloadCovers"))}</button>
               <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-raw>${escapeHtml(t("rawData"))}</button>
@@ -2038,6 +2066,7 @@
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
+      saveFamilyPosterBtn: root.querySelector("[data-sffa-save-family-poster]"),
       reloadCoversBtn: root.querySelector("[data-sffa-reload-covers]"),
       clearStoreCacheBtn: root.querySelector("[data-sffa-clear-store-cache]"),
       rawBtn: root.querySelector("[data-sffa-raw]"),
@@ -2068,6 +2097,7 @@
     elements.analyzeBtn.addEventListener("click", analyzeTarget);
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
     elements.copyBtn.addEventListener("click", copyReportSummary);
+    elements.saveFamilyPosterBtn.addEventListener("click", saveFamilyPoster);
     elements.reloadCoversBtn.addEventListener("click", reloadCovers);
     elements.copyCurrentBtn.addEventListener("click", copyCurrentList);
     elements.clearStoreCacheBtn.addEventListener("click", clearStoreCache);
@@ -2292,7 +2322,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyCurrentBtn, "textContent", t("copyList")], [elements.copyBtn, "textContent", t("copyReport")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyCurrentBtn, "textContent", t("copyList")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveFamilyPosterBtn, "textContent", t("saveFamilyPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => { element[key] = value; });
     [
       [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")]
@@ -2616,6 +2646,301 @@
     coverReloadToken = Date.now();
     renderDetailsPreserveScroll();
     renderCompareDialogIfOpen();
+  }
+
+  async function saveFamilyPoster() {
+    closeMenu();
+    setBusy(true);
+    try {
+      const appids = (state.familyLibrary?.appidSet || []).map(String).filter(appid => /^\d+$/.test(appid));
+      if (!appids.length) {
+        throw new Error(t("familyPosterEmpty"));
+      }
+      setStatus(t("preparingFamilyPoster"), "warn");
+      await ensureFamilyPosterStoreItems(appids);
+      const posterItems = buildFamilyPosterItems(appids);
+      if (!posterItems.length) {
+        throw new Error(t("familyPosterEmpty"));
+      }
+      setStatus(t("renderingFamilyPoster"), "warn");
+      const canvas = await renderFamilyPosterCanvas(posterItems);
+      await downloadCanvasAsPng(canvas, buildFamilyPosterFilename());
+      setStatus(t("familyPosterSaved"), "ok");
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        setRateLimited(error, "cover");
+      } else {
+        setRawError(error);
+        setStatus(error.message || t("networkFailed"), "err");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ensureFamilyPosterStoreItems(appids) {
+    const missing = appids.filter(appid => !hasFreshPosterStoreItem(appid));
+    if (!missing.length) {
+      return;
+    }
+    const total = Math.ceil(missing.length / SHAREABILITY_BATCH_SIZE);
+    for (let index = 0; index < missing.length; index += SHAREABILITY_BATCH_SIZE) {
+      setStatus(t("fetchingFamilyPoster", { current: Math.floor(index / SHAREABILITY_BATCH_SIZE) + 1, total }), "warn");
+      await fetchStoreItemBatch(missing.slice(index, index + SHAREABILITY_BATCH_SIZE), {
+        include_basic_info: true,
+        include_assets: true
+      }, `familyPoster.batch${Date.now()}.${index}`);
+    }
+    saveState();
+  }
+
+  function hasFreshPosterStoreItem(appid) {
+    const entry = state.storeCache?.[String(appid || "")];
+    return Boolean(isFreshStoreItemCacheEntry(entry));
+  }
+
+  function buildFamilyPosterItems(appids) {
+    return appids.map(appid => {
+      const familyInfo = state.familyLibrary?.appInfoById?.[String(appid)] || {};
+      return {
+        appid: String(appid),
+        title: getCachedLocalizedName(appid) || familyInfo.name || `App ${appid}`,
+        coverUrl: getFamilyPosterCoverUrl(appid)
+      };
+    });
+  }
+
+  function getFamilyPosterCoverUrl(appid) {
+    const entry = state.storeCache?.[String(appid || "")];
+    return extractStorePosterCoverUrlFromStoreItem(entry?.storeItem || null) || getCachedStoreCoverUrl(appid);
+  }
+
+  async function renderFamilyPosterCanvas(items) {
+    const loadedItems = await loadFamilyPosterImages(items);
+    const layout = buildFamilyPosterLayout(loadedItems);
+    if (layout.height > FAMILY_POSTER_MAX_HEIGHT) {
+      throw new Error(t("familyPosterTooLarge"));
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = FAMILY_POSTER_WIDTH;
+    canvas.height = layout.height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error(t("networkFailed"));
+    }
+    drawFamilyPosterBackground(context, canvas.width, canvas.height);
+    drawFamilyPosterHeader(context, canvas.width, items.length);
+    layout.cards.forEach(card => drawFamilyPosterCard(context, card));
+    return canvas;
+  }
+
+  async function loadFamilyPosterImages(items) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    const workerCount = Math.min(FAMILY_POSTER_IMAGE_CONCURRENCY, items.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (cursor < items.length) {
+        const index = cursor++;
+        results[index] = await loadFamilyPosterImage(items[index]);
+      }
+    }));
+    return results.filter(Boolean);
+  }
+
+  function loadFamilyPosterImage(item) {
+    return new Promise(resolve => {
+      if (!item.coverUrl) {
+        resolve({
+          ...item,
+          image: null,
+          width: 2,
+          height: 3
+        });
+        return;
+      }
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => resolve({
+        ...item,
+        image,
+        width: image.naturalWidth || image.width || 1,
+        height: image.naturalHeight || image.height || 1
+      });
+      image.onerror = () => resolve({
+        ...item,
+        image: null,
+        width: 2,
+        height: 3
+      });
+      image.src = item.coverUrl;
+    });
+  }
+
+  function buildFamilyPosterLayout(items) {
+    const columns = Math.max(1, Number(FAMILY_POSTER_COLUMNS || 10));
+    const usableWidth = FAMILY_POSTER_WIDTH - FAMILY_POSTER_PADDING * 2 - FAMILY_POSTER_GAP * (columns - 1);
+    const cardWidth = Math.floor(usableWidth / columns);
+    const cardHeight = Math.max(160, Math.round(cardWidth * FAMILY_POSTER_CARD_ASPECT_RATIO));
+    const columnHeights = Array(columns).fill(FAMILY_POSTER_HEADER_HEIGHT + FAMILY_POSTER_PADDING);
+    const cards = items.map(item => {
+      const targetColumn = columnHeights.indexOf(Math.min(...columnHeights));
+      const card = {
+        ...item,
+        x: FAMILY_POSTER_PADDING + targetColumn * (cardWidth + FAMILY_POSTER_GAP),
+        y: columnHeights[targetColumn],
+        width: cardWidth,
+        height: cardHeight
+      };
+      columnHeights[targetColumn] += cardHeight + FAMILY_POSTER_GAP;
+      return card;
+    });
+    return {
+      cards,
+      height: Math.max(...columnHeights) + FAMILY_POSTER_PADDING
+    };
+  }
+
+  function drawFamilyPosterBackground(context, width, height) {
+    const gradient = context.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, "#14202b");
+    gradient.addColorStop(1, "#0b1016");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = "rgba(102, 192, 244, 0.08)";
+    context.beginPath();
+    context.arc(220, 110, 180, 0, Math.PI * 2);
+    context.fill();
+    context.beginPath();
+    context.arc(width - 240, 180, 220, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  function drawFamilyPosterHeader(context, width, gameCount) {
+    const familyName = state.familyInfo?.family_name || t("notRefreshed");
+    context.fillStyle = "#ffffff";
+    context.font = "700 42px 'Motiva Sans', Arial, sans-serif";
+    context.fillText(familyName, FAMILY_POSTER_PADDING, 56);
+    context.fillStyle = "#9fb3c2";
+    context.font = "24px 'Motiva Sans', Arial, sans-serif";
+    context.fillText(`${gameCount} ${UI_LOCALE === "en" ? "games" : "款游戏"}`, FAMILY_POSTER_PADDING, 94);
+    context.fillText(formatDateTime(Date.now()), width - FAMILY_POSTER_PADDING - 220, 94);
+  }
+
+  function drawFamilyPosterCard(context, card) {
+    context.save();
+    roundRectPath(context, card.x, card.y, card.width, card.height, 8);
+    context.fillStyle = "#0f141b";
+    context.fill();
+    context.clip();
+    if (card.image) {
+      const actualFit = getPosterImageFit(card.width, card.height, card.image.naturalWidth || card.width, card.image.naturalHeight || card.height);
+      context.drawImage(card.image, card.x + actualFit.x, card.y + actualFit.y, actualFit.width, actualFit.height);
+    } else {
+      context.fillStyle = "#18222c";
+      context.fillRect(card.x, card.y, card.width, card.height);
+      context.fillStyle = "rgba(255, 255, 255, 0.06)";
+      context.fillRect(card.x, card.y, card.width, 1);
+      context.fillStyle = "#ffffff";
+      context.font = "600 18px 'Motiva Sans', Arial, sans-serif";
+      const emptyTitleLines = wrapPosterTextLines(context, card.title, card.width - 24);
+      fillPosterTextCentered(context, emptyTitleLines, card.x + card.width / 2, card.y + 44, 20);
+      context.restore();
+      return;
+    }
+    const overlay = context.createLinearGradient(0, card.y + card.height * 0.45, 0, card.y + card.height);
+    overlay.addColorStop(0, "rgba(8, 12, 18, 0)");
+    overlay.addColorStop(1, "rgba(8, 12, 18, 0.9)");
+    context.fillStyle = overlay;
+    context.fillRect(card.x, card.y, card.width, card.height);
+    context.fillStyle = "#ffffff";
+    context.font = "600 18px 'Motiva Sans', Arial, sans-serif";
+    const titleLines = wrapPosterTextLines(context, card.title, card.width - 24);
+    const lineHeight = 20;
+    const startY = card.y + card.height - 16 - Math.max(0, titleLines.length - 1) * lineHeight;
+    fillPosterText(context, titleLines, card.x + 12, startY, lineHeight);
+    context.restore();
+  }
+
+  function getPosterImageFit(cardWidth, cardHeight, imageWidth, imageHeight) {
+    const scale = Math.min(cardWidth / Math.max(1, imageWidth), cardHeight / Math.max(1, imageHeight));
+    const width = Math.max(1, Math.round(imageWidth * scale));
+    const height = Math.max(1, Math.round(imageHeight * scale));
+    return {
+      width,
+      height,
+      x: Math.round((cardWidth - width) / 2),
+      y: Math.round((cardHeight - height) / 2)
+    };
+  }
+
+  function roundRectPath(context, x, y, width, height, radius) {
+    context.beginPath();
+    context.moveTo(x + radius, y);
+    context.arcTo(x + width, y, x + width, y + height, radius);
+    context.arcTo(x + width, y + height, x, y + height, radius);
+    context.arcTo(x, y + height, x, y, radius);
+    context.arcTo(x, y, x + width, y, radius);
+    context.closePath();
+  }
+
+  function wrapPosterTextLines(context, text, maxWidth) {
+    const normalized = String(text || "").trim();
+    if (!normalized) {
+      return [];
+    }
+    const chars = Array.from(normalized);
+    const lines = [];
+    let current = "";
+    chars.forEach(char => {
+      const next = current + char;
+      if (context.measureText(next).width <= maxWidth || !current) {
+        current = next;
+        return;
+      }
+      lines.push(current);
+      current = char;
+    });
+    if (current) {
+      lines.push(current);
+    }
+    return lines;
+  }
+
+  function fillPosterText(context, lines, x, y, lineHeight) {
+    (lines || []).forEach((line, index) => {
+      context.fillText(String(line || ""), x, y + index * lineHeight);
+    });
+  }
+
+  function fillPosterTextCentered(context, lines, centerX, y, lineHeight) {
+    (lines || []).forEach((line, index) => {
+      const text = String(line || "");
+      const textWidth = context.measureText(text).width;
+      context.fillText(text, centerX - textWidth / 2, y + index * lineHeight);
+    });
+  }
+
+  async function downloadCanvasAsPng(canvas, filename) {
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+    if (!blob) {
+      throw new Error(t("networkFailed"));
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+
+  function buildFamilyPosterFilename() {
+    const familyName = sanitizeFilename(state.familyInfo?.family_name || "steam-family");
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `${familyName || "steam-family"}-covers-${stamp}.png`;
+  }
+
+  function sanitizeFilename(value) {
+    return String(value || "").trim().replace(/[\\/:*?"<>|]+/g, "_");
   }
 
   async function refetchVisibleCoverUrls() {
@@ -4848,13 +5173,21 @@
     return String(entry?.coverUrl || "");
   }
 
-  function extractStoreCoverUrlFromStoreItem(item, failedUrl = "") {
+  function extractStorePosterCoverUrlFromStoreItem(item) {
+    return extractStoreAssetUrlFromStoreItem(item, ["library_capsule", "library_capsule_2x", "main_capsule", "small_capsule", "header"]);
+  }
+
+  function extractStoreAssetUrlFromStoreItem(item, assetKeys, failedUrl = "") {
     const assets = item?.assets || {};
-    const urls = [assets.header, assets.main_capsule, assets.small_capsule]
-      .map(filename => buildStoreItemAssetUrl(assets.asset_url_format, filename))
+    const urls = (assetKeys || [])
+      .map(key => buildStoreItemAssetUrl(assets.asset_url_format, assets[key]))
       .filter(Boolean);
     const normalizedFailedUrl = String(failedUrl || "").trim();
     return urls.find(url => url !== normalizedFailedUrl) || urls[0] || "";
+  }
+
+  function extractStoreCoverUrlFromStoreItem(item, failedUrl = "") {
+    return extractStoreAssetUrlFromStoreItem(item, ["header", "main_capsule", "small_capsule"], failedUrl);
   }
 
   function buildStoreItemAssetUrl(assetUrlFormat, filename) {
@@ -5851,7 +6184,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.reloadCoversBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.reloadCoversBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -5996,6 +6329,7 @@
     return Boolean(
       isFreshStoreCacheEntry(entry) ||
       isFreshCoverCacheEntry(entry) ||
+      isFreshStoreItemCacheEntry(entry) ||
       (entry &&
         entry.context === STORE_CACHE_CONTEXT &&
         isFreshOriginalPriceCacheEntry(entry.price))
@@ -6009,6 +6343,16 @@
       entry.coverVerified === true &&
       typeof entry.coverUrl === "string" &&
       entry.coverUrl &&
+      Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
+    );
+  }
+
+  function isFreshStoreItemCacheEntry(entry) {
+    return Boolean(
+      entry &&
+      entry.context === STORE_CACHE_CONTEXT &&
+      entry.storeItem &&
+      typeof entry.storeItem === "object" &&
       Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
     );
   }
@@ -6097,6 +6441,7 @@
           coverUrl: entry.coverUrl || "",
           coverVerified: entry.coverVerified === true,
           price: isFreshOriginalPriceCacheEntry(entry.price) ? entry.price : null,
+          storeItem: isFreshStoreItemCacheEntry(entry) ? entry.storeItem : null,
           updatedAt: Number(entry.updatedAt || Date.now())
         };
       }

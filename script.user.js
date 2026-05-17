@@ -57,6 +57,9 @@
   const AUTO_FAMILY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
   // 最近一次分析结果缓存键名。
   const ANALYSIS_HISTORY_KEY = `${STORAGE_KEY}_analysis_v1`;
+  // 分析输入历史缓存键名；只保存输入值与账号名称缓存，不保存分析结果。
+  const ANALYSIS_INPUT_HISTORY_KEY = `${STORAGE_KEY}_analysis_history_v2`;
+  const MAX_ANALYSIS_HISTORY_ITEMS = 12;
   // Steam 商店分类中“家庭共享”特性的分类 ID。
   const FAMILY_SHARING_CATEGORY_ID = 62;
   // 普通用户 SteamID64 = 该基数 + Steam 好友码 / 账号 ID（accountid）。
@@ -137,6 +140,7 @@
       languageChinese: "中文",
       languageEnglish: "English",
       targetPlaceholder: "SteamID64、好友码、主页链接或自定义 ID，多个用空格分隔",
+      analysisHistory: "分析历史",
       refreshFamily: "刷新家庭库",
       analyzeAccount: "分析账号",
       continue: "继续",
@@ -350,6 +354,7 @@
       languageChinese: "中文",
       languageEnglish: "English",
       targetPlaceholder: "SteamID64, friend code, profile URL, or custom ID. Separate multiple with spaces",
+      analysisHistory: "Analysis history",
       refreshFamily: "Refresh family library",
       analyzeAccount: "Analyze account",
       continue: "Continue",
@@ -769,6 +774,7 @@
   let rateLimitState = createRateLimitState();
   let comparePriceRangeByTarget = {};
   let analysisHistorySaveTimer = 0;
+  let analysisInputHistoryCache = null;
   let searchRenderTimer = 0;
   let scriptMenuCommandIds = [];
   let activePosterDialogContext = null;
@@ -1190,6 +1196,42 @@
       .sffa-input:focus {
         border-color: #66c0f4;
         box-shadow: 0 0 0 2px rgba(102, 192, 244, 0.12);
+      }
+      .sffa-history-wrap {
+        flex: 1 1 320px;
+        min-width: 0;
+      }
+      .sffa-row > .sffa-list-wrap.sffa-history-wrap {
+        flex: 1 1 320px;
+        min-width: 0;
+      }
+      .sffa-history-wrap .sffa-input {
+        width: 100%;
+      }
+      .sffa-history-wrap .sffa-list-menu {
+        top: 42px;
+        width: 100%;
+        max-height: 260px;
+        overflow: auto;
+        z-index: 5;
+      }
+      .sffa-history-wrap .sffa-list-option {
+        min-height: 44px;
+        padding: 6px 10px;
+      }
+      .sffa-history-option-main {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #f2f7fb;
+      }
+      .sffa-history-option-sub {
+        display: block;
+        margin-top: 2px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #8fa6b8;
+        font-size: 11px;
       }
       .sffa-btn {
         height: 36px;
@@ -2594,7 +2636,10 @@
         </header>
         <div class="sffa-body">
           <div class="sffa-row">
-            <input class="sffa-input" data-sffa-target placeholder="${escapeAttr(t("targetPlaceholder"))}" autocomplete="off">
+            <div class="sffa-list-wrap sffa-history-wrap" data-sffa-history-wrap>
+              <input class="sffa-input" data-sffa-target placeholder="${escapeAttr(t("targetPlaceholder"))}" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("analysisHistory"))}">
+              <div class="sffa-list-menu" role="listbox" data-sffa-history-menu></div>
+            </div>
             <button class="sffa-btn secondary" type="button" data-sffa-refresh>${escapeHtml(t("refreshFamily"))}</button>
             <button class="sffa-btn" type="button" data-sffa-analyze>${escapeHtml(t("analyzeAccount"))}</button>
           </div>
@@ -2721,6 +2766,8 @@
       localeOptions: Array.from(root.querySelectorAll("[data-sffa-locale-option]")),
       moreBtn: root.querySelector("[data-sffa-more]"),
       launcher: root.querySelector(".sffa-launcher"),
+      historyWrap: root.querySelector("[data-sffa-history-wrap]"),
+      historyMenu: root.querySelector("[data-sffa-history-menu]"),
       targetInput: root.querySelector("[data-sffa-target]"),
       listWrap: root.querySelector("[data-sffa-list-wrap]"),
       listSelect: root.querySelector("[data-sffa-list-select]"),
@@ -2810,8 +2857,12 @@
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.profile.addEventListener("change", handleTargetSelectionChange);
     elements.profile.addEventListener("click", handleProfileActionClick);
+    elements.historyMenu?.addEventListener("click", handleAnalysisHistoryClick);
+    elements.targetInput.addEventListener("focus", openAnalysisHistoryMenu);
+    elements.targetInput.addEventListener("click", openAnalysisHistoryMenu);
     elements.targetInput.addEventListener("keydown", event => {
       if (event.key === "Enter") {
+        closeAnalysisHistoryMenu();
         analyzeTarget();
       }
     });
@@ -2859,6 +2910,7 @@
           return;
         }
         closeListMenu();
+        closeAnalysisHistoryMenu();
         closeMenu();
         closeCopyListMenu();
         closeDialog();
@@ -2870,6 +2922,9 @@
       }
       if (!elements.listWrap?.contains(event.target)) {
         closeListMenu();
+      }
+      if (!elements.historyWrap?.contains(event.target)) {
+        closeAnalysisHistoryMenu();
       }
       if (!elements.familyPosterSortWrap?.contains(event.target)) {
         closeFamilyPosterSortMenu();
@@ -2891,6 +2946,7 @@
     renderAutoFamilyRefreshButton();
     renderStoreCacheButton();
     renderRateLimitControls();
+    renderAnalysisHistoryMenu();
   }
 
   function openDialog() {
@@ -2969,6 +3025,7 @@
   function closeDialog() {
     closeMenu();
     closeListMenu();
+    closeAnalysisHistoryMenu();
     closeCopyListMenu();
     closeFamilyPosterDialog();
     closeCompareDialog();
@@ -2979,6 +3036,7 @@
     event.stopPropagation();
     closeLocaleMenu();
     closeListMenu();
+    closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.menuWrap.classList.toggle("is-menu-open");
     elements.moreBtn.setAttribute("aria-expanded", String(isOpen));
@@ -2989,6 +3047,7 @@
     elements.menuWrap?.classList.remove("is-menu-open");
     elements.moreBtn?.setAttribute("aria-expanded", "false");
     closeListMenu();
+    closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.localeWrap.classList.toggle("is-open");
     elements.localeToggleBtn.setAttribute("aria-expanded", String(isOpen));
@@ -3009,6 +3068,7 @@
   function toggleListMenu(event) {
     event.stopPropagation();
     closeMenu();
+    closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.listWrap.classList.toggle("is-open");
     elements.listSelect.setAttribute("aria-expanded", String(isOpen));
@@ -3017,6 +3077,39 @@
   function closeListMenu() {
     elements.listWrap?.classList.remove("is-open");
     elements.listSelect?.setAttribute("aria-expanded", "false");
+  }
+
+  function openAnalysisHistoryMenu() {
+    if (!elements.historyMenu?.children.length) {
+      closeAnalysisHistoryMenu();
+      return;
+    }
+    closeMenu();
+    closeListMenu();
+    closeCopyListMenu();
+    elements.historyWrap?.classList.add("is-open");
+    elements.targetInput?.setAttribute("aria-expanded", "true");
+  }
+
+  function closeAnalysisHistoryMenu() {
+    elements.historyWrap?.classList.remove("is-open");
+    elements.targetInput?.setAttribute("aria-expanded", "false");
+  }
+
+  function handleAnalysisHistoryClick(event) {
+    const option = event.target?.closest?.("[data-sffa-history-option]");
+    if (!option) {
+      return;
+    }
+
+    const inputValue = option.dataset.sffaHistoryOption || "";
+    if (!inputValue) {
+      return;
+    }
+
+    elements.targetInput.value = inputValue;
+    closeAnalysisHistoryMenu();
+    analyzeTarget();
   }
 
   function toggleCopyListMenu(event) {
@@ -3440,6 +3533,7 @@
       const rawInput = prepareAnalyzeInput();
       const session = prepareAnalyzeSession();
       const targetProfile = await loadAnalyzeTargetProfile(rawInput, session);
+      rememberAnalysisInput(rawInput, targetProfile);
       const comparison = await buildAnalyzeComparison(targetProfile, session);
       const analysisId = initializeAnalysisRuntime(targetProfile);
       lastReport = createPendingAnalysisReport(targetProfile, comparison);
@@ -7437,12 +7531,14 @@
   function restoreAnalysisHistory() {
     const saved = loadAnalysisHistory();
     if (!saved) {
+      restoreLastAnalysisInputFromHistory();
       return false;
     }
 
     restoreSavedReport(saved);
     restoreSavedInputs(saved);
     renderRestoredAnalysis();
+    renderAnalysisHistoryMenu();
     return true;
   }
 
@@ -7455,6 +7551,14 @@
     currentTab = normalizeMainTab(saved.currentTab);
     tableSortByTab = saved.tableSortByTab || {};
     comparePriceRangeByTarget = {};
+  }
+
+  function restoreLastAnalysisInputFromHistory() {
+    const saved = loadAnalysisInputHistory();
+    if (saved.lastInputValue || saved.entries.length) {
+      restoreSavedInputs({ inputValue: saved.lastInputValue || saved.entries[0]?.inputValue || "" });
+    }
+    renderAnalysisHistoryMenu(saved);
   }
 
   function restoreSavedInputs(saved) {
@@ -7509,8 +7613,185 @@
     });
   }
 
+  function loadAnalysisInputHistory() {
+    if (analysisInputHistoryCache) {
+      return analysisInputHistoryCache;
+    }
+
+    try {
+      const saved = GM_getValue(ANALYSIS_INPUT_HISTORY_KEY);
+      analysisInputHistoryCache = normalizeAnalysisInputHistory(saved);
+    } catch (error) {
+      analysisInputHistoryCache = createEmptyAnalysisInputHistory();
+    }
+    return analysisInputHistoryCache;
+  }
+
+  function createEmptyAnalysisInputHistory() {
+    return {
+      version: 1,
+      updatedAt: 0,
+      lastInputValue: "",
+      entries: [],
+      accountNameCache: {}
+    };
+  }
+
+  function normalizeAnalysisInputHistory(saved) {
+    const empty = createEmptyAnalysisInputHistory();
+    if (!saved || saved.version !== 1) {
+      return empty;
+    }
+
+    const accountNameCache = {};
+    Object.entries(saved.accountNameCache || {}).forEach(([steamid64, name]) => {
+      if (/^\d{17}$/.test(String(steamid64)) && String(name || "").trim()) {
+        accountNameCache[String(steamid64)] = String(name).trim();
+      }
+    });
+
+    const entries = Array.isArray(saved.entries)
+      ? saved.entries.map(normalizeAnalysisInputHistoryEntry).filter(Boolean).slice(0, MAX_ANALYSIS_HISTORY_ITEMS)
+      : [];
+    entries.forEach(entry => {
+      entry.targets.forEach(target => {
+        if (accountNameCache[target.steamid64]) {
+          target.displayName = accountNameCache[target.steamid64];
+        }
+      });
+      if (!entry.displayName && entry.targets.length) {
+        entry.displayName = entry.targets.map(target => target.displayName || target.steamid64).join(" + ");
+      }
+    });
+
+    return {
+      ...empty,
+      updatedAt: Number(saved.updatedAt || 0),
+      lastInputValue: String(saved.lastInputValue || "").trim(),
+      entries,
+      accountNameCache
+    };
+  }
+
+  function normalizeAnalysisInputHistoryEntry(entry) {
+    const inputValue = String(entry?.inputValue || "").trim();
+    if (!inputValue) {
+      return null;
+    }
+
+    const targets = Array.isArray(entry.targets)
+      ? entry.targets.map(normalizeAnalysisInputHistoryTarget).filter(Boolean)
+      : [];
+
+    return {
+      inputValue,
+      displayName: String(entry.displayName || "").trim(),
+      targets,
+      updatedAt: Number(entry.updatedAt || 0)
+    };
+  }
+
+  function normalizeAnalysisInputHistoryTarget(target) {
+    const steamid64 = String(target?.steamid64 || "");
+    const displayName = String(target?.displayName || "").trim();
+    if (!/^\d{17}$/.test(steamid64)) {
+      return null;
+    }
+    return {
+      steamid64,
+      displayName: displayName || steamid64
+    };
+  }
+
+  function rememberAnalysisInput(inputValue, targetProfile, shouldRender = true) {
+    const normalizedInput = String(inputValue || "").trim();
+    if (!normalizedInput) {
+      return;
+    }
+
+    const saved = loadAnalysisInputHistory();
+    const targets = extractAnalysisHistoryTargets(targetProfile);
+    const displayName = getAnalysisHistoryDisplayName(targetProfile, targets);
+    targets.forEach(target => {
+      saved.accountNameCache[target.steamid64] = target.displayName;
+    });
+
+    const entry = {
+      inputValue: normalizedInput,
+      displayName,
+      targets,
+      updatedAt: Date.now()
+    };
+    saved.entries = [
+      entry,
+      ...saved.entries.filter(item => item.inputValue !== normalizedInput)
+    ].slice(0, MAX_ANALYSIS_HISTORY_ITEMS);
+    saved.lastInputValue = normalizedInput;
+    saved.updatedAt = entry.updatedAt;
+    saveAnalysisInputHistory(saved);
+
+    if (shouldRender) {
+      renderAnalysisHistoryMenu(saved);
+    }
+  }
+
+  function extractAnalysisHistoryTargets(targetProfile) {
+    const targets = Array.isArray(targetProfile?.targets) && targetProfile.targets.length
+      ? targetProfile.targets
+      : [targetProfile].filter(Boolean);
+    return targets
+      .map(target => normalizeAnalysisInputHistoryTarget(target))
+      .filter(Boolean);
+  }
+
+  function getAnalysisHistoryDisplayName(targetProfile, targets) {
+    const displayName = String(targetProfile?.displayName || "").trim();
+    if (displayName) {
+      return displayName;
+    }
+    if (targets.length) {
+      return targets.map(target => target.displayName || target.steamid64).join(" + ");
+    }
+    return "";
+  }
+
+  function saveAnalysisInputHistory(history) {
+    analysisInputHistoryCache = normalizeAnalysisInputHistory(history);
+    GM_setValue(ANALYSIS_INPUT_HISTORY_KEY, {
+      version: 1,
+      updatedAt: Number(analysisInputHistoryCache.updatedAt || Date.now()),
+      lastInputValue: String(analysisInputHistoryCache.lastInputValue || "").trim(),
+      entries: (analysisInputHistoryCache.entries || []).slice(0, MAX_ANALYSIS_HISTORY_ITEMS),
+      accountNameCache: analysisInputHistoryCache.accountNameCache || {}
+    });
+  }
+
+  function renderAnalysisHistoryMenu(history = loadAnalysisInputHistory()) {
+    if (!elements.historyMenu) {
+      return;
+    }
+
+    elements.historyMenu.innerHTML = history.entries.map(renderAnalysisHistoryOptionHtml).join("");
+    if (!history.entries.length) {
+      closeAnalysisHistoryMenu();
+    }
+  }
+
+  function renderAnalysisHistoryOptionHtml(entry) {
+    const label = entry.displayName || entry.targets.map(target => target.displayName).filter(Boolean).join(" + ") || entry.inputValue;
+    return `
+      <button class="sffa-list-option" type="button" role="option" data-sffa-history-option="${escapeAttr(entry.inputValue)}" title="${escapeAttr(entry.inputValue)}">
+        <span class="sffa-history-option-main">${escapeHtml(label)}</span>
+        <span class="sffa-history-option-sub">${escapeHtml(entry.inputValue)}</span>
+      </button>
+    `;
+  }
+
   function clearAnalysisHistory() {
     GM_deleteValue(ANALYSIS_HISTORY_KEY);
+    GM_deleteValue(ANALYSIS_INPUT_HISTORY_KEY);
+    analysisInputHistoryCache = createEmptyAnalysisInputHistory();
+    renderAnalysisHistoryMenu(analysisInputHistoryCache);
   }
 
   function cloneDefaultState() {

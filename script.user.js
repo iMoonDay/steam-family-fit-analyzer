@@ -94,6 +94,13 @@
     "hasCoverFirst",
     "noCoverFirst"
   ]);
+  const LIST_POSTER_BASE_SORT_MODES = Object.freeze([
+    "current",
+    "titleAsc",
+    "titleDesc",
+    "appidAsc",
+    "appidDesc"
+  ]);
   const FAMILY_POSTER_WIDTH = 2000;
   const FAMILY_POSTER_PADDING = 32;
   const FAMILY_POSTER_GAP = 12;
@@ -281,15 +288,19 @@
       reloadCovers: "重载封面",
       coversReloaded: "已重载封面",
       continueCovers: "继续加载封面...",
+      saveListPoster: "保存游戏封面图",
       saveFamilyPoster: "保存家庭封面图",
       familyPosterTitle: "家庭封面图设置",
       familyPosterHint: "调整列数、排序和缩放后再生成导出图片。",
+      listPosterTitle: "游戏封面图设置",
+      listPosterHint: "导出当前「{tab}」列表的游戏封面；默认排序会沿用当前列表顺序。",
       familyPosterColumns: "每行列数",
       familyPosterSort: "排序方式",
       familyPosterScale: "尺寸缩放",
       familyPosterCancel: "取消",
       familyPosterConfirm: "生成图片",
       familyPosterScaleValue: "{value}%",
+      listPosterOrderCurrent: "默认（当前列表排序）",
       familyPosterOrderData: "默认（数据顺序）",
       familyPosterOrderTitleAsc: "名称升序",
       familyPosterOrderTitleDesc: "名称降序",
@@ -299,6 +310,12 @@
       familyPosterOrderPriceAsc: "价格升序",
       familyPosterOrderAcquiredDesc: "入库时间降序",
       familyPosterOrderAcquiredAsc: "入库时间升序",
+      familyPosterOrderOwnersAsc: "拥有者升序",
+      familyPosterOrderOwnersDesc: "拥有者降序",
+      familyPosterOrderTargetOwnersAsc: "目标拥有者升序",
+      familyPosterOrderTargetOwnersDesc: "目标拥有者降序",
+      familyPosterOrderStatusAsc: "状态升序",
+      familyPosterOrderStatusDesc: "状态降序",
       familyPosterOrderOwnerCountDesc: "贡献者数量降序",
       familyPosterOrderOwnerCountAsc: "贡献者数量升序",
       familyPosterOrderHasCoverFirst: "有封面优先",
@@ -308,7 +325,13 @@
       renderingFamilyPoster: "正在生成家庭封面图...",
       familyPosterSaved: "家庭封面图已保存",
       familyPosterEmpty: "没有可导出的家庭封面",
-      familyPosterTooLarge: "家庭封面图过高，当前尺寸超出浏览器导出上限"
+      familyPosterTooLarge: "家庭封面图过高，当前尺寸超出浏览器导出上限",
+      preparingListPoster: "正在整理游戏封面...",
+      fetchingListPoster: "正在获取游戏封面 {current}/{total}...",
+      renderingListPoster: "正在生成游戏封面图...",
+      listPosterSaved: "游戏封面图已保存",
+      listPosterEmpty: "当前列表没有可导出的游戏封面",
+      listPosterTooLarge: "游戏封面图过高，当前尺寸超出浏览器导出上限"
     },
     en: {
       appName: "Steam Family Library Analyzer",
@@ -478,15 +501,19 @@
       reloadCovers: "Reload covers",
       coversReloaded: "Cover images reloaded",
       continueCovers: "Continuing cover loading...",
+      saveListPoster: "Save game poster",
       saveFamilyPoster: "Save family poster",
       familyPosterTitle: "Family Poster Settings",
       familyPosterHint: "Adjust columns, ordering, and scale before exporting.",
+      listPosterTitle: "Game Poster Settings",
+      listPosterHint: "Export covers from the current {tab} list. Default follows the current list order.",
       familyPosterColumns: "Columns",
       familyPosterSort: "Sort",
       familyPosterScale: "Scale",
       familyPosterCancel: "Cancel",
       familyPosterConfirm: "Generate",
       familyPosterScaleValue: "{value}%",
+      listPosterOrderCurrent: "Default (current list order)",
       familyPosterOrderData: "Default (data order)",
       familyPosterOrderTitleAsc: "Title ascending",
       familyPosterOrderTitleDesc: "Title descending",
@@ -496,6 +523,12 @@
       familyPosterOrderPriceAsc: "Price ascending",
       familyPosterOrderAcquiredDesc: "Acquired desc",
       familyPosterOrderAcquiredAsc: "Acquired asc",
+      familyPosterOrderOwnersAsc: "Owners ascending",
+      familyPosterOrderOwnersDesc: "Owners descending",
+      familyPosterOrderTargetOwnersAsc: "Target owners ascending",
+      familyPosterOrderTargetOwnersDesc: "Target owners descending",
+      familyPosterOrderStatusAsc: "Status ascending",
+      familyPosterOrderStatusDesc: "Status descending",
       familyPosterOrderOwnerCountDesc: "Owner count desc",
       familyPosterOrderOwnerCountAsc: "Owner count asc",
       familyPosterOrderHasCoverFirst: "Has cover first",
@@ -505,7 +538,13 @@
       renderingFamilyPoster: "Rendering family poster...",
       familyPosterSaved: "Family cover poster saved",
       familyPosterEmpty: "No family covers available to export",
-      familyPosterTooLarge: "Family cover poster is too tall to export in one image"
+      familyPosterTooLarge: "Family cover poster is too tall to export in one image",
+      preparingListPoster: "Preparing game covers...",
+      fetchingListPoster: "Fetching game covers {current}/{total}...",
+      renderingListPoster: "Rendering game poster...",
+      listPosterSaved: "Game cover poster saved",
+      listPosterEmpty: "No game covers in the current list",
+      listPosterTooLarge: "Game cover poster is too tall to export in one image"
     }
   });
 
@@ -698,6 +737,10 @@
       sortMode: "data",
       scalePercent: 100
     },
+    listPosterSettings: {
+      columns: FAMILY_POSTER_COLUMNS,
+      scalePercent: 100
+    },
     familyInfo: null,
     familyLibrary: {
       appidSet: [],
@@ -728,6 +771,7 @@
   let analysisHistorySaveTimer = 0;
   let searchRenderTimer = 0;
   let scriptMenuCommandIds = [];
+  let activePosterDialogContext = null;
   let autoFamilyRefreshRunning = false;
   let coverReloadToken = 0;
   let elements = {};
@@ -2593,6 +2637,7 @@
                   <div class="sffa-menu sffa-copy-list-menu" data-sffa-copy-list-menu>
                     <button class="sffa-menu-item" type="button" data-sffa-copy-list>${escapeHtml(t("copyList"))}</button>
                     <button class="sffa-menu-item" type="button" data-sffa-copy-games>${escapeHtml(t("copyGames"))}</button>
+                    <button class="sffa-menu-item" type="button" data-sffa-save-list-poster>${escapeHtml(t("saveListPoster"))}</button>
                     <button class="sffa-menu-item" type="button" data-sffa-reload-covers>${escapeHtml(t("reloadCovers"))}</button>
                   </div>
                 </div>
@@ -2692,6 +2737,7 @@
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
       saveFamilyPosterBtn: root.querySelector("[data-sffa-save-family-poster]"),
+      saveListPosterBtn: root.querySelector("[data-sffa-save-list-poster]"),
       reloadCoversBtn: root.querySelector("[data-sffa-reload-covers]"),
       clearStoreCacheBtn: root.querySelector("[data-sffa-clear-store-cache]"),
       rawBtn: root.querySelector("[data-sffa-raw]"),
@@ -2746,6 +2792,7 @@
     copyListCopyBtn?.addEventListener("click", copyCurrentList);
     const copyListCopyGamesBtn = elements.copyListWrap?.querySelector("[data-sffa-copy-games]");
     copyListCopyGamesBtn?.addEventListener("click", copyCurrentGamesOnly);
+    elements.saveListPosterBtn?.addEventListener("click", openListPosterDialog);
     elements.rawBtn?.addEventListener("click", showRawDataWindow);
     elements.rateContinueBtn?.addEventListener("click", continueAfterRateLimit);
     elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
@@ -3004,6 +3051,10 @@
     return FAMILY_POSTER_SORT_MODES.includes(value) ? value : "data";
   }
 
+  function normalizePosterSortMode(value, modes, fallback = "data") {
+    return (modes || []).includes(value) ? value : fallback;
+  }
+
   function normalizeFamilyPosterScalePercent(value) {
     return Math.max(40, Math.min(100, Number(value || 100) || 100));
   }
@@ -3016,8 +3067,23 @@
     };
   }
 
+  function normalizeListPosterSettings(settings = {}, tab = currentTab) {
+    return {
+      columns: normalizeFamilyPosterColumns(settings.columns),
+      sortMode: normalizePosterSortMode(settings.sortMode, getListPosterSortModesForTab(tab), "current"),
+      scalePercent: normalizeFamilyPosterScalePercent(settings.scalePercent)
+    };
+  }
+
   function getFamilyPosterSettings() {
     return normalizeFamilyPosterSettings(state.familyPosterSettings || {});
+  }
+
+  function getListPosterSettings(tab = currentTab) {
+    return normalizeListPosterSettings({
+      ...(state.listPosterSettings || {}),
+      sortMode: "current"
+    }, tab);
   }
 
   function setAppLocaleMode(mode) {
@@ -3038,7 +3104,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveFamilyPosterBtn, "textContent", t("saveFamilyPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveFamilyPosterBtn, "textContent", t("saveFamilyPoster")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => { element[key] = value; });
     [
       [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
@@ -3084,7 +3150,25 @@
 
   function openFamilyPosterDialog() {
     closeMenu();
-    syncFamilyPosterDialogInputsFromState();
+    openPosterDialog(createFamilyPosterDialogContext());
+  }
+
+  function openListPosterDialog() {
+    closeCopyListMenu();
+    if (!lastReport && currentTab !== "family") {
+      setStatus(t("noList"), "warn");
+      return;
+    }
+    if (!getCurrentListRows(currentTab).length) {
+      setStatus(t("currentListEmpty"), "warn");
+      return;
+    }
+    openPosterDialog(createListPosterDialogContext(currentTab));
+  }
+
+  function openPosterDialog(context) {
+    activePosterDialogContext = context;
+    syncFamilyPosterDialogInputsFromContext(context);
     renderFamilyPosterDialog();
     elements.root.classList.add("is-family-poster-open");
   }
@@ -3092,18 +3176,23 @@
   function closeFamilyPosterDialog() {
     closeFamilyPosterSortMenu();
     elements.root.classList.remove("is-family-poster-open");
+    activePosterDialogContext = null;
   }
 
   function confirmSaveFamilyPoster() {
-    const settings = readFamilyPosterSettingsFromDialog();
-    state.familyPosterSettings = settings;
+    const context = getActivePosterDialogContext();
+    const settings = readFamilyPosterSettingsFromDialog(context);
+    context.saveSettings(settings);
     saveState();
     closeFamilyPosterDialog();
-    generateFamilyPoster(settings);
+    context.generate(settings);
   }
 
-  function syncFamilyPosterDialogInputsFromState() {
-    const settings = getFamilyPosterSettings();
+  function syncFamilyPosterDialogInputsFromContext(context = getActivePosterDialogContext()) {
+    const settings = context.settings;
+    if (elements.familyPosterSortSelect) {
+      elements.familyPosterSortSelect.dataset.selectedSortMode = normalizePosterSortMode(settings.sortMode, context.sortModes, context.defaultSortMode);
+    }
     if (elements.familyPosterColumnsInput) {
       elements.familyPosterColumnsInput.value = String(settings.columns);
     }
@@ -3113,20 +3202,27 @@
     updateFamilyPosterScaleValue();
   }
 
-  function readFamilyPosterSettingsFromDialog() {
-    return normalizeFamilyPosterSettings({
+  function readFamilyPosterSettingsFromDialog(context = getActivePosterDialogContext()) {
+    return normalizePosterSettingsForContext({
       columns: elements.familyPosterColumnsInput?.value,
       sortMode: elements.familyPosterSortSelect?.dataset.selectedSortMode,
       scalePercent: elements.familyPosterScaleInput?.value
-    });
+    }, context);
   }
 
   function renderFamilyPosterDialog() {
+    const context = getActivePosterDialogContext();
+    if (elements.familyPosterTitle) {
+      elements.familyPosterTitle.textContent = context.title;
+    }
+    if (elements.familyPosterHint) {
+      elements.familyPosterHint.textContent = context.hint;
+    }
     if (elements.familyPosterSortSelect && elements.familyPosterSortMenu) {
-      const currentValue = normalizeFamilyPosterSortMode(elements.familyPosterSortSelect.dataset.selectedSortMode || getFamilyPosterSettings().sortMode);
+      const currentValue = normalizePosterSortMode(elements.familyPosterSortSelect.dataset.selectedSortMode || context.settings.sortMode, context.sortModes, context.defaultSortMode);
       elements.familyPosterSortSelect.dataset.selectedSortMode = currentValue;
       elements.familyPosterSortSelect.textContent = getFamilyPosterSortModeLabel(currentValue);
-      elements.familyPosterSortMenu.innerHTML = FAMILY_POSTER_SORT_MODES.map(mode => {
+      elements.familyPosterSortMenu.innerHTML = context.sortModes.map(mode => {
         const active = mode === currentValue;
         return `<button class="sffa-list-option${active ? " is-active" : ""}" type="button" role="option" data-sffa-family-poster-sort-option="${escapeAttr(mode)}" aria-selected="${active ? "true" : "false"}">${escapeHtml(getFamilyPosterSortModeLabel(mode))}</button>`;
       }).join("");
@@ -3138,7 +3234,8 @@
   }
 
   function setFamilyPosterSortMode(mode) {
-    const nextMode = normalizeFamilyPosterSortMode(mode);
+    const context = getActivePosterDialogContext();
+    const nextMode = normalizePosterSortMode(mode, context.sortModes, context.defaultSortMode);
     if (elements.familyPosterSortSelect) {
       elements.familyPosterSortSelect.dataset.selectedSortMode = nextMode;
     }
@@ -3155,6 +3252,7 @@
 
   function getFamilyPosterSortModeLabel(mode) {
     return {
+      current: t("listPosterOrderCurrent"),
       data: t("familyPosterOrderData"),
       titleAsc: t("familyPosterOrderTitleAsc"),
       titleDesc: t("familyPosterOrderTitleDesc"),
@@ -3164,11 +3262,101 @@
       priceAsc: t("familyPosterOrderPriceAsc"),
       acquiredDesc: t("familyPosterOrderAcquiredDesc"),
       acquiredAsc: t("familyPosterOrderAcquiredAsc"),
+      ownersAsc: t("familyPosterOrderOwnersAsc"),
+      ownersDesc: t("familyPosterOrderOwnersDesc"),
+      targetOwnersAsc: t("familyPosterOrderTargetOwnersAsc"),
+      targetOwnersDesc: t("familyPosterOrderTargetOwnersDesc"),
+      statusAsc: t("familyPosterOrderStatusAsc"),
+      statusDesc: t("familyPosterOrderStatusDesc"),
       ownerCountDesc: t("familyPosterOrderOwnerCountDesc"),
       ownerCountAsc: t("familyPosterOrderOwnerCountAsc"),
       hasCoverFirst: t("familyPosterOrderHasCoverFirst"),
       noCoverFirst: t("familyPosterOrderNoCoverFirst")
     }[mode] || t("familyPosterOrderData");
+  }
+
+  function getActivePosterDialogContext() {
+    return activePosterDialogContext || createFamilyPosterDialogContext();
+  }
+
+  function createFamilyPosterDialogContext() {
+    return {
+      kind: "family",
+      title: t("familyPosterTitle"),
+      hint: t("familyPosterHint"),
+      headerTitle: state.familyInfo?.family_name || t("notRefreshed"),
+      sortModes: FAMILY_POSTER_SORT_MODES,
+      defaultSortMode: "data",
+      settings: getFamilyPosterSettings(),
+      saveSettings(settings) {
+        state.familyPosterSettings = settings;
+      },
+      generate(settings) {
+        return generateFamilyPoster(settings);
+      }
+    };
+  }
+
+  function createListPosterDialogContext(tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    const tabLabel = getTabLabel(normalizedTab);
+    return {
+      kind: "list",
+      tab: normalizedTab,
+      title: t("listPosterTitle"),
+      hint: t("listPosterHint", { tab: tabLabel }),
+      headerTitle: tabLabel,
+      sortModes: getListPosterSortModesForTab(normalizedTab),
+      defaultSortMode: "current",
+      settings: getListPosterSettings(normalizedTab),
+      saveSettings(settings) {
+        state.listPosterSettings = {
+          columns: settings.columns,
+          scalePercent: settings.scalePercent
+        };
+      },
+      generate(settings) {
+        return generateListPoster(normalizedTab, settings);
+      }
+    };
+  }
+
+  function createListPosterCanvasContext(tab = currentTab) {
+    return {
+      kind: "list",
+      headerTitle: getTabLabel(normalizeMainTab(tab))
+    };
+  }
+
+  function getListPosterSortModesForTab(tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    const modes = [...LIST_POSTER_BASE_SORT_MODES];
+    if (normalizedTab === "all") {
+      if (isMultiTargetReport()) {
+        modes.push("targetOwnersAsc", "targetOwnersDesc");
+      }
+      modes.push("statusAsc", "statusDesc");
+    } else if (normalizedTab === "new") {
+      if (isMultiTargetReport()) {
+        modes.push("targetOwnersAsc", "targetOwnersDesc");
+      }
+      modes.push("priceDesc", "priceAsc");
+    } else if (normalizedTab === "relativeNew") {
+      modes.push("ownersAsc", "ownersDesc", "priceDesc", "priceAsc");
+    } else if (normalizedTab === "family") {
+      modes.push("ownersAsc", "ownersDesc", "acquiredDesc", "acquiredAsc");
+    } else if (normalizedTab === "overlap") {
+      modes.push("ownersAsc", "ownersDesc");
+    }
+    return modes;
+  }
+
+  function normalizePosterSettingsForContext(settings = {}, context = getActivePosterDialogContext()) {
+    return {
+      columns: normalizeFamilyPosterColumns(settings.columns),
+      sortMode: normalizePosterSortMode(settings.sortMode, context.sortModes, context.defaultSortMode),
+      scalePercent: normalizeFamilyPosterScalePercent(settings.scalePercent)
+    };
   }
 
   // ===== 家庭库刷新与分析流程 =====
@@ -3486,13 +3674,16 @@
         throw new Error(t("familyPosterEmpty"));
       }
       setStatus(t("preparingFamilyPoster"), "warn");
-      await ensureFamilyPosterStoreItems(appids);
+      await ensurePosterStoreItems(appids, {
+        statusKey: "fetchingFamilyPoster",
+        rawPrefix: "familyPoster"
+      });
       const posterItems = buildFamilyPosterItems(appids, settings);
       if (!posterItems.length) {
         throw new Error(t("familyPosterEmpty"));
       }
       setStatus(t("renderingFamilyPoster"), "warn");
-      const canvas = await renderFamilyPosterCanvas(posterItems, settings);
+      const canvas = await renderFamilyPosterCanvas(posterItems, settings, createFamilyPosterDialogContext());
       await downloadCanvasAsPng(canvas, buildFamilyPosterFilename(settings));
       setStatus(t("familyPosterSaved"), "ok");
     } catch (error) {
@@ -3507,19 +3698,53 @@
     }
   }
 
-  async function ensureFamilyPosterStoreItems(appids) {
+  async function generateListPoster(tab, settings = getListPosterSettings(tab)) {
+    closeCopyListMenu();
+    setBusy(true);
+    try {
+      const rows = getCurrentListRows(tab);
+      const appids = rows.map(game => String(game.appid || "")).filter(appid => /^\d+$/.test(appid));
+      if (!appids.length) {
+        throw new Error(t("listPosterEmpty"));
+      }
+      setStatus(t("preparingListPoster"), "warn");
+      await ensurePosterStoreItems(appids, {
+        statusKey: "fetchingListPoster",
+        rawPrefix: "listPoster"
+      });
+      const posterItems = buildListPosterItems(rows, settings);
+      if (!posterItems.length) {
+        throw new Error(t("listPosterEmpty"));
+      }
+      setStatus(t("renderingListPoster"), "warn");
+      const canvas = await renderFamilyPosterCanvas(posterItems, settings, createListPosterCanvasContext(tab));
+      await downloadCanvasAsPng(canvas, buildListPosterFilename(tab, settings));
+      setStatus(t("listPosterSaved"), "ok");
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        setRateLimited(error, "cover");
+      } else {
+        setRawError(error);
+        setStatus(error.message || t("networkFailed"), "err");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ensurePosterStoreItems(appids, options = {}) {
     const missing = appids.filter(appid => !hasFreshPosterStoreItem(appid));
     if (!missing.length) {
       return;
     }
     const total = Math.ceil(missing.length / SHAREABILITY_BATCH_SIZE);
     for (let index = 0; index < missing.length; index += SHAREABILITY_BATCH_SIZE) {
-      setStatus(t("fetchingFamilyPoster", { current: Math.floor(index / SHAREABILITY_BATCH_SIZE) + 1, total }), "warn");
+      setStatus(t(options.statusKey || "fetchingFamilyPoster", { current: Math.floor(index / SHAREABILITY_BATCH_SIZE) + 1, total }), "warn");
       await fetchStoreItemBatch(missing.slice(index, index + SHAREABILITY_BATCH_SIZE), {
         include_basic_info: true,
         include_assets: true,
         include_all_purchase_options: true
-      }, `familyPoster.batch${Date.now()}.${index}`);
+      }, `${options.rawPrefix || "poster"}.batch${Date.now()}.${index}`);
     }
     saveState();
   }
@@ -3547,18 +3772,50 @@
     return sortFamilyPosterItems(items, settings);
   }
 
+  function buildListPosterItems(rows, settings = getListPosterSettings(currentTab)) {
+    const items = rows.map((game, index) => {
+      const appid = String(game.appid || "");
+      const storeEntry = state.storeCache?.[appid] || {};
+      const price = normalizeStoreItemOriginalPrice(storeEntry.storeItem) || game.price || storeEntry.price || null;
+      return {
+        appid,
+        dataIndex: index,
+        title: getCachedLocalizedName(appid) || getGameDisplayName(game),
+        coverUrl: getFamilyPosterCoverUrl(appid),
+        priceValue: getPosterPriceSortValue(price),
+        acquiredAt: Number(game.time || 0),
+        ownerCount: Array.isArray(game.owners) ? game.owners.length : 0,
+        ownersText: formatOwners(game.owners || []),
+        targetOwnersText: formatTargetOwners(game.targetOwners || []),
+        statusText: getGameListLabel(appid)
+      };
+    });
+    return sortFamilyPosterItems(items, settings);
+  }
+
   function getFamilyPosterCoverUrl(appid) {
     const entry = state.storeCache?.[String(appid || "")];
     return extractStorePosterCoverUrlFromStoreItem(entry?.storeItem || null) || getCachedStoreCoverUrl(appid);
   }
 
+  function getPosterPriceSortValue(price) {
+    if (!price || price.unavailable || price.initial == null) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    return Number(price.initial || 0);
+  }
+
   function sortFamilyPosterItems(items, settings = getFamilyPosterSettings()) {
-    const sortMode = normalizeFamilyPosterSortMode(settings.sortMode);
+    const sortMode = String(settings.sortMode || "data");
     const output = items.slice();
-    if (sortMode === "data") {
+    if (sortMode === "data" || sortMode === "current") {
       return output;
     }
     const collator = new Intl.Collator(getNumberLocale(), { numeric: true, sensitivity: "base" });
+    const compareText = (left, right, key, direction = "asc") => {
+      const result = collator.compare(String(left[key] || ""), String(right[key] || ""));
+      return direction === "desc" ? -result : result;
+    };
     output.sort((left, right) => {
       switch (sortMode) {
         case "titleAsc":
@@ -3577,6 +3834,18 @@
           return Number(right.acquiredAt || 0) - Number(left.acquiredAt || 0) || left.dataIndex - right.dataIndex;
         case "acquiredAsc":
           return Number(left.acquiredAt || 0) - Number(right.acquiredAt || 0) || left.dataIndex - right.dataIndex;
+        case "ownersAsc":
+          return compareText(left, right, "ownersText") || left.dataIndex - right.dataIndex;
+        case "ownersDesc":
+          return compareText(left, right, "ownersText", "desc") || left.dataIndex - right.dataIndex;
+        case "targetOwnersAsc":
+          return compareText(left, right, "targetOwnersText") || left.dataIndex - right.dataIndex;
+        case "targetOwnersDesc":
+          return compareText(left, right, "targetOwnersText", "desc") || left.dataIndex - right.dataIndex;
+        case "statusAsc":
+          return compareText(left, right, "statusText") || left.dataIndex - right.dataIndex;
+        case "statusDesc":
+          return compareText(left, right, "statusText", "desc") || left.dataIndex - right.dataIndex;
         case "ownerCountDesc":
           return Number(right.ownerCount || 0) - Number(left.ownerCount || 0) || left.dataIndex - right.dataIndex;
         case "ownerCountAsc":
@@ -3592,12 +3861,12 @@
     return output;
   }
 
-  async function renderFamilyPosterCanvas(items, settings = getFamilyPosterSettings()) {
+  async function renderFamilyPosterCanvas(items, settings = getFamilyPosterSettings(), posterContext = createFamilyPosterDialogContext()) {
     const loadedItems = await loadFamilyPosterImages(items);
     const metrics = createFamilyPosterMetrics();
     const layout = buildFamilyPosterLayout(loadedItems, metrics, settings);
     if (layout.height > FAMILY_POSTER_MAX_HEIGHT) {
-      throw new Error(t("familyPosterTooLarge"));
+      throw new Error(t(posterContext.kind === "list" ? "listPosterTooLarge" : "familyPosterTooLarge"));
     }
     const canvas = document.createElement("canvas");
     canvas.width = metrics.width;
@@ -3607,7 +3876,7 @@
       throw new Error(t("networkFailed"));
     }
     drawFamilyPosterBackground(context, canvas.width, canvas.height);
-    drawFamilyPosterHeader(context, canvas.width, items.length, metrics);
+    drawFamilyPosterHeader(context, canvas.width, items.length, metrics, posterContext);
     layout.cards.forEach(card => drawFamilyPosterCard(context, card, metrics));
     return scaleFamilyPosterCanvas(canvas, settings);
   }
@@ -3727,8 +3996,8 @@
     context.fill();
   }
 
-  function drawFamilyPosterHeader(context, width, gameCount, metrics) {
-    const familyName = state.familyInfo?.family_name || t("notRefreshed");
+  function drawFamilyPosterHeader(context, width, gameCount, metrics, posterContext = createFamilyPosterDialogContext()) {
+    const familyName = posterContext.headerTitle || state.familyInfo?.family_name || t("notRefreshed");
     context.fillStyle = "#ffffff";
     context.font = `700 ${metrics.headerTitleFontSize}px 'Motiva Sans', Arial, sans-serif`;
     context.fillText(familyName, metrics.padding, Math.round(56 * metrics.scale));
@@ -3851,6 +4120,13 @@
     const stamp = new Date().toISOString().slice(0, 10);
     const normalized = normalizeFamilyPosterSettings(settings);
     return `${familyName || "steam-family"}-covers-${normalized.columns}-${normalized.sortMode}-${normalized.scalePercent}%-${stamp}.png`;
+  }
+
+  function buildListPosterFilename(tab, settings = getListPosterSettings(tab)) {
+    const title = sanitizeFilename(getTabLabel(normalizeMainTab(tab)) || "steam-list");
+    const stamp = new Date().toISOString().slice(0, 10);
+    const normalized = normalizeListPosterSettings(settings, tab);
+    return `${title || "steam-list"}-covers-${normalized.columns}-${normalized.sortMode}-${normalized.scalePercent}%-${stamp}.png`;
   }
 
   function sanitizeFilename(value) {
@@ -6705,14 +6981,15 @@
     return getGameListLabel(game.appid);
   }
 
-  function getCurrentListRows() {
-    if (currentTab === "family") {
+  function getCurrentListRows(tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    if (normalizedTab === "family") {
       return getSortedRows("family", filterRowsBySearchQuery(getFamilyLibraryRows()));
     }
     if (!lastReport) {
       return [];
     }
-    return getSortedRows(currentTab, filterRowsBySearchQuery(getReportRowsForCurrentSelection(currentTab)));
+    return getSortedRows(normalizedTab, filterRowsBySearchQuery(getReportRowsForCurrentSelection(normalizedTab)));
   }
 
   function getFamilyLibraryRows() {
@@ -7100,7 +7377,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -7120,6 +7397,10 @@
         familyPosterSettings: {
           ...cloneDefaultState().familyPosterSettings,
           ...normalizeFamilyPosterSettings(saved.familyPosterSettings || {})
+        },
+        listPosterSettings: {
+          ...cloneDefaultState().listPosterSettings,
+          ...normalizeListPosterSettings(saved.listPosterSettings || {})
         },
         familyLibrary: {
           ...cloneDefaultState().familyLibrary,

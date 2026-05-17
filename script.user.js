@@ -10,6 +10,7 @@
 // @supportURL   https://github.com/iMoonDay/steam-family-fit-analyzer/issues
 // @match        https://store.steampowered.com/*
 // @match        https://steamcommunity.com/profiles/*
+// @match        https://steamcommunity.com/id/*
 // @icon         https://store.steampowered.com/favicon.ico
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -209,6 +210,8 @@
       enterSearch: "请先输入关键词",
       currentListEmpty: "当前列表为空",
       copiedList: "已复制列表",
+      copyGames: "复制游戏",
+      copiedGames: "已复制游戏",
       popupBlocked: "弹窗被拦截",
       rawDataTitle: "返回原始数据",
       autoRefreshOn: "自动刷新已开",
@@ -404,6 +407,8 @@
       enterSearch: "Enter a search term first",
       currentListEmpty: "Current list is empty",
       copiedList: "List copied",
+      copyGames: "Copy games",
+      copiedGames: "Games copied",
       popupBlocked: "Popup blocked",
       rawDataTitle: "Raw data",
       autoRefreshOn: "Auto refresh on",
@@ -1045,8 +1050,7 @@
       .sffa-close:hover:not(:disabled),
       .sffa-menu-item:hover:not(:disabled),
       .sffa-btn:hover:not(:disabled),
-      .sffa-tab:hover:not(:disabled),
-      .sffa-copy-current:hover:not(:disabled) {
+      .sffa-tab:hover:not(:disabled) {
         filter: brightness(1.08);
         box-shadow: 0 0 0 1px rgba(143, 209, 255, 0.2) inset;
       }
@@ -1157,8 +1161,7 @@
       .sffa-tab:hover:not(:disabled),
       .sffa-menu-item:hover:not(:disabled),
       .sffa-icon-btn:hover:not(:disabled),
-      .sffa-close:hover:not(:disabled),
-      .sffa-copy-current:hover:not(:disabled) {
+      .sffa-close:hover:not(:disabled) {
       }
       .sffa-btn.secondary {
         background: linear-gradient(180deg, #3d5568 0%, #2d4355 100%);
@@ -2217,16 +2220,26 @@
         height: 14px;
         display: block;
       }
-      .sffa-copy-current {
-        margin-left: 0;
+      .sffa-copy-list-wrap {
+        position: relative;
       }
-      .sffa-copy-current:hover:not(:disabled) {
-        background: #2c4254;
-        border-color: rgba(143, 209, 255, 0.28);
+      .sffa-copy-list-menu {
+        position: absolute;
+        right: 0;
+        top: 100%;
+        margin-top: 4px;
+        min-width: 180px;
+        display: none;
+        padding: 6px;
+        border: 1px solid rgba(102, 192, 244, 0.26);
+        border-radius: 3px;
+        background: #0f141b;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+        z-index: 3;
       }
-      .sffa-copy-current:disabled {
-        cursor: wait;
-        opacity: 0.58;
+      .sffa-copy-list-wrap.is-copy-list-open .sffa-copy-list-menu {
+        display: grid;
+        gap: 4px;
       }
       .sffa-search-input:focus {
         border-color: #66c0f4;
@@ -2529,7 +2542,6 @@
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
               <button class="sffa-menu-item" type="button" data-sffa-copy>${escapeHtml(t("copyReport"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-save-family-poster>${escapeHtml(t("saveFamilyPoster"))}</button>
-              <button class="sffa-menu-item" type="button" data-sffa-reload-covers>${escapeHtml(t("reloadCovers"))}</button>
               <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-raw>${escapeHtml(t("rawData"))}</button>
             </div>
@@ -2576,7 +2588,14 @@
                   <button class="sffa-view-btn" type="button" data-sffa-view-mode="cover">${escapeHtml(t("viewCover"))}</button>
                 </div>
                 <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
-                <button class="sffa-tab sffa-copy-current" type="button" data-sffa-copy-current>${escapeHtml(t("copyList"))}</button>
+                <div class="sffa-copy-list-wrap" data-sffa-copy-list-wrap>
+                  <button class="sffa-tab sffa-copy-list-btn" type="button" data-sffa-copy-list-btn aria-expanded="false">⋯</button>
+                  <div class="sffa-menu sffa-copy-list-menu" data-sffa-copy-list-menu>
+                    <button class="sffa-menu-item" type="button" data-sffa-copy-list>${escapeHtml(t("copyList"))}</button>
+                    <button class="sffa-menu-item" type="button" data-sffa-copy-games>${escapeHtml(t("copyGames"))}</button>
+                    <button class="sffa-menu-item" type="button" data-sffa-reload-covers>${escapeHtml(t("reloadCovers"))}</button>
+                  </div>
+                </div>
               </div>
               <div class="sffa-table-wrap" data-sffa-table-wrap>
                 <div class="sffa-empty">${escapeHtml(t("initialEmpty"))}</div>
@@ -2666,7 +2685,8 @@
       searchClearBtn: root.querySelector("[data-sffa-search-clear]"),
       viewSwitch: root.querySelector("[data-sffa-view-switch]"),
       viewModeButtons: Array.from(root.querySelectorAll("[data-sffa-view-mode]")),
-      copyCurrentBtn: root.querySelector("[data-sffa-copy-current]"),
+      copyListWrap: root.querySelector("[data-sffa-copy-list-wrap]"),
+      copyListBtn: root.querySelector("[data-sffa-copy-list-btn]"),
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
@@ -2720,8 +2740,12 @@
     elements.copyBtn.addEventListener("click", copyReportSummary);
     elements.saveFamilyPosterBtn.addEventListener("click", openFamilyPosterDialog);
     elements.reloadCoversBtn.addEventListener("click", reloadCovers);
-    elements.copyCurrentBtn.addEventListener("click", copyCurrentList);
+    elements.copyListBtn.addEventListener("click", toggleCopyListMenu);
     elements.clearStoreCacheBtn.addEventListener("click", clearStoreCache);
+    const copyListCopyBtn = elements.copyListWrap?.querySelector("[data-sffa-copy-list]");
+    copyListCopyBtn?.addEventListener("click", copyCurrentList);
+    const copyListCopyGamesBtn = elements.copyListWrap?.querySelector("[data-sffa-copy-games]");
+    copyListCopyGamesBtn?.addEventListener("click", copyCurrentGamesOnly);
     elements.rawBtn?.addEventListener("click", showRawDataWindow);
     elements.rateContinueBtn?.addEventListener("click", continueAfterRateLimit);
     elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
@@ -2789,6 +2813,7 @@
         }
         closeListMenu();
         closeMenu();
+        closeCopyListMenu();
         closeDialog();
       }
     });
@@ -2796,11 +2821,14 @@
       if (!elements.menuWrap.contains(event.target)) {
         closeMenu();
       }
-      if (!elements.listWrap.contains(event.target)) {
+      if (!elements.listWrap?.contains(event.target)) {
         closeListMenu();
       }
       if (!elements.familyPosterSortWrap?.contains(event.target)) {
         closeFamilyPosterSortMenu();
+      }
+      if (!elements.copyListWrap?.contains(event.target)) {
+        closeCopyListMenu();
       }
     });
     window.addEventListener("beforeunload", () => {
@@ -2894,6 +2922,7 @@
   function closeDialog() {
     closeMenu();
     closeListMenu();
+    closeCopyListMenu();
     closeFamilyPosterDialog();
     closeCompareDialog();
     elements.root.classList.remove("is-open");
@@ -2903,6 +2932,7 @@
     event.stopPropagation();
     closeLocaleMenu();
     closeListMenu();
+    closeCopyListMenu();
     const isOpen = elements.menuWrap.classList.toggle("is-menu-open");
     elements.moreBtn.setAttribute("aria-expanded", String(isOpen));
   }
@@ -2912,6 +2942,7 @@
     elements.menuWrap?.classList.remove("is-menu-open");
     elements.moreBtn?.setAttribute("aria-expanded", "false");
     closeListMenu();
+    closeCopyListMenu();
     const isOpen = elements.localeWrap.classList.toggle("is-open");
     elements.localeToggleBtn.setAttribute("aria-expanded", String(isOpen));
   }
@@ -2920,6 +2951,7 @@
     elements.menuWrap?.classList.remove("is-menu-open");
     elements.moreBtn?.setAttribute("aria-expanded", "false");
     closeLocaleMenu();
+    closeCopyListMenu();
   }
 
   function closeLocaleMenu() {
@@ -2930,6 +2962,7 @@
   function toggleListMenu(event) {
     event.stopPropagation();
     closeMenu();
+    closeCopyListMenu();
     const isOpen = elements.listWrap.classList.toggle("is-open");
     elements.listSelect.setAttribute("aria-expanded", String(isOpen));
   }
@@ -2937,6 +2970,17 @@
   function closeListMenu() {
     elements.listWrap?.classList.remove("is-open");
     elements.listSelect?.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleCopyListMenu(event) {
+    event.stopPropagation();
+    const isOpen = elements.copyListWrap.classList.toggle("is-copy-list-open");
+    elements.copyListBtn.setAttribute("aria-expanded", String(isOpen));
+  }
+
+  function closeCopyListMenu() {
+    elements.copyListWrap?.classList.remove("is-copy-list-open");
+    elements.copyListBtn?.setAttribute("aria-expanded", "false");
   }
 
   function toggleFamilyPosterSortMenu(event) {
@@ -2994,7 +3038,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyCurrentBtn, "textContent", t("copyList")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveFamilyPosterBtn, "textContent", t("saveFamilyPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveFamilyPosterBtn, "textContent", t("saveFamilyPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => { element[key] = value; });
     [
       [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
@@ -3322,6 +3366,7 @@
   }
 
   async function copyCurrentList() {
+    closeCopyListMenu();
     const rows = getCurrentListRows();
     if (!lastReport && currentTab !== "family") {
       setStatus(t("noList"), "warn");
@@ -3341,6 +3386,28 @@
     try {
       await navigator.clipboard.writeText(text);
       setStatus(t("copiedList"), "ok");
+    } catch (error) {
+      setStatus(t("copyFailed"), "err");
+    }
+  }
+
+  async function copyCurrentGamesOnly() {
+    closeCopyListMenu();
+    const rows = getCurrentListRows();
+    if (!lastReport && currentTab !== "family") {
+      setStatus(t("noList"), "warn");
+      return;
+    }
+
+    if (rows.length === 0) {
+      setStatus(t("currentListEmpty"), "warn");
+      return;
+    }
+
+    const names = rows.map(game => getGameDisplayName(game));
+    try {
+      await navigator.clipboard.writeText(names.join("\n"));
+      setStatus(t("copiedGames"), "ok");
     } catch (error) {
       setStatus(t("copyFailed"), "err");
     }
@@ -3388,7 +3455,7 @@
   }
 
   async function reloadCovers() {
-    closeMenu();
+    closeCopyListMenu();
     setBusy(true);
     try {
       await refetchVisibleCoverUrls();
@@ -3981,15 +4048,25 @@
   }
 
   function isSteamCommunityProfilePage() {
-    return location.hostname === "steamcommunity.com" && /^\/profiles\/\d{17}(?:\/|$)/.test(location.pathname);
+    return location.hostname === "steamcommunity.com" && (
+      /^\/profiles\/\d{17}(?:\/|$)/.test(location.pathname) ||
+      /^\/id\/[^/?#]+/.test(location.pathname)
+    );
   }
 
   function getSteamCommunityProfileSteamId() {
     if (!isSteamCommunityProfilePage()) {
       return "";
     }
-    const match = location.pathname.match(/^\/profiles\/(\d{17})(?:\/|$)/);
-    return match ? match[1] : "";
+    const profileMatch = location.pathname.match(/^\/profiles\/(\d{17})(?:\/|$)/);
+    if (profileMatch) {
+      return profileMatch[1];
+    }
+    const vanityMatch = location.pathname.match(/^\/id\/([^/?#]+)/);
+    if (vanityMatch) {
+      return location.href;
+    }
+    return "";
   }
 
   function getApplicationConfigNode(pageWindow, doc = document) {
@@ -6195,6 +6272,9 @@
       button.setAttribute("aria-pressed", String(active));
     });
     renderSearchClearButton();
+    if (elements.reloadCoversBtn) {
+      elements.reloadCoversBtn.hidden = listViewMode !== "cover";
+    }
   }
 
   function normalizeListViewMode(mode) {
@@ -7020,7 +7100,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.reloadCoversBtn, elements.copyCurrentBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }

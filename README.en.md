@@ -29,6 +29,16 @@ A Tampermonkey userscript that analyzes a public Steam account against the Steam
 
 ## Installation
 
+### Browser Extension (Chrome / Edge)
+
+1. Open `chrome://extensions` or `edge://extensions`.
+2. Enable Developer mode.
+3. Click "Load unpacked".
+4. Select the `extension` folder in this repository.
+5. Open `https://store.steampowered.com/` or a supported Steam Community profile page, then click the side button or the browser toolbar icon.
+
+### Userscript (Tampermonkey)
+
 1. Install Tampermonkey.
 2. Open the Greasy Fork install page:
    <https://greasyfork.org/zh-CN/scripts/577825-steam-%E5%AE%B6%E5%BA%AD%E5%BA%93%E5%88%86%E6%9E%90%E5%99%A8>

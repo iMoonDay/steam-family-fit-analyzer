@@ -29,6 +29,16 @@
 
 ## 安装
 
+### 浏览器插件版（Chrome / Edge）
+
+1. 打开 `chrome://extensions` 或 `edge://extensions`。
+2. 开启“开发者模式”。
+3. 点击“加载已解压的扩展程序”。
+4. 选择本仓库的 `extension` 目录。
+5. 打开 `https://store.steampowered.com/` 或支持的 Steam Community 资料页，点击页面侧边按钮或浏览器工具栏图标。
+
+### 用户脚本版（Tampermonkey）
+
 1. 安装 Tampermonkey。
 2. 打开 GreasyFork 页面安装：
    <https://greasyfork.org/zh-CN/scripts/577825-steam-%E5%AE%B6%E5%BA%AD%E5%BA%93%E5%88%86%E6%9E%90%E5%99%A8>

@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "Steam Family Group Helper",
+    "description": "Extension name shown by Chromium."
+  },
+  "extensionDescription": {
+    "message": "Review your Steam Family shared library and estimate how public Steam libraries fit with it.",
+    "description": "Extension description shown by Chromium."
+  },
+  "actionTitle": {
+    "message": "Open Steam Family Group Helper",
+    "description": "Toolbar button title."
+  }
+}

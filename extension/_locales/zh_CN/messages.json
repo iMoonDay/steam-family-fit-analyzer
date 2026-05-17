@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "Steam 家庭组辅助工具",
+    "description": "Chromium 显示的插件名称。"
+  },
+  "extensionDescription": {
+    "message": "查看你的 Steam 家庭共享库，并评估公开 Steam 游戏库与家庭组的匹配情况。",
+    "description": "Chromium 显示的插件描述。"
+  },
+  "actionTitle": {
+    "message": "打开 Steam 家庭组辅助工具",
+    "description": "浏览器工具栏按钮标题。"
+  }
+}

@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.9
+// @version      0.1.10
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -42,14 +42,14 @@
   // 商店条目缓存有效期，单位毫秒；默认 7 天。
   const STORE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   // 原价读取每批 App 的数量；调大可减少请求轮次，调小可降低单批压力。
-  const ORIGINAL_PRICE_BATCH_SIZE = 50;
+  const ORIGINAL_PRICE_BATCH_SIZE = 200;
   // 家庭共享支持性检测每批 App 的数量；调大可更快，调小可更稳。
-  const SHAREABILITY_BATCH_SIZE = 50;
+  const SHAREABILITY_BATCH_SIZE = 150;
   // 家庭封面图导出时每行显示的卡片数量；调大更密，调小更疏。
   const FAMILY_POSTER_COLUMNS = 10;
   const COVER_RELOAD_BATCH_SIZE = 24;
   // 商店请求之间的间隔，单位毫秒；调大更稳，调小更快但更容易撞限流。
-  const STORE_REQUEST_DELAY_MS = 50;
+  const STORE_REQUEST_DELAY_MS = 15;
   // 搜索输入停止后再刷新表格的延迟，单位毫秒；用于避免大列表逐字重绘卡顿。
   const SEARCH_RENDER_DEBOUNCE_MS = 220;
   // 自动后台刷新家庭库的间隔，单位毫秒；默认 24 小时。
@@ -4375,7 +4375,7 @@
 
   // ===== 共享性与价格补全 =====
 
-  function scheduleShareabilityProgressRender(force = false) {
+  function scheduleShareabilityProgressRender() {
     if (!lastReport || !shareabilityFilterState.running || !shareabilityProgressUiState) {
       return;
     }
@@ -4384,18 +4384,7 @@
     }
 
     shareabilityProgressUiState.dirty = true;
-    if (force) {
-      flushShareabilityProgressRender();
-      return;
-    }
-
-    if (shareabilityProgressUiState.timer) {
-      return;
-    }
-
-    const elapsed = Date.now() - Number(shareabilityProgressUiState.lastRenderAt || 0);
-    const delay = Math.max(0, 1000 - elapsed);
-    shareabilityProgressUiState.timer = window.setTimeout(flushShareabilityProgressRender, delay);
+    flushShareabilityProgressRender();
   }
 
   function flushShareabilityProgressRender() {
@@ -4419,7 +4408,6 @@
     shareabilityProgressUiState.lastRenderAt = Date.now();
     refreshReportMetrics();
     renderSummary(lastReport);
-    renderDetailsPreserveScroll();
     setStatus(t("backgroundProgress", { percent: formatPercent(shareabilityFilterState.total ? shareabilityFilterState.processed / shareabilityFilterState.total : 0) }), "warn");
   }
 
@@ -4459,6 +4447,7 @@
       setRawStep("done");
       shareabilityProgressUiState.dirty = true;
       flushShareabilityProgressRender();
+      renderDetailsPreserveScroll();
       startLazyOriginalPriceLoading();
       setStatus(t("completedAdded", { count: lastReport.metrics.newCount }), "ok");
     } catch (error) {
@@ -4565,7 +4554,7 @@
     if (sortNewGames) {
       lastReport.games.new.sort(sortByName);
     }
-    scheduleShareabilityProgressRender(true);
+    scheduleShareabilityProgressRender();
     scheduleVisiblePriceLoads();
   }
 

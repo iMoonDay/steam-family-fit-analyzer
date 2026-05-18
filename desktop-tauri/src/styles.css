@@ -590,9 +590,44 @@ textarea {
   min-width: 0;
 }
 
+.game-list-primary {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.game-list-tools {
+  display: flex;
+  flex: 0 1 560px;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-sort {
+  width: 142px;
+  flex: 0 0 142px;
+}
+
+.game-view-toggle {
+  flex: 0 0 auto;
+  background: var(--color-control);
+}
+
 .game-search {
-  width: min(320px, 38vw);
-  flex: 0 1 320px;
+  width: min(240px, 28vw);
+  flex: 1 1 180px;
+}
+
+.game-list-tabs {
+  flex: 0 0 auto;
+  max-width: 100%;
+  background: var(--color-control);
+  border-radius: var(--radius-md);
+}
+
+.game-list-tabs .mantine-SegmentedControl-label {
+  font-weight: 700;
 }
 
 .game-scroll {
@@ -704,6 +739,135 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.game-card-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-card-price {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.game-table-wrap {
+  min-width: 0;
+  padding: 14px 18px 14px 0;
+  overflow-x: auto;
+}
+
+.game-table {
+  display: grid;
+  min-width: 760px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.game-table-head,
+.game-table-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.8fr) minmax(112px, 0.6fr) minmax(150px, 0.8fr) 96px 86px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.game-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 34px;
+  border-bottom: 1px solid var(--color-border-soft);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.game-table-row {
+  min-height: 58px;
+  border-bottom: 1px solid var(--color-border-soft);
+  color: inherit;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.game-table-row:hover {
+  background: rgba(31, 41, 55, 0.045);
+  text-decoration: none;
+}
+
+.game-table-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-table-name {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.game-table-cover {
+  width: 42px;
+  height: 50px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background-color: #d9e2ec;
+  background-image: var(--game-cover, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.game-table-title,
+.game-table-price {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.game-table-appid {
+  color: var(--color-muted);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
+}
+
+.game-context-menu {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: 0 10px 28px rgba(31, 41, 55, 0.16);
+}
+
+.game-context-menu button {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-context-menu button:hover,
+.game-context-menu button:focus-visible {
+  background: rgba(31, 41, 55, 0.07);
+  outline: none;
 }
 
 .target-row {
@@ -818,6 +982,21 @@ textarea {
 
   .game-list-head {
     align-items: stretch;
+  }
+
+  .game-list-tools {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .game-sort {
+    flex: 1 1 160px;
+  }
+
+  .game-view-toggle {
+    flex: 1 1 132px;
   }
 
   .game-search {

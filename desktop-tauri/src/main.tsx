@@ -26,8 +26,8 @@ import {
 import { createRoot } from "react-dom/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent } from "react";
-import type { AnalysisReport, AppSettings, AppStatus, LocaleMode, PriceMode, TargetProfile } from "./types";
-import { analyzeTarget, getAppStatus, loadSettings, saveSettings } from "./services/desktop";
+import type { AnalysisReport, AppSettings, AppStatus, LocaleMode, PriceInfo, PriceMode, ReportGame, ReportGameStatus, TargetProfile } from "./types";
+import { analyzeTarget, clearCache, getAppStatus, loadSettings, saveSettings } from "./services/desktop";
 
 const analysisHistoryKey = "sffa.desktop.analysisInputHistory";
 
@@ -35,6 +35,8 @@ const defaultSettings: AppSettings = {
   steamApiKey: "",
   itadApiKey: "",
   currentSteamId64: "",
+  familyAccessToken: "",
+  familyGroupId: "",
   storeCountry: "CN",
   locale: "auto",
   priceMode: "original"
@@ -59,8 +61,22 @@ type ResultGameRow = {
   appid: string;
   name: string;
   storeLink: string;
+  coverUrl: string;
   ownerNames: string[];
   ownerIds: string[];
+  familyOwners: string[];
+  price: PriceInfo | null;
+  status: ReportGameStatus;
+};
+
+type ResultGameListKey = "all" | "new" | "overlap" | "currentOwned" | "notCurrentOwned";
+type ResultGameSortKey = "nameAsc" | "priceDesc" | "priceAsc" | "ownersDesc" | "ownersAsc";
+type ResultGameViewMode = "cover" | "table";
+
+type GameContextMenuState = {
+  x: number;
+  y: number;
+  game: ResultGameRow;
 };
 
 const helpLinks = {
@@ -75,6 +91,10 @@ const helpLinks = {
   currentSteamId64: {
     url: "https://steamid.io/",
     text: "打开 SteamID 查询页，粘贴你的 Steam 个人主页地址，复制 steamID64 / SteamID64 字段。"
+  },
+  familyAccessToken: {
+    url: "https://store.steampowered.com/account/familymanagement",
+    text: "从已登录 Steam 的网页上下文中获取 access token；桌面端第一阶段先使用手动粘贴。"
   }
 } as const;
 
@@ -131,6 +151,14 @@ function App() {
 
   useEffect(() => {
     void bootstrap();
+  }, []);
+
+  useEffect(() => {
+    const handleContextMenu = (event: Event) => {
+      event.preventDefault();
+    };
+    window.addEventListener("contextmenu", handleContextMenu);
+    return () => window.removeEventListener("contextmenu", handleContextMenu);
   }, []);
 
   useEffect(() => {
@@ -242,13 +270,12 @@ function App() {
                 ) : (
                   <AnalysisResultPage
                     report={report}
-                    settings={settings}
-                    priceLabel={priceLabel}
                     message={message}
                     warningText={warningText}
                     busy={busy}
                     onBack={() => setAnalysisStage("prepare")}
                     onAnalyze={handleAnalyze}
+                    onMessage={setMessage}
                   />
                 )
               ) : (
@@ -467,6 +494,8 @@ function SettingsPanel({
     draftSettings.steamApiKey,
     draftSettings.itadApiKey,
     draftSettings.currentSteamId64,
+    draftSettings.familyAccessToken,
+    draftSettings.familyGroupId,
     draftSettings.storeCountry,
     onSettingsChange
   ]);
@@ -502,6 +531,19 @@ function SettingsPanel({
           value={draftSettings.currentSteamId64}
           onBlur={() => onSettingsChange(latestDraftRef.current)}
           onChange={event => updateDraft("currentSteamId64", event.currentTarget.value.trim())}
+        />
+        <PasswordInput
+          label={<FieldLabel label="家庭库 Access Token" helpKey="familyAccessToken" />}
+          value={draftSettings.familyAccessToken}
+          onBlur={() => onSettingsChange(latestDraftRef.current)}
+          onChange={event => updateDraft("familyAccessToken", event.currentTarget.value.trim())}
+          autoComplete="off"
+        />
+        <TextInput
+          label="家庭组 ID（可留空自动获取）"
+          value={draftSettings.familyGroupId}
+          onBlur={() => onSettingsChange(latestDraftRef.current)}
+          onChange={event => updateDraft("familyGroupId", event.currentTarget.value.trim())}
         />
 
         <SimpleGrid cols={2} spacing="xs">
@@ -566,10 +608,7 @@ function AnalysisPreparePage({
     <div className="analysis-prepare-layout">
       <aside className="history-pane">
         <Group justify="space-between" align="center" className="history-head">
-          <Stack gap={1}>
-            <Text fw={700}>历史分析</Text>
-            <Text size="xs" c="dimmed">点击后实时重新分析</Text>
-          </Stack>
+          <Text fw={700}>历史分析</Text>
         </Group>
         <ScrollArea className="history-scroll">
           <Stack gap={4}>
@@ -607,7 +646,6 @@ function AnalysisPreparePage({
           <Group justify="space-between" mb="xs" align="flex-start">
             <Stack gap={2}>
               <Text component="h1" className="title">账号分析</Text>
-              <Text size="sm" c="dimmed">输入目标账号后读取公开游戏库；结果不会从历史缓存中恢复。</Text>
             </Stack>
             <Button color="steamBlue" loading={busy} onClick={() => void onAnalyze()}>开始分析</Button>
           </Group>
@@ -631,25 +669,28 @@ function AnalysisPreparePage({
 
 function AnalysisResultPage({
   report,
-  settings,
-  priceLabel,
   message,
   warningText,
   busy,
   onBack,
-  onAnalyze
+  onAnalyze,
+  onMessage
 }: {
   report: AnalysisReport;
-  settings: AppSettings;
-  priceLabel: string;
   message: string;
   warningText: string;
   busy: boolean;
   onBack: () => void;
   onAnalyze: (inputOverride?: string) => Promise<void>;
+  onMessage: (message: string) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
-  const games = useMemo(() => buildResultGameRows(report), [report]);
+  const [activeGameList, setActiveGameList] = useState<ResultGameListKey>("all");
+  const [sortKey, setSortKey] = useState<ResultGameSortKey>("nameAsc");
+  const [viewMode, setViewMode] = useState<ResultGameViewMode>("cover");
+  const [coverReloadTokens, setCoverReloadTokens] = useState<Record<string, number>>({});
+  const [gameContextMenu, setGameContextMenu] = useState<GameContextMenuState | null>(null);
+  const games = useMemo(() => sortResultGameRows(buildResultGameRows(report.games[activeGameList]), sortKey), [activeGameList, report, sortKey]);
   const visibleGames = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
@@ -658,13 +699,65 @@ function AnalysisResultPage({
     return games.filter(game => game.name.toLowerCase().includes(query) || game.appid.includes(query));
   }, [games, searchQuery]);
 
+  useEffect(() => {
+    if (!gameContextMenu) {
+      return;
+    }
+
+    const closeContextMenu = () => setGameContextMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeContextMenu();
+      }
+    };
+
+    window.addEventListener("pointerdown", closeContextMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", closeContextMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [gameContextMenu]);
+
+  function handleGameContextMenu(event: MouseEvent<HTMLElement>, game: ResultGameRow) {
+    event.preventDefault();
+    event.stopPropagation();
+    setGameContextMenu({
+      x: Math.min(event.clientX, window.innerWidth - 180),
+      y: Math.min(event.clientY, window.innerHeight - 96),
+      game
+    });
+  }
+
+  function handleRefreshCover(game: ResultGameRow) {
+    setCoverReloadTokens(tokens => ({
+      ...tokens,
+      [game.appid]: Date.now()
+    }));
+    setGameContextMenu(null);
+  }
+
+  async function handleCopyCurrentList() {
+    await writeClipboard(formatGameListText(visibleGames));
+    onMessage(`已复制当前列表：${visibleGames.length} 个游戏`);
+  }
+
+  async function handleCopyReport() {
+    await writeClipboard(formatReportText(report));
+    onMessage("已复制分析报告");
+  }
+
+  async function handleClearCache() {
+    await clearCache();
+    onMessage("缓存已清理，下次分析会重新请求商店与价格数据");
+  }
+
   return (
     <div className="analysis-result-layout">
       <aside className="result-data-pane">
         <div className="result-data-head">
           <Stack gap={2}>
             <Text component="h1" className="title">分析结果</Text>
-            <Text size="xs" c="dimmed">{settings.storeCountry}:{settings.locale} · {priceLabel}</Text>
           </Stack>
           <div className="result-actions">
             <Button size="xs" variant="subtle" color="steamBlue" onClick={onBack}>返回输入</Button>
@@ -681,14 +774,15 @@ function AnalysisResultPage({
         <div className="result-metrics">
           <Metric label="目标数" value={String(report.targetCount)} />
           <Metric label="公开游戏" value={String(report.totalPublicGames)} />
-          <Metric label="当前已拥有" value={String(report.currentOwnedOverlapCount)} />
-          <Metric label="游戏列表" value={String(games.length)} />
+          <Metric label="家庭库" value={String(report.familyGameCount)} />
+          <Metric label="新增候选" value={String(report.newGameCount)} />
+          <Metric label="家庭重复" value={String(report.overlapCount)} />
         </div>
 
         <section className="result-targets">
           <Group justify="space-between" className="result-head">
             <Text fw={700}>目标账号</Text>
-            <Text size="xs" c={warningText ? "orange" : "dimmed"}>{warningText || "实时结果"}</Text>
+            {warningText ? <Text size="xs" c="orange">{warningText}</Text> : null}
           </Group>
           <ScrollArea.Autosize mah={360}>
             <Stack gap={0}>
@@ -700,28 +794,104 @@ function AnalysisResultPage({
 
       <section className="result-games-pane">
         <Group justify="space-between" align="flex-start" className="game-list-head">
-          <Stack gap={2}>
+          <Stack gap={8} className="game-list-primary">
             <Text fw={700}>游戏展示</Text>
-            <Text size="sm" c="dimmed">参考脚本封面卡片视图，当前展示目标公开游戏。</Text>
+            <SegmentedControl
+              className="game-list-tabs"
+              size="xs"
+              color="steamBlue"
+              value={activeGameList}
+              data={[
+                { value: "all", label: `全部 ${report.games.all.length}` },
+                { value: "new", label: `新增候选 ${report.games.new.length}` },
+                { value: "overlap", label: `家庭重复 ${report.games.overlap.length}` },
+                { value: "currentOwned", label: `当前已拥有 ${report.games.currentOwned.length}` },
+                { value: "notCurrentOwned", label: `未拥有 ${report.games.notCurrentOwned.length}` }
+              ]}
+              onChange={value => setActiveGameList(value as ResultGameListKey)}
+            />
           </Stack>
-          <TextInput
-            className="game-search"
-            value={searchQuery}
-            onChange={event => setSearchQuery(event.currentTarget.value)}
-            placeholder="搜索游戏名或 AppID"
-          />
+          <div className="game-list-tools">
+            <SegmentedControl
+              className="game-view-toggle"
+              size="xs"
+              color="steamBlue"
+              value={viewMode}
+              data={[
+                { value: "cover", label: "封面" },
+                { value: "table", label: "表格" }
+              ]}
+              onChange={value => setViewMode(value as ResultGameViewMode)}
+            />
+            <Select
+              className="game-sort"
+              size="xs"
+              value={sortKey}
+              data={[
+                { value: "nameAsc", label: "名称 A-Z" },
+                { value: "priceDesc", label: "价格从高到低" },
+                { value: "priceAsc", label: "价格从低到高" },
+                { value: "ownersDesc", label: "拥有者多到少" },
+                { value: "ownersAsc", label: "拥有者少到多" }
+              ]}
+              onChange={value => setSortKey((value || "nameAsc") as ResultGameSortKey)}
+              allowDeselect={false}
+            />
+            <TextInput
+              className="game-search"
+              size="xs"
+              value={searchQuery}
+              onChange={event => setSearchQuery(event.currentTarget.value)}
+              placeholder="搜索游戏名或 AppID"
+            />
+            <Button size="xs" variant="subtle" color="steamBlue" onClick={() => void handleCopyCurrentList().catch(error => onMessage(String(error)))}>
+              复制列表
+            </Button>
+            <Button size="xs" variant="subtle" color="steamBlue" onClick={() => void handleCopyReport().catch(error => onMessage(String(error)))}>
+              复制报告
+            </Button>
+            <Button size="xs" variant="subtle" color="red" onClick={() => void handleClearCache().catch(error => onMessage(String(error)))}>
+              清缓存
+            </Button>
+          </div>
         </Group>
 
         <ScrollArea className="game-scroll">
           {visibleGames.length ? (
-            <div className="game-card-grid">
-              {visibleGames.map(game => <GameCard key={game.appid} game={game} />)}
-            </div>
+            viewMode === "cover" ? (
+              <div className="game-card-grid">
+                {visibleGames.map(game => (
+                  <GameCard
+                    key={game.appid}
+                    game={game}
+                    coverReloadToken={coverReloadTokens[game.appid] || 0}
+                    onContextMenu={handleGameContextMenu}
+                  />
+                ))}
+              </div>
+            ) : (
+              <GameTable
+                games={visibleGames}
+                coverReloadTokens={coverReloadTokens}
+                onContextMenu={handleGameContextMenu}
+              />
+            )
           ) : (
             <Text c="dimmed" p="md">没有匹配的游戏</Text>
           )}
         </ScrollArea>
       </section>
+
+      {gameContextMenu ? (
+        <GameContextMenu
+          state={gameContextMenu}
+          onOpenWebpage={game => {
+            setGameContextMenu(null);
+            void openHelpUrl(game.storeLink);
+          }}
+          onRefreshCover={handleRefreshCover}
+        />
+      ) : null}
     </div>
   );
 }
@@ -778,7 +948,15 @@ function TargetRow({ target }: { target: TargetProfile }) {
   );
 }
 
-function GameCard({ game }: { game: ResultGameRow }) {
+function GameCard({
+  game,
+  coverReloadToken,
+  onContextMenu
+}: {
+  game: ResultGameRow;
+  coverReloadToken: number;
+  onContextMenu: (event: MouseEvent<HTMLElement>, game: ResultGameRow) => void;
+}) {
   return (
     <a
       className="game-card"
@@ -787,7 +965,8 @@ function GameCard({ game }: { game: ResultGameRow }) {
         event.preventDefault();
         void openHelpUrl(game.storeLink);
       }}
-      style={{ "--game-cover": `url("${getSteamCoverUrl(game.appid)}")` } as CSSProperties}
+      onContextMenu={event => onContextMenu(event, game)}
+      style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadToken)}")` } as CSSProperties}
       aria-label={game.name}
       title={game.name}
     >
@@ -796,10 +975,91 @@ function GameCard({ game }: { game: ResultGameRow }) {
         <span className="game-card-chip">AppID {game.appid}</span>
       </span>
       <span className="game-card-body">
-        <span>{game.ownerNames.length > 1 ? `${game.ownerNames.length} 个目标账号拥有` : game.ownerNames[0] || "-"}</span>
+        <span className="game-card-line">
+          <span>{getReportGameStatusLabel(game.status)}</span>
+          <span className="game-card-price">{formatPrice(game.price)}</span>
+        </span>
+        <span>{getGameOwnerSummary(game)}</span>
         <span>{game.ownerIds.join("、") || "-"}</span>
       </span>
     </a>
+  );
+}
+
+function GameTable({
+  games,
+  coverReloadTokens,
+  onContextMenu
+}: {
+  games: ResultGameRow[];
+  coverReloadTokens: Record<string, number>;
+  onContextMenu: (event: MouseEvent<HTMLElement>, game: ResultGameRow) => void;
+}) {
+  return (
+    <div className="game-table-wrap">
+      <div className="game-table" role="table" aria-label="游戏列表">
+        <div className="game-table-head" role="row">
+          <span>游戏</span>
+          <span>状态</span>
+          <span>拥有者</span>
+          <span>价格</span>
+          <span>AppID</span>
+        </div>
+        {games.map(game => (
+          <a
+            key={game.appid}
+            className="game-table-row"
+            href={game.storeLink}
+            role="row"
+            title={game.name}
+            onClick={event => {
+              event.preventDefault();
+              void openHelpUrl(game.storeLink);
+            }}
+            onContextMenu={event => onContextMenu(event, game)}
+          >
+            <span className="game-table-name">
+              <span
+                className="game-table-cover"
+                style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0)}")` } as CSSProperties}
+                aria-hidden="true"
+              />
+              <span className="game-table-title">{game.name}</span>
+            </span>
+            <span>{getReportGameStatusLabel(game.status)}</span>
+            <span title={getGameOwnerDetail(game)}>{getGameOwnerSummary(game)}</span>
+            <span className="game-table-price">{formatPrice(game.price)}</span>
+            <span className="game-table-appid">{game.appid}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GameContextMenu({
+  state,
+  onOpenWebpage,
+  onRefreshCover
+}: {
+  state: GameContextMenuState;
+  onOpenWebpage: (game: ResultGameRow) => void;
+  onRefreshCover: (game: ResultGameRow) => void;
+}) {
+  return (
+    <div
+      className="game-context-menu"
+      style={{ left: state.x, top: state.y }}
+      role="menu"
+      onPointerDown={event => event.stopPropagation()}
+    >
+      <button type="button" role="menuitem" onClick={() => onOpenWebpage(state.game)}>
+        打开网页
+      </button>
+      <button type="button" role="menuitem" onClick={() => onRefreshCover(state.game)}>
+        刷新封面
+      </button>
+    </div>
   );
 }
 
@@ -848,40 +1108,186 @@ function formatHistoryAccountIds(entry: AnalysisHistoryEntry): string {
   return ids.length ? ids.join("、") : entry.inputValue;
 }
 
-function buildResultGameRows(report: AnalysisReport): ResultGameRow[] {
-  const gameById = new Map<string, ResultGameRow>();
-
-  report.targets.forEach(target => {
-    const games = target.games.length ? target.games : target.sampleGames;
-    games.forEach(game => {
-      const appid = String(game.appid || "");
-      if (!appid) {
-        return;
-      }
-      const existing = gameById.get(appid);
-      if (existing) {
-        existing.ownerNames.push(target.displayName || target.steamid64);
-        existing.ownerIds.push(target.steamid64);
-        return;
-      }
-      gameById.set(appid, {
-        appid,
-        name: game.name || `App ${appid}`,
-        storeLink: game.storeLink || `https://store.steampowered.com/app/${appid}/`,
-        ownerNames: [target.displayName || target.steamid64],
-        ownerIds: [target.steamid64]
-      });
-    });
-  });
-
-  return Array.from(gameById.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-CN", {
+function buildResultGameRows(games: ReportGame[]): ResultGameRow[] {
+  return games.map(game => ({
+    appid: game.appid,
+    name: game.name || `App ${game.appid}`,
+    storeLink: game.storeLink || `https://store.steampowered.com/app/${game.appid}/`,
+    coverUrl: game.coverUrl,
+    ownerNames: game.targetOwnerNames,
+    ownerIds: game.targetOwners,
+    familyOwners: game.familyOwners,
+    price: game.price,
+    status: game.status
+  })).sort((left, right) => left.name.localeCompare(right.name, "zh-CN", {
     numeric: true,
     sensitivity: "base"
   }));
 }
 
-function getSteamCoverUrl(appid: string): string {
-  return `https://cdn.cloudflare.steamstatic.com/steam/apps/${encodeURIComponent(appid)}/library_600x900_2x.jpg`;
+function sortResultGameRows(games: ResultGameRow[], sortKey: ResultGameSortKey): ResultGameRow[] {
+  return games.slice().sort((left, right) => {
+    if (sortKey === "priceDesc") {
+      return comparePriceDesc(left, right) || compareGameName(left, right);
+    }
+    if (sortKey === "priceAsc") {
+      return comparePriceAsc(left, right) || compareGameName(left, right);
+    }
+    if (sortKey === "ownersDesc") {
+      return getOwnerSortValue(right) - getOwnerSortValue(left) || compareGameName(left, right);
+    }
+    if (sortKey === "ownersAsc") {
+      return getOwnerSortValue(left) - getOwnerSortValue(right) || compareGameName(left, right);
+    }
+    return compareGameName(left, right);
+  });
+}
+
+function comparePriceDesc(left: ResultGameRow, right: ResultGameRow): number {
+  const leftPrice = getPriceSortValue(left);
+  const rightPrice = getPriceSortValue(right);
+  if (leftPrice == null && rightPrice == null) {
+    return 0;
+  }
+  if (leftPrice == null) {
+    return 1;
+  }
+  if (rightPrice == null) {
+    return -1;
+  }
+  return rightPrice - leftPrice;
+}
+
+function comparePriceAsc(left: ResultGameRow, right: ResultGameRow): number {
+  const leftPrice = getPriceSortValue(left);
+  const rightPrice = getPriceSortValue(right);
+  if (leftPrice == null && rightPrice == null) {
+    return 0;
+  }
+  if (leftPrice == null) {
+    return 1;
+  }
+  if (rightPrice == null) {
+    return -1;
+  }
+  return leftPrice - rightPrice;
+}
+
+function compareGameName(left: ResultGameRow, right: ResultGameRow): number {
+  return left.name.localeCompare(right.name, "zh-CN", {
+    numeric: true,
+    sensitivity: "base"
+  }) || left.appid.localeCompare(right.appid, "zh-CN", { numeric: true });
+}
+
+function getPriceSortValue(game: ResultGameRow): number | null {
+  if (!game.price || game.price.unavailable || game.price.initial == null) {
+    return null;
+  }
+  return Number(game.price.initial || 0);
+}
+
+function getOwnerSortValue(game: ResultGameRow): number {
+  return game.status === "overlap" ? game.familyOwners.length : game.ownerIds.length;
+}
+
+function getReportGameStatusLabel(status: ReportGameStatus): string {
+  if (status === "new") {
+    return "新增候选";
+  }
+  if (status === "overlap") {
+    return "家庭库重复";
+  }
+  return status === "currentOwned" ? "当前账号已拥有" : "当前账号未拥有";
+}
+
+function getGameOwnerSummary(game: ResultGameRow): string {
+  if (game.status === "overlap" && game.familyOwners.length) {
+    return `${game.familyOwners.length} 个家庭成员拥有`;
+  }
+  return game.ownerNames.length > 1 ? `${game.ownerNames.length} 个目标账号拥有` : game.ownerNames[0] || "-";
+}
+
+function getGameOwnerDetail(game: ResultGameRow): string {
+  if (game.status === "overlap" && game.familyOwners.length) {
+    return game.familyOwners.join("、");
+  }
+  return game.ownerNames.length ? game.ownerNames.join("、") : game.ownerIds.join("、");
+}
+
+function formatPrice(price: PriceInfo | null): string {
+  if (!price || price.unavailable || price.initial == null) {
+    return "-";
+  }
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: price.currency || "CNY",
+    minimumFractionDigits: 0
+  }).format(Number(price.initial || 0) / 100);
+}
+
+function formatGameListText(games: ResultGameRow[]): string {
+  return games.map(game => [
+    game.name,
+    game.appid,
+    getReportGameStatusLabel(game.status),
+    formatPrice(game.price),
+    getGameOwnerSummary(game),
+    game.storeLink
+  ].join("\t")).join("\n");
+}
+
+function formatReportText(report: AnalysisReport): string {
+  const lines = [
+    "Steam 家庭库分析报告",
+    `目标数：${report.targetCount}`,
+    `公开游戏：${report.totalPublicGames}`,
+    `家庭库：${report.familyGameCount}`,
+    `新增候选：${report.newGameCount}`,
+    `家庭重复：${report.overlapCount}`,
+    `当前账号已拥有：${report.currentOwnedOverlapCount}`,
+    "",
+    "目标账号：",
+    ...report.targets.map(target => `${target.displayName || target.steamid64}\t${target.steamid64}\t${target.gameCount} 个公开游戏`),
+    "",
+    "新增候选：",
+    ...buildResultGameRows(report.games.new).map(game => `${game.name}\t${game.appid}\t${formatPrice(game.price)}\t${game.storeLink}`)
+  ];
+  if (report.warnings.length) {
+    lines.push("", "警告：", ...report.warnings);
+  }
+  return lines.join("\n");
+}
+
+async function writeClipboard(text: string): Promise<void> {
+  if (!text.trim()) {
+    throw new Error("没有可复制的内容");
+  }
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Some WebView contexts expose Clipboard API but reject writes without focus.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand("copy");
+  textarea.remove();
+  if (!ok) {
+    throw new Error("复制失败");
+  }
+}
+
+function getSteamCoverUrl(game: ResultGameRow, reloadToken = 0): string {
+  const url = game.coverUrl || `https://cdn.cloudflare.steamstatic.com/steam/apps/${encodeURIComponent(game.appid)}/library_600x900_2x.jpg`;
+  return reloadToken ? `${url}${url.includes("?") ? "&" : "?"}t=${reloadToken}` : url;
 }
 
 async function openHelpUrl(url: string): Promise<void> {

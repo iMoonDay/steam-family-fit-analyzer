@@ -5,6 +5,8 @@ export type AppSettings = {
   steamApiKey: string;
   itadApiKey: string;
   currentSteamId64: string;
+  familyAccessToken: string;
+  familyGroupId: string;
   storeCountry: string;
   locale: LocaleMode;
   priceMode: PriceMode;
@@ -40,11 +42,45 @@ export type TargetProfile = {
   sampleGames: TargetGame[];
 };
 
+export type ReportGameStatus = "new" | "overlap" | "currentOwned" | "notCurrentOwned";
+
+export type PriceInfo = {
+  initial: number | null;
+  currency: string;
+  localizedName: string;
+  source: "original" | string;
+  isFree: boolean;
+  unavailable: boolean;
+  historyLowAt: string;
+};
+
+export type ReportGame = TargetGame & {
+  coverUrl: string;
+  targetOwners: string[];
+  targetOwnerNames: string[];
+  familyOwners: string[];
+  familyAcquiredAt: number;
+  price: PriceInfo | null;
+  status: ReportGameStatus;
+};
+
+export type ReportGameLists = {
+  all: ReportGame[];
+  new: ReportGame[];
+  overlap: ReportGame[];
+  currentOwned: ReportGame[];
+  notCurrentOwned: ReportGame[];
+};
+
 export type AnalysisReport = {
   targetCount: number;
   totalPublicGames: number;
+  familyGameCount: number;
+  newGameCount: number;
+  overlapCount: number;
   currentOwnedOverlapCount: number;
   targets: TargetProfile[];
+  games: ReportGameLists;
   warnings: string[];
 };
 

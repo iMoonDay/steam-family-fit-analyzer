@@ -33,6 +33,17 @@ export async function loadSettings(defaults: AppSettings): Promise<AppSettings> 
   }
 }
 
+export async function clearCache(): Promise<void> {
+  try {
+    await invoke("clear_cache");
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    localStorage.removeItem("sffa.desktop.cache");
+  }
+}
+
 export async function analyzePreview(input: AnalyzeInput): Promise<AnalysisPreview> {
   try {
     return await invoke<AnalysisPreview>("analyze_preview", { input });
@@ -61,6 +72,9 @@ export async function analyzeTarget(input: AnalyzeInput): Promise<AnalysisReport
     return {
       targetCount: normalizedTargets.length,
       totalPublicGames: 0,
+      familyGameCount: 0,
+      newGameCount: 0,
+      overlapCount: 0,
       currentOwnedOverlapCount: 0,
       targets: normalizedTargets.map(target => ({
         steamid64: /^\d{17}$/.test(target) ? target : "",
@@ -72,6 +86,13 @@ export async function analyzeTarget(input: AnalyzeInput): Promise<AnalysisReport
         games: [],
         sampleGames: []
       })),
+      games: {
+        all: [],
+        new: [],
+        overlap: [],
+        currentOwned: [],
+        notCurrentOwned: []
+      },
       warnings: ["浏览器预览模式不会请求 Steam API，请使用 Tauri 桌面窗口运行真实分析。"]
     };
   }

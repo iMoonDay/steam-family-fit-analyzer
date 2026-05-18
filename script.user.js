@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.10
+// @version      0.1.11
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -20,6 +20,7 @@
 // @grant        GM_unregisterMenuCommand
 // @grant        unsafeWindow
 // @connect      api.steampowered.com
+// @connect      api.isthereanydeal.com
 // @connect      partner.steam-api.com
 // @connect      steamcommunity.com
 // @connect      store.steampowered.com
@@ -42,8 +43,17 @@
   const STORAGE_KEY = "steam_family_fit_analyzer_state_v1";
   // 商店条目缓存有效期，单位毫秒；默认 7 天。
   const STORE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const STORE_CACHE_BUCKETS_KEY = "__buckets";
   // 原价读取每批 App 的数量；调大可减少请求轮次，调小可降低单批压力。
   const ORIGINAL_PRICE_BATCH_SIZE = 200;
+  const ITAD_PRICE_BATCH_SIZE = 200;
+  const ITAD_API_BASE_URL = "https://api.isthereanydeal.com";
+  const ITAD_API_PAGE_URL = "https://isthereanydeal.com/apps/";
+  const ITAD_STEAM_SHOP_ID = 61;
+  const PRICE_MODE_ORIGINAL = "original";
+  const PRICE_MODE_HISTORY_LOW = "historyLow";
+  const PRICE_SOURCE_ORIGINAL = "original";
+  const PRICE_SOURCE_ITAD_STORE_LOW = "itadStoreLow";
   // 家庭共享支持性检测每批 App 的数量；调大可更快，调小可更稳。
   const SHAREABILITY_BATCH_SIZE = 150;
   // 家庭封面图导出时每行显示的卡片数量；调大更密，调小更疏。
@@ -113,11 +123,12 @@
   const FAMILY_POSTER_MAX_HEIGHT = 30000;
   const FAMILY_POSTER_IMAGE_CONCURRENCY = 8;
 
-  const STORE_LANG = getDetectedStoreLanguage();
+  const DETECTED_STORE_LANG = getDetectedStoreLanguage();
   const INITIAL_STORE_CC = getDetectedStoreCountryFromPage();
   let STORE_CC = INITIAL_STORE_CC || FALLBACK_STORE_CC;
-  let STORE_CACHE_CONTEXT = getStoreCacheContext();
   let appLocaleMode = getSavedAppLocaleMode();
+  let STORE_LANG = getStoreLanguageForAppLocale(appLocaleMode);
+  let STORE_CACHE_CONTEXT = getStoreCacheContext();
   let UI_LOCALE = resolveUiLocale(appLocaleMode, STORE_LANG);
 
   // ===== 本地化与商店上下文 =====
@@ -165,6 +176,20 @@
       showLauncherMenu: "显示侧边按钮",
       hideLauncherMenu: "隐藏侧边按钮",
       openDialogMenu: "打开分析弹窗",
+      priceSettings: "价格配置",
+      priceSettingsTitle: "价格配置",
+      priceSettingsHint: "选择本次统计、排序、复制和展示使用的价格口径。",
+      priceMode: "价格口径",
+      priceModeOriginal: "原价",
+      priceModeHistoryLow: "史低",
+      originalPrice: "原价",
+      historyLowPrice: "史低",
+      itadApiKey: "IsThereAnyDeal API Key",
+      itadApiKeyPlaceholder: "填入 ITAD API Key 后史低生效",
+      itadApiHelp: "获取步骤：1. 打开 IsThereAnyDeal 并登录；2. 进入 Apps / My apps；3. 创建应用；4. 复制 API Key 填入这里。点击打开获取页面。",
+      priceSettingsSave: "保存",
+      priceSettingsSaved: "价格配置已保存",
+      historyLowNeedsApiKey: "史低需要先填写 IsThereAnyDeal API Key",
       compare: "对比",
       compareTitle: "账号游戏对比",
       compareHint: "按当前输入的 {count} 个账号对比，聚焦游戏差异。",
@@ -379,6 +404,20 @@
       showLauncherMenu: "Show side button",
       hideLauncherMenu: "Hide side button",
       openDialogMenu: "Open analyzer",
+      priceSettings: "Price settings",
+      priceSettingsTitle: "Price settings",
+      priceSettingsHint: "Choose the price basis used for statistics, sorting, copying, and display.",
+      priceMode: "Price basis",
+      priceModeOriginal: "Original",
+      priceModeHistoryLow: "Historical low",
+      originalPrice: "Original price",
+      historyLowPrice: "Historical low",
+      itadApiKey: "IsThereAnyDeal API Key",
+      itadApiKeyPlaceholder: "Enter an ITAD API key to enable historical lows",
+      itadApiHelp: "Steps: 1. Open IsThereAnyDeal and sign in; 2. Go to Apps / My apps; 3. Create an app; 4. Copy the API key here. Click to open the page.",
+      priceSettingsSave: "Save",
+      priceSettingsSaved: "Price settings saved",
+      historyLowNeedsApiKey: "Historical lows require an IsThereAnyDeal API key",
       compare: "Compare",
       compareTitle: "Account game comparison",
       compareHint: "Compare the {count} entered accounts with a focus on game differences.",
@@ -605,6 +644,54 @@
     return ["auto", "zh-CN", "en"].includes(mode) ? mode : APP_LOCALE;
   }
 
+  function getStoreLanguageForAppLocale(mode) {
+    const normalizedMode = normalizeAppLocaleMode(mode);
+    if (normalizedMode === "zh-CN") {
+      return "schinese";
+    }
+    if (normalizedMode === "en") {
+      return "english";
+    }
+    return DETECTED_STORE_LANG || FALLBACK_STORE_LANG;
+  }
+
+  function normalizePriceMode(mode) {
+    return mode === PRICE_MODE_HISTORY_LOW ? PRICE_MODE_HISTORY_LOW : PRICE_MODE_ORIGINAL;
+  }
+
+  function normalizePriceConfig(config = {}) {
+    return {
+      mode: normalizePriceMode(config.mode),
+      itadApiKey: String(config.itadApiKey || "").trim()
+    };
+  }
+
+  function getPriceMode() {
+    return normalizePriceMode(state.priceConfig?.mode);
+  }
+
+  function isHistoryLowPriceMode() {
+    return getPriceMode() === PRICE_MODE_HISTORY_LOW;
+  }
+
+  function getItadApiKey() {
+    return String(state.priceConfig?.itadApiKey || "").trim();
+  }
+
+  function getPriceLabel() {
+    return isHistoryLowPriceMode() ? t("historyLowPrice") : t("originalPrice");
+  }
+
+  function getPriceCacheKeyForMode(mode = getPriceMode()) {
+    return normalizePriceMode(mode) === PRICE_MODE_HISTORY_LOW ? PRICE_MODE_HISTORY_LOW : PRICE_MODE_ORIGINAL;
+  }
+
+  function getPriceCacheKeyForPrice(price) {
+    return (price?.source || PRICE_SOURCE_ORIGINAL) === PRICE_SOURCE_ITAD_STORE_LOW
+      ? PRICE_MODE_HISTORY_LOW
+      : PRICE_MODE_ORIGINAL;
+  }
+
   function getSavedAppLocaleMode() {
     try {
       return normalizeAppLocaleMode(GM_getValue(STORAGE_KEY)?.appLocaleMode);
@@ -668,6 +755,16 @@
     }
     STORE_CC = normalized;
     STORE_CACHE_CONTEXT = getStoreCacheContext();
+  }
+
+  function setStoreLanguage(language) {
+    const normalized = normalizeSteamLanguage(language) || FALLBACK_STORE_LANG;
+    if (!normalized || normalized === STORE_LANG) {
+      return false;
+    }
+    STORE_LANG = normalized;
+    STORE_CACHE_CONTEXT = getStoreCacheContext();
+    return true;
   }
 
   function getDetectedStoreCountryFromPage(doc = document, pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window) {
@@ -756,6 +853,10 @@
     autoFamilyRefreshEnabled: true,
     lastAutoFamilyRefreshAttemptAt: 0,
     appLocaleMode: APP_LOCALE,
+    priceConfig: {
+      mode: PRICE_MODE_ORIGINAL,
+      itadApiKey: ""
+    },
     apiKey: ""
   });
 
@@ -1786,7 +1887,7 @@
       .sffa-compare-body {
         display: none;
       }
-      .sffa-family-poster-overlay {
+      .sffa-modal-overlay {
         position: fixed;
         inset: 0;
         z-index: 999997;
@@ -1795,18 +1896,14 @@
         pointer-events: none;
         transition: opacity 0.16s ease, visibility 0.16s ease;
       }
-      .sffa-family-poster-backdrop {
+      .sffa-modal-backdrop {
         position: absolute;
         inset: 0;
         background: rgba(8, 12, 18, 0.72);
         backdrop-filter: blur(2px);
       }
-      .sffa-family-poster-shell {
+      .sffa-modal-shell {
         position: absolute;
-        left: 50%;
-        top: 50%;
-        width: min(460px, calc(100vw - 24px));
-        transform: translate(-50%, -50%) scale(0.985);
         display: grid;
         gap: 0;
         overflow: visible;
@@ -1815,54 +1912,165 @@
         background: #121820;
         box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
       }
+      .sffa-modal-shell.is-anchor-top-right {
+        right: min(28px, 4vw);
+        top: 74px;
+        width: min(420px, calc(100vw - 24px));
+      }
+      .sffa-modal-shell.is-center {
+        left: 50%;
+        top: 50%;
+        width: min(460px, calc(100vw - 24px));
+        transform: translate(-50%, -50%) scale(0.985);
+      }
+      #sffa-root.is-price-settings-open .sffa-price-overlay,
       #sffa-root.is-family-poster-open .sffa-family-poster-overlay {
         opacity: 1;
         visibility: visible;
         pointer-events: auto;
       }
-      .sffa-family-poster-header {
+      .sffa-modal-header,
+      .sffa-modal-actions {
         display: flex;
-        align-items: start;
+        align-items: center;
         justify-content: space-between;
         gap: 12px;
+      }
+      .sffa-modal-header {
         padding: 12px 14px;
         background: linear-gradient(180deg, #23384a 0%, #17222e 100%);
         border-bottom: 1px solid rgba(255, 255, 255, 0.07);
       }
-      .sffa-family-poster-title {
+      .sffa-modal-title {
         min-width: 0;
-        display: flex;
-        flex-direction: column;
+        display: grid;
         gap: 4px;
       }
-      .sffa-family-poster-title strong {
+      .sffa-modal-title strong {
         color: #ffffff;
         font-size: 15px;
-        font-weight: 700;
         line-height: 1.2;
       }
-      .sffa-family-poster-title span {
+      .sffa-modal-title span {
         color: #b8c7d3;
         font-size: 12px;
         line-height: 1.35;
       }
-      .sffa-family-poster-close {
-        width: 30px;
-        height: 30px;
+      .sffa-modal-close,
+      .sffa-price-help {
         display: grid;
         place-items: center;
-        padding: 0;
         border: 0;
+        cursor: pointer;
+        font: inherit;
+      }
+      .sffa-modal-close {
+        width: 30px;
+        height: 30px;
         border-radius: 2px;
         background: rgba(255, 255, 255, 0.08);
         color: #ffffff;
+        font-size: 18px;
+      }
+      .sffa-modal-close:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .sffa-modal-actions {
+        justify-content: flex-end;
+        padding: 0 14px 14px;
+      }
+      .sffa-price-overlay.sffa-modal-overlay .sffa-modal-backdrop {
+        background: rgba(8, 12, 18, 0.58);
+      }
+      .sffa-price-body {
+        display: grid;
+        gap: 14px;
+        padding: 14px;
+      }
+      .sffa-price-field {
+        display: grid;
+        gap: 7px;
+      }
+      .sffa-price-field-label {
+        color: #dbe8f3;
+        font-size: 12px;
+        line-height: 1.3;
+      }
+      .sffa-price-mode-toggle {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid rgba(102, 192, 244, 0.26);
+        border-radius: 999px;
+        background: #0f141b;
+      }
+      .sffa-price-mode-btn {
+        min-height: 32px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #b8c7d3;
         cursor: pointer;
         font: inherit;
-        font-size: 18px;
-        line-height: 1;
+        font-size: 12px;
       }
-      .sffa-family-poster-close:hover {
-        background: rgba(255, 255, 255, 0.16);
+      .sffa-price-mode-btn.is-active {
+        background: #66c0f4;
+        color: #071018;
+        font-weight: 700;
+      }
+      .sffa-price-api-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 30px;
+        gap: 8px;
+        align-items: center;
+      }
+      .sffa-price-input {
+        height: 34px;
+        min-width: 0;
+        border: 1px solid rgba(102, 192, 244, 0.26);
+        background: #0f141b;
+        color: #f2f7fb;
+        border-radius: 3px;
+        padding: 0 10px;
+        outline: none;
+        font: inherit;
+      }
+      .sffa-price-input:focus {
+        border-color: #66c0f4;
+        box-shadow: 0 0 0 2px rgba(102, 192, 244, 0.12);
+      }
+      .sffa-price-help {
+        position: relative;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: rgba(102, 192, 244, 0.18);
+        color: #d7f0ff;
+        font-weight: 700;
+      }
+      .sffa-price-help-tip {
+        position: absolute;
+        right: 0;
+        top: 36px;
+        width: min(320px, calc(100vw - 40px));
+        display: none;
+        padding: 9px 10px;
+        border: 1px solid rgba(102, 192, 244, 0.3);
+        border-radius: 4px;
+        background: #0f141b;
+        color: #dbe8f3;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.45;
+        text-align: left;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+        z-index: 4;
+      }
+      .sffa-price-help:hover .sffa-price-help-tip,
+      .sffa-price-help:focus .sffa-price-help-tip {
+        display: block;
       }
       .sffa-family-poster-body {
         display: grid;
@@ -1966,12 +2174,6 @@
         font-size: 12px;
         min-width: 48px;
         text-align: right;
-      }
-      .sffa-family-poster-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        padding: 0 14px 14px;
       }
       .sffa-compare-group {
         margin-top: 10px;
@@ -2626,8 +2828,7 @@
             <button class="sffa-icon-btn" type="button" data-sffa-more title="${escapeAttr(t("more"))}" aria-label="${escapeAttr(t("more"))}" aria-expanded="false">⋯</button>
             <div class="sffa-menu" data-sffa-menu>
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
-              <button class="sffa-menu-item" type="button" data-sffa-copy>${escapeHtml(t("copyReport"))}</button>
-              <button class="sffa-menu-item" type="button" data-sffa-save-family-poster>${escapeHtml(t("saveFamilyPoster"))}</button>
+              <button class="sffa-menu-item" type="button" data-sffa-price-settings>${escapeHtml(t("priceSettings"))}</button>
               <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-raw>${escapeHtml(t("rawData"))}</button>
             </div>
@@ -2680,6 +2881,7 @@
                 <div class="sffa-copy-list-wrap" data-sffa-copy-list-wrap>
                   <button class="sffa-tab sffa-copy-list-btn" type="button" data-sffa-copy-list-btn aria-expanded="false">⋯</button>
                   <div class="sffa-menu sffa-copy-list-menu" data-sffa-copy-list-menu>
+                    <button class="sffa-menu-item" type="button" data-sffa-copy>${escapeHtml(t("copyReport"))}</button>
                     <button class="sffa-menu-item" type="button" data-sffa-copy-list>${escapeHtml(t("copyList"))}</button>
                     <button class="sffa-menu-item" type="button" data-sffa-copy-games>${escapeHtml(t("copyGames"))}</button>
                     <button class="sffa-menu-item" type="button" data-sffa-save-list-poster>${escapeHtml(t("saveListPoster"))}</button>
@@ -2708,17 +2910,53 @@
           <div class="sffa-compare-body" data-sffa-compare-body></div>
         </section>
       </div>
-      <div class="sffa-family-poster-overlay" data-sffa-family-poster-overlay>
-        <div class="sffa-family-poster-backdrop" data-sffa-family-poster-backdrop></div>
-        <section class="sffa-family-poster-shell" role="dialog" aria-modal="true" aria-label="${escapeAttr(t("familyPosterTitle"))}">
-          <header class="sffa-family-poster-header">
-            <div class="sffa-family-poster-title">
-              <strong data-sffa-family-poster-title>${escapeHtml(t("familyPosterTitle"))}</strong>
-              <span data-sffa-family-poster-hint>${escapeHtml(t("familyPosterHint"))}</span>
-            </div>
-            <button class="sffa-family-poster-close" type="button" data-sffa-family-poster-close title="${escapeAttr(t("close"))}" aria-label="${escapeAttr(t("close"))}">×</button>
-          </header>
-          <div class="sffa-family-poster-body">
+      ${renderModalHtml({
+        name: "price",
+        overlayAttrs: "data-sffa-price-overlay",
+        backdropAttrs: "data-sffa-price-backdrop",
+        closeAttrs: "data-sffa-price-close",
+        titleAttrs: "data-sffa-price-title",
+        hintAttrs: "data-sffa-price-hint",
+        title: t("priceSettingsTitle"),
+        hint: t("priceSettingsHint"),
+        shellClass: "is-anchor-top-right",
+        bodyClass: "sffa-price-body",
+        bodyHtml: `
+            <label class="sffa-price-field">
+              <span class="sffa-price-field-label" data-sffa-price-mode-label>${escapeHtml(t("priceMode"))}</span>
+              <span class="sffa-price-mode-toggle" data-sffa-price-mode-toggle>
+                <button class="sffa-price-mode-btn" type="button" data-sffa-price-mode-option="${PRICE_MODE_ORIGINAL}">${escapeHtml(t("priceModeOriginal"))}</button>
+                <button class="sffa-price-mode-btn" type="button" data-sffa-price-mode-option="${PRICE_MODE_HISTORY_LOW}">${escapeHtml(t("priceModeHistoryLow"))}</button>
+              </span>
+            </label>
+            <label class="sffa-price-field">
+              <span class="sffa-price-field-label" data-sffa-itad-key-label>${escapeHtml(t("itadApiKey"))}</span>
+              <span class="sffa-price-api-row">
+                <input class="sffa-price-input" type="password" autocomplete="off" spellcheck="false" data-sffa-itad-api-key placeholder="${escapeAttr(t("itadApiKeyPlaceholder"))}">
+                <button class="sffa-price-help" type="button" data-sffa-itad-help aria-label="${escapeAttr(t("itadApiHelp"))}">
+                  ?
+                  <span class="sffa-price-help-tip" data-sffa-itad-help-tip>${escapeHtml(t("itadApiHelp"))}</span>
+                </button>
+              </span>
+            </label>
+          `,
+        actionsHtml: `
+            <button class="sffa-btn secondary" type="button" data-sffa-price-cancel>${escapeHtml(t("familyPosterCancel"))}</button>
+            <button class="sffa-btn" type="button" data-sffa-price-confirm>${escapeHtml(t("priceSettingsSave"))}</button>
+          `
+      })}
+      ${renderModalHtml({
+        name: "family-poster",
+        overlayAttrs: "data-sffa-family-poster-overlay",
+        backdropAttrs: "data-sffa-family-poster-backdrop",
+        closeAttrs: "data-sffa-family-poster-close",
+        titleAttrs: "data-sffa-family-poster-title",
+        hintAttrs: "data-sffa-family-poster-hint",
+        title: t("familyPosterTitle"),
+        hint: t("familyPosterHint"),
+        shellClass: "is-center",
+        bodyClass: "sffa-family-poster-body",
+        bodyHtml: `
             <label class="sffa-family-poster-field">
               <span data-sffa-family-poster-columns-label>${escapeHtml(t("familyPosterColumns"))}</span>
               <input class="sffa-family-poster-input" type="number" min="1" max="30" step="1" data-sffa-family-poster-columns>
@@ -2737,15 +2975,49 @@
                 <strong data-sffa-family-poster-scale-value>${escapeHtml(t("familyPosterScaleValue", { value: 100 }))}</strong>
               </div>
             </label>
-          </div>
-          <footer class="sffa-family-poster-actions">
+          `,
+        actionsHtml: `
             <button class="sffa-btn secondary" type="button" data-sffa-family-poster-cancel>${escapeHtml(t("familyPosterCancel"))}</button>
             <button class="sffa-btn" type="button" data-sffa-family-poster-confirm>${escapeHtml(t("familyPosterConfirm"))}</button>
-          </footer>
+          `
+      })}
+    `;
+    return root;
+  }
+
+  function renderModalHtml({
+    name,
+    overlayAttrs = "",
+    backdropAttrs = "",
+    closeAttrs = "",
+    titleAttrs = "",
+    hintAttrs = "",
+    title,
+    hint = "",
+    shellClass = "is-center",
+    bodyClass = "",
+    bodyHtml = "",
+    actionsHtml = ""
+  }) {
+    const normalizedName = String(name || "modal");
+    return `
+      <div class="sffa-modal-overlay sffa-${escapeAttr(normalizedName)}-overlay" ${overlayAttrs}>
+        <div class="sffa-modal-backdrop sffa-${escapeAttr(normalizedName)}-backdrop" ${backdropAttrs}></div>
+        <section class="sffa-modal-shell sffa-${escapeAttr(normalizedName)}-shell ${escapeAttr(shellClass)}" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+          <header class="sffa-modal-header">
+            <div class="sffa-modal-title">
+              <strong ${titleAttrs}>${escapeHtml(title)}</strong>
+              ${hint ? `<span ${hintAttrs}>${escapeHtml(hint)}</span>` : ""}
+            </div>
+            <button class="sffa-modal-close" type="button" ${closeAttrs} title="${escapeAttr(t("close"))}" aria-label="${escapeAttr(t("close"))}">×</button>
+          </header>
+          <div class="${escapeAttr(bodyClass || "sffa-modal-body")}">
+            ${bodyHtml}
+          </div>
+          ${actionsHtml ? `<footer class="sffa-modal-actions">${actionsHtml}</footer>` : ""}
         </section>
       </div>
     `;
-    return root;
   }
 
   function collectPanelElements(root) {
@@ -2782,6 +3054,7 @@
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
+      priceSettingsBtn: root.querySelector("[data-sffa-price-settings]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
       saveFamilyPosterBtn: root.querySelector("[data-sffa-save-family-poster]"),
       saveListPosterBtn: root.querySelector("[data-sffa-save-list-poster]"),
@@ -2797,6 +3070,19 @@
       compareHint: root.querySelector("[data-sffa-compare-hint]"),
       compareSummary: root.querySelector("[data-sffa-compare-summary]"),
       compareBody: root.querySelector("[data-sffa-compare-body]"),
+      priceOverlay: root.querySelector("[data-sffa-price-overlay]"),
+      priceBackdrop: root.querySelector("[data-sffa-price-backdrop]"),
+      priceCloseBtn: root.querySelector("[data-sffa-price-close]"),
+      priceTitle: root.querySelector("[data-sffa-price-title]"),
+      priceHint: root.querySelector("[data-sffa-price-hint]"),
+      priceModeLabel: root.querySelector("[data-sffa-price-mode-label]"),
+      priceModeButtons: Array.from(root.querySelectorAll("[data-sffa-price-mode-option]")),
+      itadKeyLabel: root.querySelector("[data-sffa-itad-key-label]"),
+      itadApiKeyInput: root.querySelector("[data-sffa-itad-api-key]"),
+      itadHelpBtn: root.querySelector("[data-sffa-itad-help]"),
+      itadHelpTip: root.querySelector("[data-sffa-itad-help-tip]"),
+      priceCancelBtn: root.querySelector("[data-sffa-price-cancel]"),
+      priceConfirmBtn: root.querySelector("[data-sffa-price-confirm]"),
       familyPosterOverlay: root.querySelector("[data-sffa-family-poster-overlay]"),
       familyPosterBackdrop: root.querySelector("[data-sffa-family-poster-backdrop]"),
       familyPosterCloseBtn: root.querySelector("[data-sffa-family-poster-close]"),
@@ -2830,8 +3116,9 @@
     elements.refreshBtn.addEventListener("click", refreshFamilyLibrary);
     elements.analyzeBtn.addEventListener("click", analyzeTarget);
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
+    elements.priceSettingsBtn?.addEventListener("click", openPriceSettingsDialog);
     elements.copyBtn.addEventListener("click", copyReportSummary);
-    elements.saveFamilyPosterBtn.addEventListener("click", openFamilyPosterDialog);
+    elements.saveFamilyPosterBtn?.addEventListener("click", openFamilyPosterDialog);
     elements.reloadCoversBtn.addEventListener("click", reloadCovers);
     elements.copyListBtn.addEventListener("click", toggleCopyListMenu);
     elements.clearStoreCacheBtn.addEventListener("click", clearStoreCache);
@@ -2845,6 +3132,14 @@
     elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
     elements.compareBackdrop?.addEventListener("click", closeCompareDialog);
     elements.compareCloseBtn?.addEventListener("click", closeCompareDialog);
+    elements.priceBackdrop?.addEventListener("click", closePriceSettingsDialog);
+    elements.priceCloseBtn?.addEventListener("click", closePriceSettingsDialog);
+    elements.priceCancelBtn?.addEventListener("click", closePriceSettingsDialog);
+    elements.priceConfirmBtn?.addEventListener("click", confirmPriceSettingsDialog);
+    elements.itadHelpBtn?.addEventListener("click", openItadApiPage);
+    elements.priceModeButtons.forEach(button => {
+      button.addEventListener("click", () => selectPriceSettingsMode(button.dataset.sffaPriceModeOption));
+    });
     elements.familyPosterBackdrop?.addEventListener("click", closeFamilyPosterDialog);
     elements.familyPosterCloseBtn?.addEventListener("click", closeFamilyPosterDialog);
     elements.familyPosterCancelBtn?.addEventListener("click", closeFamilyPosterDialog);
@@ -2901,6 +3196,10 @@
     });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {
+        if (elements.root?.classList.contains("is-price-settings-open")) {
+          closePriceSettingsDialog();
+          return;
+        }
         if (elements.root?.classList.contains("is-family-poster-open")) {
           closeFamilyPosterDialog();
           return;
@@ -2947,6 +3246,7 @@
     renderStoreCacheButton();
     renderRateLimitControls();
     renderAnalysisHistoryMenu();
+    renderPriceSettingsDialog();
   }
 
   function openDialog() {
@@ -3027,6 +3327,7 @@
     closeListMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
+    closePriceSettingsDialog();
     closeFamilyPosterDialog();
     closeCompareDialog();
     elements.root.classList.remove("is-open");
@@ -3186,26 +3487,45 @@
       return;
     }
 
+    const storeLanguageChanged = setStoreLanguage(getStoreLanguageForAppLocale(nextMode));
     appLocaleMode = nextMode;
-    UI_LOCALE = resolveUiLocale(appLocaleMode);
+    UI_LOCALE = resolveUiLocale(appLocaleMode, STORE_LANG);
     state.appLocaleMode = appLocaleMode;
     saveState();
     closeMenu();
     renderLocalizedUi();
+    if (storeLanguageChanged) {
+      refreshLocalizedGameNamesAfterLanguageChange();
+    }
   }
 
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveFamilyPosterBtn, "textContent", t("saveFamilyPoster")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
-    ].forEach(([element, key, value]) => { element[key] = value; });
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.launcher, "title", t("openAnalyzer")], [elements.launcherCloseBtn, "title", t("hideLauncher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+    ].forEach(([element, key, value]) => { if (element) element[key] = value; });
+    [
+      [elements.priceSettingsBtn, "textContent", t("priceSettings")],
+      [elements.priceTitle, "textContent", t("priceSettingsTitle")],
+      [elements.priceHint, "textContent", t("priceSettingsHint")],
+      [elements.priceModeLabel, "textContent", t("priceMode")],
+      [elements.itadKeyLabel, "textContent", t("itadApiKey")],
+      [elements.itadApiKeyInput, "placeholder", t("itadApiKeyPlaceholder")],
+      [elements.itadHelpTip, "textContent", t("itadApiHelp")],
+      [elements.priceCancelBtn, "textContent", t("familyPosterCancel")],
+      [elements.priceConfirmBtn, "textContent", t("priceSettingsSave")],
+      [elements.priceCloseBtn, "title", t("close")]
+    ].forEach(([element, key, value]) => { if (element) element[key] = value; });
     [
       [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
+    [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     elements.listOptions.forEach(option => { option.textContent = getMainTabLabel(option.dataset.sffaListOption); });
     elements.viewModeButtons.forEach(button => { button.textContent = t(button.dataset.sffaViewMode === "cover" ? "viewCover" : "viewTable"); });
+    elements.priceModeButtons.forEach(button => { button.textContent = t(button.dataset.sffaPriceModeOption === PRICE_MODE_HISTORY_LOW ? "priceModeHistoryLow" : "priceModeOriginal"); });
     elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
     elements.localeOptions.forEach(option => { option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption); option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode); });
+    renderPriceSettingsDialog();
     renderFamilyPosterDialog();
     renderCompareDialogIfOpen();
     [registerScriptMenuCommands, renderFamilyMeta, renderAutoFamilyRefreshButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
@@ -3239,6 +3559,127 @@
     } else {
       setStatus(t("refreshFirst"), "warn");
     }
+  }
+
+  async function refreshLocalizedGameNamesAfterLanguageChange() {
+    applyCachedLocalizedGameNamesForCurrentLanguage();
+    renderDetailsPreserveScroll();
+    renderCompareDialogIfOpen();
+
+    const appids = getLocalizedNameRefreshAppids();
+    const missingAppids = appids.filter(appid => !getCachedLocalizedName(appid));
+    if (!missingAppids.length) {
+      return;
+    }
+
+    try {
+      for (let index = 0; index < missingAppids.length; index += SHAREABILITY_BATCH_SIZE) {
+        const batch = missingAppids.slice(index, index + SHAREABILITY_BATCH_SIZE);
+        await fetchStoreItemBatch(batch, {
+          include_basic_info: true,
+          include_assets: true
+        }, `localizedNames.batch${Date.now()}.${index}`);
+      }
+      saveState();
+      renderDetailsPreserveScroll();
+      renderCompareDialogIfOpen();
+      applyVisibleCoverImages();
+      scheduleVisibleCoverLoads();
+    } catch (error) {
+      setRawError(error);
+    }
+  }
+
+  function applyCachedLocalizedGameNamesForCurrentLanguage() {
+    ["all", "new", "overlap", "unpriced"].forEach(listName => {
+      (lastReport?.games?.[listName] || []).forEach(game => {
+        game.localizedName = getCachedLocalizedName(game.appid) || "";
+      });
+    });
+    Object.values(state.familyLibrary?.appInfoById || {}).forEach(game => {
+      game.localizedName = getCachedLocalizedName(game.appid) || "";
+    });
+  }
+
+  function getLocalizedNameRefreshAppids() {
+    const appids = new Set((state.familyLibrary?.appidSet || []).map(String));
+    ["all", "new", "overlap", "unpriced"].forEach(listName => {
+      (lastReport?.games?.[listName] || []).forEach(game => {
+        if (game?.appid) {
+          appids.add(String(game.appid));
+        }
+      });
+    });
+    return Array.from(appids).filter(appid => /^\d+$/.test(appid));
+  }
+
+  function openPriceSettingsDialog() {
+    closeMenu();
+    renderPriceSettingsDialog();
+    elements.root?.classList.add("is-price-settings-open");
+    window.setTimeout(() => elements.itadApiKeyInput?.focus(), 0);
+  }
+
+  function closePriceSettingsDialog() {
+    elements.root?.classList.remove("is-price-settings-open");
+  }
+
+  function renderPriceSettingsDialog() {
+    const config = normalizePriceConfig(state.priceConfig || {});
+    elements.priceModeButtons?.forEach(button => {
+      const active = normalizePriceMode(button.dataset.sffaPriceModeOption) === config.mode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    if (elements.itadApiKeyInput) {
+      elements.itadApiKeyInput.value = config.itadApiKey;
+    }
+  }
+
+  function selectPriceSettingsMode(mode) {
+    const nextMode = normalizePriceMode(mode);
+    elements.priceModeButtons?.forEach(button => {
+      const active = normalizePriceMode(button.dataset.sffaPriceModeOption) === nextMode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+
+  function confirmPriceSettingsDialog() {
+    const selectedMode = normalizePriceMode(elements.priceModeButtons.find(button => button.classList.contains("is-active"))?.dataset.sffaPriceModeOption);
+    const nextConfig = normalizePriceConfig({
+      mode: selectedMode,
+      itadApiKey: elements.itadApiKeyInput?.value || ""
+    });
+    const previousConfig = normalizePriceConfig(state.priceConfig || {});
+    const changed = previousConfig.mode !== nextConfig.mode || previousConfig.itadApiKey !== nextConfig.itadApiKey;
+
+    state.priceConfig = nextConfig;
+    saveState();
+    closePriceSettingsDialog();
+    setStatus(nextConfig.mode === PRICE_MODE_HISTORY_LOW && !nextConfig.itadApiKey ? t("historyLowNeedsApiKey") : t("priceSettingsSaved"), nextConfig.mode === PRICE_MODE_HISTORY_LOW && !nextConfig.itadApiKey ? "warn" : "ok");
+    if (changed) {
+      refreshPricesAfterPriceConfigChange();
+    }
+  }
+
+  function openItadApiPage(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const win = window.open(ITAD_API_PAGE_URL, "_blank", "noopener");
+    if (!win) {
+      setStatus(t("popupBlocked"), "warn");
+    }
+  }
+
+  function refreshPricesAfterPriceConfigChange() {
+    priceLoadState = createPriceLoadState();
+    if (lastReport?.games?.new) {
+      prepareOriginalPrices(lastReport.games.new);
+      refreshReportMetrics();
+    }
+    renderDetailsPreserveScroll();
+    scheduleVisiblePriceLoads();
   }
 
   function openFamilyPosterDialog() {
@@ -3624,6 +4065,7 @@
 
   async function copyReportSummary() {
     closeMenu();
+    closeCopyListMenu();
     if (!lastReport) {
       setStatus(t("noSummary"), "warn");
       return;
@@ -3730,7 +4172,7 @@
 
   function clearStoreCache() {
     closeMenu();
-    state.storeCache = {};
+    state.storeCache = { [STORE_CACHE_BUCKETS_KEY]: {} };
     saveState();
     renderStoreCacheButton();
     setStatus(t("storeCacheCleared"), "ok");
@@ -3844,15 +4286,14 @@
   }
 
   function hasFreshPosterStoreItem(appid) {
-    const entry = state.storeCache?.[String(appid || "")];
+    const entry = getStoreCacheEntry(appid);
     return Boolean(isFreshStoreItemCacheEntry(entry));
   }
 
   function buildFamilyPosterItems(appids, settings = getFamilyPosterSettings()) {
     const items = appids.map((appid, index) => {
       const familyInfo = state.familyLibrary?.appInfoById?.[String(appid)] || {};
-      const storeEntry = state.storeCache?.[String(appid)] || {};
-      const price = normalizeStoreItemOriginalPrice(storeEntry.storeItem) || storeEntry.price || null;
+      const price = resolveGamePrice({ appid });
       return {
         appid: String(appid),
         dataIndex: index,
@@ -3869,8 +4310,7 @@
   function buildListPosterItems(rows, settings = getListPosterSettings(currentTab)) {
     const items = rows.map((game, index) => {
       const appid = String(game.appid || "");
-      const storeEntry = state.storeCache?.[appid] || {};
-      const price = normalizeStoreItemOriginalPrice(storeEntry.storeItem) || game.price || storeEntry.price || null;
+      const price = resolveGamePrice(game);
       return {
         appid,
         dataIndex: index,
@@ -3888,7 +4328,7 @@
   }
 
   function getFamilyPosterCoverUrl(appid) {
-    const entry = state.storeCache?.[String(appid || "")];
+      const entry = getStoreCacheEntry(appid);
     return extractStorePosterCoverUrlFromStoreItem(entry?.storeItem || null) || getCachedStoreCoverUrl(appid);
   }
 
@@ -4301,17 +4741,17 @@
 
   function clearCachedStoreCoverUrl(appid) {
     const key = String(appid || "");
-    const entry = state.storeCache?.[key];
+    const entry = getStoreCacheEntry(key);
     coverProbeState.verifiedUrlByAppid.delete(key);
     coverProbeState.failedUrlByAppid.delete(key);
     if (!entry) {
       return;
     }
-    state.storeCache[key] = {
+    setStoreCacheEntry(key, {
       ...entry,
       coverUrl: "",
       coverVerified: false
-    };
+    });
   }
 
   // ===== Steam 会话与接口访问 =====
@@ -4926,7 +5366,7 @@
 
   async function getShareabilityForAppids(appids) {
     const uniqueAppids = Array.from(new Set(appids.map(appid => String(appid))));
-    state.storeCache = state.storeCache || {};
+    const storeCache = getActiveStoreCache();
     const shareabilityById = {};
     const missing = [];
 
@@ -4934,7 +5374,7 @@
       if (!/^\d+$/.test(appid)) {
         throw new Error(t("invalidAppid", { appid }));
       }
-      const cached = state.storeCache[appid];
+      const cached = storeCache[appid];
       if (hasCompleteStoreCache(appid)) {
         shareabilityById[appid] = cached;
       } else {
@@ -4948,7 +5388,7 @@
       batch.forEach(appid => {
         const shareability = batchShareability[appid];
         shareabilityById[appid] = shareability;
-        state.storeCache[appid] = mergeStoreCacheEntry(state.storeCache[appid], shareability);
+        setStoreCacheEntry(appid, mergeStoreCacheEntry(getStoreCacheEntry(appid), shareability));
       });
     }
 
@@ -4975,14 +5415,15 @@
     lastReport.classificationById[appid] = { status };
 
     if (status === "new") {
+      const shareabilityPrice = getCurrentCachedPrice(shareability);
       const newGame = {
         ...game,
         familySharingSupported: true,
-        localizedName: shareability.localizedName || shareability.price?.localizedName || game.localizedName || "",
+        localizedName: shareability.localizedName || shareabilityPrice?.localizedName || game.localizedName || "",
         price: null
       };
-      if (isFreshOriginalPriceCacheEntry(shareability.price)) {
-        applyOriginalPriceToGame(newGame, shareability.price);
+      if (shareabilityPrice) {
+        applyOriginalPriceToGame(newGame, shareabilityPrice);
       } else {
         prepareOriginalPriceForGame(newGame);
       }
@@ -5009,7 +5450,7 @@
     if (!shareability?.supported) {
       return "unsupported";
     }
-    return isZeroValueOriginalPrice(shareability.price) ? "noValue" : "new";
+    return isZeroValueOriginalPrice(getCurrentCachedPrice(shareability)) ? "noValue" : "new";
   }
 
   function updateReportGameLocalizedName(appid, localizedName) {
@@ -5031,7 +5472,7 @@
     const shareabilityById = await getShareabilityForAppids(appids);
 
     games.forEach(game => {
-      const shareability = shareabilityById[String(game.appid)] || state.storeCache[String(game.appid)];
+      const shareability = shareabilityById[String(game.appid)] || getStoreCacheEntry(game.appid);
       game.familySharingSupported = Boolean(shareability?.supported);
       if (shareability?.localizedName) {
         game.localizedName = shareability.localizedName;
@@ -5173,7 +5614,7 @@
   }
 
   function prepareOriginalPrices(games) {
-    state.storeCache = state.storeCache || {};
+    getActiveStoreCache();
     priceLoadState = createPriceLoadState();
 
     games.forEach(game => {
@@ -5184,13 +5625,27 @@
   }
 
   function prepareOriginalPriceForGame(game) {
-    state.storeCache = state.storeCache || {};
+    const storeCache = getActiveStoreCache();
     const appid = String(game.appid);
-    const cached = state.storeCache[appid];
-    if (isFreshStoreCacheEntry(cached) && isFreshOriginalPriceCacheEntry(cached.price)) {
-      applyOriginalPriceToGame(game, cached.price);
+    if (isHistoryLowPriceMode() && !getItadApiKey()) {
+      game.price = {
+        initial: null,
+        currency: getStoreCurrency(),
+        localizedName: game.localizedName || "",
+        source: PRICE_SOURCE_ITAD_STORE_LOW,
+        isFree: false,
+        unavailable: true,
+        missingApiKey: true,
+        updatedAt: Date.now()
+      };
+      return;
+    }
+    const cached = storeCache[appid];
+    const cachedPrice = getCurrentCachedPrice(cached);
+    if (isFreshStoreCacheEntry(cached) && cachedPrice) {
+      applyOriginalPriceToGame(game, cachedPrice);
     } else {
-      game.price = { pending: true };
+      game.price = { pending: true, source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : PRICE_SOURCE_ORIGINAL };
       priceLoadState.pendingMap.set(appid, game);
     }
     renderStoreCacheButton();
@@ -5225,10 +5680,15 @@
   }
 
   function applyOriginalPriceToGame(game, price) {
-    game.price = price || normalizeOriginalPrice(null);
+    game.price = price || (isHistoryLowPriceMode() ? normalizeHistoryLowPrice(null) : normalizeOriginalPrice(null));
   }
 
   async function fetchOriginalPrice(appid) {
+    if (isHistoryLowPriceMode()) {
+      const prices = await fetchHistoryLowPrices([appid]);
+      return prices.get(String(appid)) || normalizeHistoryLowPrice(null);
+    }
+
     const priceUrl = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(appid)}&filters=basic,price_overview&cc=${STORE_CC}&l=${STORE_LANG}`;
     const priceData = await requestStoreJson(priceUrl, `prices.${appid}`);
     setRawData(`prices.${appid}`, priceData);
@@ -5237,6 +5697,10 @@
   }
 
   async function fetchOriginalPrices(appids) {
+    if (isHistoryLowPriceMode()) {
+      return fetchHistoryLowPrices(appids);
+    }
+
     const uniqueAppids = Array.from(new Set(appids.map(String)));
     const priceUrl = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(uniqueAppids.join(","))}&filters=price_overview&cc=${STORE_CC}&l=${STORE_LANG}`;
     const rawKey = `prices.batch${Date.now()}`;
@@ -5265,6 +5729,51 @@
         setRawError(error);
         prices.set(appid, normalizeOriginalPrice(null));
       }
+    }
+
+    return prices;
+  }
+
+  async function fetchHistoryLowPrices(appids) {
+    const apiKey = getItadApiKey();
+    if (!apiKey) {
+      throw new Error(t("historyLowNeedsApiKey"));
+    }
+
+    const uniqueAppids = Array.from(new Set(appids.map(String)));
+    const lookupInput = uniqueAppids.map(appid => `app/${appid}`);
+    const lookupUrl = appendQuery(`${ITAD_API_BASE_URL}/lookup/id/shop/${ITAD_STEAM_SHOP_ID}/v1`, { key: apiKey });
+    const lookupRawKey = `prices.itadLookup${Date.now()}`;
+    const lookupData = await requestPostJson(lookupUrl, lookupInput);
+    setRawData(lookupRawKey, lookupData);
+
+    const appidToItadId = parseItadLookupResponse(lookupData, uniqueAppids);
+    const itadIdToAppids = new Map();
+    uniqueAppids.forEach(appid => {
+      const itadId = appidToItadId.get(appid);
+      if (!itadId) {
+        return;
+      }
+      itadIdToAppids.set(itadId, [...(itadIdToAppids.get(itadId) || []), appid]);
+    });
+
+    const prices = new Map(uniqueAppids.map(appid => [appid, normalizeHistoryLowPrice(null)]));
+    const itadIds = Array.from(itadIdToAppids.keys());
+    for (let index = 0; index < itadIds.length; index += ITAD_PRICE_BATCH_SIZE) {
+      const batchIds = itadIds.slice(index, index + ITAD_PRICE_BATCH_SIZE);
+      const priceUrl = appendQuery(`${ITAD_API_BASE_URL}/games/storelow/v2`, {
+        country: STORE_CC,
+        shops: String(ITAD_STEAM_SHOP_ID),
+        key: apiKey
+      });
+      const rawKey = `prices.itadStoreLow${Date.now()}_${index}`;
+      const priceData = await requestPostJson(priceUrl, batchIds);
+      setRawData(rawKey, priceData);
+      const lowById = parseItadStoreLowResponse(priceData);
+      batchIds.forEach(itadId => {
+        const price = normalizeHistoryLowPrice(lowById.get(itadId));
+        (itadIdToAppids.get(itadId) || []).forEach(appid => prices.set(appid, price));
+      });
     }
 
     return prices;
@@ -5364,7 +5873,7 @@
   }
 
   function hasVerifiedStoreCoverUrl(appid) {
-    const entry = state.storeCache?.[String(appid || "")];
+    const entry = getStoreCacheEntry(appid);
     return Boolean(entry?.coverVerified === true && entry.coverUrl);
   }
 
@@ -5442,14 +5951,14 @@
 
   function markCachedCoverUrlVerified(appid, url) {
     const key = String(appid || "");
-    const entry = state.storeCache?.[key];
+    const entry = getStoreCacheEntry(key);
     if (!entry || String(entry.coverUrl || "") !== String(url || "") || entry.coverVerified === true) {
       return;
     }
-    state.storeCache[key] = {
+    setStoreCacheEntry(key, {
       ...entry,
       coverVerified: true
-    };
+    });
     saveState();
   }
 
@@ -5530,7 +6039,7 @@
             if (!game) {
               return;
             }
-            const price = prices.get(appid) || normalizeOriginalPrice(null);
+            const price = prices.get(appid) || (isHistoryLowPriceMode() ? normalizeHistoryLowPrice(null) : normalizeOriginalPrice(null));
             cacheOriginalPrice(appid, price);
             applyOriginalPriceToGame(game, price);
             priceLoadState.pendingMap.delete(appid);
@@ -5552,7 +6061,11 @@
             if (!game) {
               return;
             }
-            game.price = { unavailable: true, updatedAt: Date.now() };
+            game.price = {
+              unavailable: true,
+              updatedAt: Date.now(),
+              source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : PRICE_SOURCE_ORIGINAL
+            };
             priceLoadState.pendingMap.delete(appid);
           });
           setRawError(error);
@@ -5633,13 +6146,13 @@
     const allGames = (lastReport.games.all || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
     const newGames = (lastReport.games.new || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
     const overlapGames = (lastReport.games.overlap || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
-    const pricedGames = newGames.filter(game => game.price && !game.price.pending && !game.price.unavailable);
-    const unpricedGames = newGames.filter(game => game.price?.unavailable);
+    const pricedGames = newGames.filter(game => isCountablePrice(resolveGamePrice(game)));
+    const unpricedGames = newGames.filter(game => resolveGamePrice(game)?.unavailable);
     lastReport.metrics.targetCount = allGames.length;
     lastReport.metrics.newCount = newGames.length;
     lastReport.metrics.overlapCount = overlapGames.length;
     lastReport.metrics.overlapRate = lastReport.metrics.familyCount > 0 ? overlapGames.length / lastReport.metrics.familyCount : 0;
-    lastReport.metrics.initialValue = pricedGames.reduce((sum, game) => sum + Number(game.price?.initial || 0), 0);
+    lastReport.metrics.initialValue = pricedGames.reduce((sum, game) => sum + Number(resolveGamePrice(game)?.initial || 0), 0);
     lastReport.metrics.unpricedCount = unpricedGames.length;
     lastReport.metrics.filteringProcessed = lastReport.filtering?.processed || 0;
     lastReport.metrics.filteringTotal = lastReport.filtering?.total || 0;
@@ -5654,7 +6167,7 @@
     const newGames = lastReport.games.new || [];
     const keptGames = [];
     newGames.forEach(game => {
-      if (isZeroValueOriginalPrice(game.price)) {
+      if (isZeroValueOriginalPrice(resolveGamePrice(game))) {
         lastReport.classificationById[String(game.appid)] = { status: "noValue" };
         return;
       }
@@ -5676,6 +6189,10 @@
     );
   }
 
+  function isCountablePrice(price) {
+    return Boolean(price && !price.pending && !price.unavailable);
+  }
+
   function normalizeOriginalPrice(item) {
     const now = Date.now();
     const data = item?.success && item.data && !Array.isArray(item.data) ? item.data : null;
@@ -5687,6 +6204,7 @@
         initial,
         currency: priceOverview.currency || getStoreCurrency(),
         localizedName,
+        source: PRICE_SOURCE_ORIGINAL,
         isFree: data?.is_free === true || initial <= 0,
         unavailable: false,
         updatedAt: now
@@ -5698,6 +6216,7 @@
         initial: 0,
         currency: getStoreCurrency(),
         localizedName,
+        source: PRICE_SOURCE_ORIGINAL,
         isFree: true,
         unavailable: false,
         updatedAt: now
@@ -5708,6 +6227,7 @@
       initial: null,
       currency: getStoreCurrency(),
       localizedName,
+      source: PRICE_SOURCE_ORIGINAL,
       isFree: false,
       unavailable: true,
       updatedAt: now
@@ -5725,6 +6245,7 @@
         initial: cents,
         currency: getStoreCurrency(),
         localizedName,
+        source: PRICE_SOURCE_ORIGINAL,
         isFree: cents <= 0,
         unavailable: false,
         updatedAt: now
@@ -5734,15 +6255,146 @@
     return null;
   }
 
+  function normalizeHistoryLowPrice(item) {
+    const now = Date.now();
+    const low = selectItadSteamLow(item);
+    const amountInt = low?.price?.amountInt;
+    const amount = low?.price?.amount;
+    const initial = amountInt != null
+      ? Number(amountInt)
+      : amount != null
+        ? Math.round(Number(amount) * 100)
+        : null;
+
+    if (Number.isFinite(initial)) {
+      return {
+        initial,
+        currency: low.price?.currency || getStoreCurrency(),
+        localizedName: "",
+        source: PRICE_SOURCE_ITAD_STORE_LOW,
+        isFree: initial <= 0,
+        unavailable: false,
+        historyLowAt: low.timestamp || "",
+        updatedAt: now
+      };
+    }
+
+    return {
+      initial: null,
+      currency: getStoreCurrency(),
+      localizedName: "",
+      source: PRICE_SOURCE_ITAD_STORE_LOW,
+      isFree: false,
+      unavailable: true,
+      updatedAt: now
+    };
+  }
+
+  function selectItadSteamLow(item) {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+    const lows = Array.isArray(item.lows)
+      ? item.lows
+      : Array.isArray(item.low)
+        ? item.low
+        : item.low
+          ? [item.low]
+          : [];
+    return lows.find(low => Number(low?.shop?.id || low?.shopId || low?.shop) === ITAD_STEAM_SHOP_ID) || lows[0] || item;
+  }
+
+  function parseItadLookupResponse(response, appids) {
+    const result = new Map();
+    const wanted = new Set(appids.map(String));
+    const rows = response?.data != null ? response.data : response;
+    if (Array.isArray(rows)) {
+      rows.forEach((item, index) => {
+        const appid = extractAppidFromItadLookupItem(item) || appids[index];
+        const itadId = extractItadGameId(item);
+        if (appid && itadId && wanted.has(String(appid))) {
+          result.set(String(appid), String(itadId));
+        }
+      });
+      return result;
+    }
+
+    Object.entries(rows || {}).forEach(([key, value]) => {
+      const appid = String(key).replace(/^app\//, "");
+      const itadId = extractItadGameId(value);
+      if (appid && itadId && wanted.has(appid)) {
+        result.set(appid, String(itadId));
+      }
+    });
+    return result;
+  }
+
+  function extractAppidFromItadLookupItem(item) {
+    const candidates = [
+      item?.shop?.id,
+      item?.shopId,
+      item?.shop_id,
+      item?.id,
+      item?.uid,
+      item?.input,
+      item?.plain,
+      item?.shop?.plain
+    ];
+    for (const candidate of candidates) {
+      const match = String(candidate || "").match(/(?:^|\/)(\d+)$/);
+      if (match) {
+        return match[1];
+      }
+    }
+    return "";
+  }
+
+  function extractItadGameId(item) {
+    if (typeof item === "string") {
+      return isLikelyItadGameId(item) ? item.trim() : "";
+    }
+    if (!item || typeof item !== "object") {
+      return "";
+    }
+    const candidates = [
+      item.game?.id,
+      item.game_id,
+      item.gameId,
+      item.id,
+      item.uuid
+    ];
+    return candidates.find(value => isLikelyItadGameId(value)) || "";
+  }
+
+  function isLikelyItadGameId(value) {
+    const text = String(value || "").trim();
+    return Boolean(text && !/^app\/\d+$/i.test(text) && !/^\d+$/.test(text));
+  }
+
+  function parseItadStoreLowResponse(response) {
+    const result = new Map();
+    const source = response?.data != null ? response.data : response;
+    const rows = Array.isArray(source)
+      ? source.map(item => ["", item])
+      : Object.entries(source || {});
+    rows.forEach(([key, item]) => {
+      const id = String(item?.id || item?.game?.id || item?.game_id || key || "").trim();
+      if (id) {
+        result.set(id, item);
+      }
+    });
+    return result;
+  }
+
   // ===== 报告构建与派生指标 =====
 
   function buildReport(targetProfile, comparison) {
     const newGames = comparison.newGames;
     const allGames = (comparison.allGames || targetProfile.games || []).slice().sort(sortByName);
     const pendingNewGames = comparison.pendingNewGames || [];
-    const unpricedGames = newGames.filter(game => game.price?.unavailable);
-    const pricedGames = newGames.filter(game => game.price && !game.price.pending && !game.price.unavailable);
-    const initialValue = pricedGames.reduce((sum, game) => sum + Number(game.price?.initial || 0), 0);
+    const unpricedGames = newGames.filter(game => resolveGamePrice(game)?.unavailable);
+    const pricedGames = newGames.filter(game => isCountablePrice(resolveGamePrice(game)));
+    const initialValue = pricedGames.reduce((sum, game) => sum + Number(resolveGamePrice(game)?.initial || 0), 0);
     const targetCount = allGames.length;
     const rawTargetCount = targetProfile.rawGameCount || targetCount;
     const familyCount = state.familyLibrary.appidSet.length;
@@ -5822,19 +6474,19 @@
       const gameIds = Array.from(new Set((target.gameAppids || []).map(String)));
       const steamid64 = String(target.steamid64 || "");
       const targetNewGames = newGames.filter(game => (game.targetOwners || []).map(String).includes(steamid64));
-      const pricedNewGames = targetNewGames.filter(game => game.price && !game.price.pending && !game.price.unavailable);
+      const pricedNewGames = targetNewGames.filter(game => isCountablePrice(resolveGamePrice(game)));
       return {
         steamid64,
         targetCount: gameIds.length,
         overlapCount: gameIds.filter(appid => familySet.has(appid)).length,
         newCount: targetNewGames.length,
-        initialValue: pricedNewGames.reduce((sum, game) => sum + Number(game.price?.initial || 0), 0)
+        initialValue: pricedNewGames.reduce((sum, game) => sum + Number(resolveGamePrice(game)?.initial || 0), 0)
       };
     });
 
     const initialValue = newGames
-      .filter(game => game.price && !game.price.pending && !game.price.unavailable)
-      .reduce((sum, game) => sum + Number(game.price?.initial || 0), 0);
+      .filter(game => isCountablePrice(resolveGamePrice(game)))
+      .reduce((sum, game) => sum + Number(resolveGamePrice(game)?.initial || 0), 0);
     return {
       targetCount: buildSplitMetric(targetRows.map(row => row.targetCount), allGameIds.size),
       newCount: buildSplitMetric(targetRows.map(row => row.newCount), newGames.length),
@@ -6420,10 +7072,7 @@
   }
 
   function resolveCompareGamePrice(game) {
-    if (game?.price && (typeof game.price.initial === "number" || game.price.pending || game.price.unavailable)) {
-      return game.price;
-    }
-    return state.storeCache?.[String(game?.appid || "")]?.price || null;
+    return resolveGamePrice(game);
   }
 
   function getComparePriceChipClass(game) {
@@ -6452,7 +7101,7 @@
   }
 
   function getCachedStoreCoverUrl(appid) {
-    const entry = state.storeCache?.[String(appid || "")];
+    const entry = getStoreCacheEntry(appid);
     return String(entry?.coverUrl || "");
   }
 
@@ -6495,13 +7144,12 @@
     if (!normalized) {
       return;
     }
-    state.storeCache = state.storeCache || {};
-    state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
+    setStoreCacheEntry(appid, mergeStoreCacheEntry(getStoreCacheEntry(appid), {
       context: STORE_CACHE_CONTEXT,
       coverUrl: normalized,
       coverVerified: true,
       updatedAt: Date.now()
-    });
+    }));
   }
 
   function renderAvatarHtml(avatarUrl, label) {
@@ -6751,29 +7399,29 @@
     if (currentTab === "new") {
       const includeTargetOwners = isMultiTargetReport();
       return {
-        headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), t("price")] : ["AppID", t("game"), t("price")],
+        headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), getPriceLabel()] : ["AppID", t("game"), getPriceLabel()],
         rows: rows.map(game => includeTargetOwners
           ? [
             game.appid,
             getGameDisplayName(game),
             formatTargetOwners(game.targetOwners || []),
-            formatOriginalPriceText(game.price || {})
+            formatOriginalPriceText(resolveGamePrice(game) || {})
           ]
           : [
             game.appid,
             getGameDisplayName(game),
-            formatOriginalPriceText(game.price || {})
+            formatOriginalPriceText(resolveGamePrice(game) || {})
           ])
       };
     }
     if (currentTab === "relativeNew") {
       return {
-        headers: ["AppID", t("game"), t("owners"), t("price")],
+        headers: ["AppID", t("game"), t("owners"), getPriceLabel()],
         rows: rows.map(game => [
           game.appid,
           getGameDisplayName(game),
           formatOwners(game.owners || []) || "-",
-          formatOriginalPriceText(game.price || {})
+          formatOriginalPriceText(resolveGamePrice(game) || {})
         ])
       };
     }
@@ -6911,7 +7559,8 @@
       return { text: getGameListLabel(game.appid), className: `is-${getCompareStatusClass(status)}` };
     }
     if (tab === "new" || tab === "relativeNew") {
-      return { text: formatOriginalPriceText(game.price || {}), className: `is-${getComparePriceChipClass({ price: game.price, status: "new" })}` };
+      const price = resolveGamePrice(game);
+      return { text: formatOriginalPriceText(price || {}), className: `is-${getComparePriceChipClass({ price, status: "new" })}` };
     }
     if (tab === "overlap") {
       return { text: t("duplicatedGames"), className: "is-overlap" };
@@ -6978,7 +7627,7 @@
 
   function prepareOriginalPricesForMissingRows(rows) {
     rows.forEach(game => {
-      if (game.price && !game.price.pending) {
+      if (game.price && !game.price.pending && isPriceEntryForCurrentMode(game.price)) {
         return;
       }
       prepareOriginalPriceForGame(game);
@@ -7042,7 +7691,7 @@
       case "time":
         return Number(game.time || 0);
       case "price":
-        return getOriginalPriceSortValue(game.price || {});
+        return getOriginalPriceSortValue(resolveGamePrice(game) || {});
       case "listType":
         return game.listType || "";
       case "info":
@@ -7070,7 +7719,7 @@
       return formatOwners(game.owners || []);
     }
     if (game.listType === t("addedGames")) {
-      return getOriginalPriceSortValue(game.price || {});
+      return getOriginalPriceSortValue(resolveGamePrice(game) || {});
     }
     return getGameListLabel(game.appid);
   }
@@ -7108,12 +7757,12 @@
   }
 
   function buildRelativeNewTable(rows) {
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(t("price"), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
   }
 
   function buildNewGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(t("price"), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
   }
 
   function buildOverlapTable(rows) {
@@ -7150,7 +7799,7 @@
   }
 
   function priceCell(game) {
-    return buildCell(formatOriginalPriceCell(game.price || {}));
+    return buildCell(formatOriginalPriceCell(resolveGamePrice(game) || {}));
   }
 
   function timeCell(game) {
@@ -7190,13 +7839,31 @@
   }
 
   function getCachedLocalizedName(appid) {
-    const entry = state.storeCache?.[String(appid)];
-    return entry?.localizedName || entry?.price?.localizedName || "";
+    const entry = getStoreCacheEntry(appid);
+    if (entry?.context !== STORE_CACHE_CONTEXT) {
+      return "";
+    }
+    return getAnyCachedPriceLocalizedName(entry);
   }
 
   function getCachedOriginalPrice(appid) {
-    const price = state.storeCache?.[String(appid)]?.price;
-    return isFreshOriginalPriceCacheEntry(price) ? price : null;
+    return getCurrentCachedPrice(getStoreCacheEntry(appid));
+  }
+
+  function resolveGamePrice(game) {
+    if (game?.price && (typeof game.price.initial === "number" || game.price.pending || game.price.unavailable) && isPriceEntryForCurrentMode(game.price)) {
+      return game.price;
+    }
+    const appid = String(game?.appid || "");
+    const entry = getStoreCacheEntry(appid);
+    const cachedPrice = getCurrentCachedPrice(entry);
+    if (cachedPrice) {
+      return cachedPrice;
+    }
+    if (!isHistoryLowPriceMode()) {
+      return normalizeStoreItemOriginalPrice(entry?.storeItem) || null;
+    }
+    return null;
   }
 
   function normalizeGameName(name) {
@@ -7283,11 +7950,12 @@
   }
 
   function hasCompleteStoreCache(appid) {
-    const cached = state.storeCache?.[String(appid)];
+    const cached = getStoreCacheEntry(appid);
+    const cachedPrice = getCurrentCachedPrice(cached);
     return Boolean(
       isFreshStoreCacheEntry(cached) &&
       cached.localizedName &&
-      (!cached.supported || isFreshOriginalPriceCacheEntry(cached.price))
+      (!cached.supported || cachedPrice)
     );
   }
 
@@ -7471,7 +8139,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.priceSettingsBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -7485,6 +8153,7 @@
       if (!saved || saved.version !== DEFAULT_STATE.version) {
         return cloneDefaultState();
       }
+      const priceConfig = normalizePriceConfig(saved.priceConfig || {});
       return {
         ...cloneDefaultState(),
         ...saved,
@@ -7505,6 +8174,7 @@
         listViewMode: normalizeListViewMode(saved.listViewMode),
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
         appLocaleMode,
+        priceConfig,
         lastAutoFamilyRefreshAttemptAt: Number(saved.lastAutoFamilyRefreshAttemptAt || 0)
       };
     } catch (error) {
@@ -7551,6 +8221,9 @@
     currentTab = normalizeMainTab(saved.currentTab);
     tableSortByTab = saved.tableSortByTab || {};
     comparePriceRangeByTarget = {};
+    if (Array.isArray(lastReport?.games?.new)) {
+      prepareOriginalPrices(lastReport.games.new);
+    }
   }
 
   function restoreLastAnalysisInputFromHistory() {
@@ -7798,30 +8471,30 @@
     return JSON.parse(JSON.stringify(DEFAULT_STATE));
   }
 
-  function isFreshStoreCacheEntry(entry) {
+  function isFreshStoreCacheEntry(entry, expectedContext = STORE_CACHE_CONTEXT) {
     return Boolean(
       entry &&
       typeof entry.supported === "boolean" &&
-      entry.context === STORE_CACHE_CONTEXT &&
+      entry.context === expectedContext &&
       Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
     );
   }
 
-  function isRestorableStoreCacheEntry(entry) {
+  function isRestorableStoreCacheEntry(entry, expectedContext = STORE_CACHE_CONTEXT) {
     return Boolean(
-      isFreshStoreCacheEntry(entry) ||
-      isFreshCoverCacheEntry(entry) ||
-      isFreshStoreItemCacheEntry(entry) ||
+      isFreshStoreCacheEntry(entry, expectedContext) ||
+      isFreshCoverCacheEntry(entry, expectedContext) ||
+      isFreshStoreItemCacheEntry(entry, expectedContext) ||
       (entry &&
-        entry.context === STORE_CACHE_CONTEXT &&
-        isFreshOriginalPriceCacheEntry(entry.price))
+        entry.context === expectedContext &&
+        hasFreshCachedPrice(entry))
     );
   }
 
-  function isFreshCoverCacheEntry(entry) {
+  function isFreshCoverCacheEntry(entry, expectedContext = STORE_CACHE_CONTEXT) {
     return Boolean(
       entry &&
-      entry.context === STORE_CACHE_CONTEXT &&
+      entry.context === expectedContext &&
       entry.coverVerified === true &&
       typeof entry.coverUrl === "string" &&
       entry.coverUrl &&
@@ -7829,10 +8502,10 @@
     );
   }
 
-  function isFreshStoreItemCacheEntry(entry) {
+  function isFreshStoreItemCacheEntry(entry, expectedContext = STORE_CACHE_CONTEXT) {
     return Boolean(
       entry &&
-      entry.context === STORE_CACHE_CONTEXT &&
+      entry.context === expectedContext &&
       entry.storeItem &&
       typeof entry.storeItem === "object" &&
       Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
@@ -7840,10 +8513,85 @@
   }
 
   function getStoreCacheCount() {
-    return Object.keys(state.storeCache || {}).length;
+    return Object.values(getStoreCacheBuckets())
+      .reduce((sum, bucket) => sum + Object.keys(bucket || {}).length, 0);
+  }
+
+  function getStoreCacheBuckets() {
+    state.storeCache = state.storeCache && typeof state.storeCache === "object" && !Array.isArray(state.storeCache)
+      ? state.storeCache
+      : {};
+    state.storeCache[STORE_CACHE_BUCKETS_KEY] = state.storeCache[STORE_CACHE_BUCKETS_KEY] && typeof state.storeCache[STORE_CACHE_BUCKETS_KEY] === "object"
+      ? state.storeCache[STORE_CACHE_BUCKETS_KEY]
+      : {};
+    return state.storeCache[STORE_CACHE_BUCKETS_KEY];
+  }
+
+  function getActiveStoreCache() {
+    const buckets = getStoreCacheBuckets();
+    buckets[STORE_CACHE_CONTEXT] = buckets[STORE_CACHE_CONTEXT] && typeof buckets[STORE_CACHE_CONTEXT] === "object"
+      ? buckets[STORE_CACHE_CONTEXT]
+      : {};
+    return buckets[STORE_CACHE_CONTEXT];
+  }
+
+  function getStoreCacheEntry(appid) {
+    return getActiveStoreCache()[String(appid || "")] || null;
+  }
+
+  function setStoreCacheEntry(appid, entry) {
+    const key = String(appid || "");
+    if (!key) {
+      return;
+    }
+    getActiveStoreCache()[key] = entry;
+  }
+
+  function normalizeCachedPrices(entry) {
+    const normalized = {};
+    const sourcePrices = entry?.prices && typeof entry.prices === "object" && !Array.isArray(entry.prices)
+      ? entry.prices
+      : {};
+    Object.entries(sourcePrices).forEach(([key, price]) => {
+      if (!isFreshAnyPriceCacheEntry(price)) {
+        return;
+      }
+      const cacheKey = key === PRICE_MODE_ORIGINAL || key === PRICE_MODE_HISTORY_LOW
+        ? key
+        : getPriceCacheKeyForPrice(price);
+      normalized[cacheKey] = price;
+    });
+    if (isFreshAnyPriceCacheEntry(entry?.price)) {
+      normalized[getPriceCacheKeyForPrice(entry.price)] = entry.price;
+    }
+    return normalized;
+  }
+
+  function getCurrentCachedPrice(entry) {
+    const price = normalizeCachedPrices(entry)[getPriceCacheKeyForMode()];
+    return isFreshOriginalPriceCacheEntry(price) ? price : null;
+  }
+
+  function hasFreshCachedPrice(entry) {
+    return Object.values(normalizeCachedPrices(entry)).some(price => isFreshAnyPriceCacheEntry(price));
+  }
+
+  function getAnyCachedPriceLocalizedName(entry) {
+    const prices = normalizeCachedPrices(entry);
+    return entry?.localizedName ||
+      prices.original?.localizedName ||
+      prices.historyLow?.localizedName ||
+      "";
   }
 
   function isFreshOriginalPriceCacheEntry(entry) {
+    return Boolean(
+      isFreshAnyPriceCacheEntry(entry) &&
+      isPriceEntryForCurrentMode(entry)
+    );
+  }
+
+  function isFreshAnyPriceCacheEntry(entry) {
     return Boolean(
       entry &&
       (typeof entry.initial === "number" || entry.unavailable === true) &&
@@ -7852,17 +8600,29 @@
     );
   }
 
+  function isPriceEntryForCurrentMode(entry) {
+    if (entry?.pending) {
+      return true;
+    }
+    const source = entry?.source || PRICE_SOURCE_ORIGINAL;
+    return isHistoryLowPriceMode()
+      ? source === PRICE_SOURCE_ITAD_STORE_LOW
+      : source === PRICE_SOURCE_ORIGINAL;
+  }
+
   function cacheOriginalPrice(appid, price) {
-    state.storeCache = state.storeCache || {};
     if (!isFreshOriginalPriceCacheEntry(price)) {
       return;
     }
-    state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
+    const prices = {
+      [getPriceCacheKeyForPrice(price)]: price
+    };
+    setStoreCacheEntry(appid, mergeStoreCacheEntry(getStoreCacheEntry(appid), {
       context: STORE_CACHE_CONTEXT,
       localizedName: price.localizedName || "",
-      price,
+      prices,
       updatedAt: Date.now()
-    });
+    }));
   }
 
   function cacheStoreItem(appid, item) {
@@ -7871,26 +8631,33 @@
     }
     const coverUrl = extractStoreCoverUrlFromStoreItem(item);
     const price = normalizeStoreItemOriginalPrice(item);
-    state.storeCache = state.storeCache || {};
-    state.storeCache[String(appid)] = mergeStoreCacheEntry(state.storeCache[String(appid)], {
+    setStoreCacheEntry(appid, mergeStoreCacheEntry(getStoreCacheEntry(appid), {
       context: STORE_CACHE_CONTEXT,
       localizedName: item.name || price?.localizedName || "",
       ...(coverUrl ? { coverUrl, coverVerified: true } : {}),
-      ...(price ? { price } : {}),
+      ...(price ? { prices: { [PRICE_MODE_ORIGINAL]: price } } : {}),
       storeItem: item,
       updatedAt: Date.now()
-    });
+    }));
   }
 
   function mergeStoreCacheEntry(existing, next) {
     const updatedAt = Math.max(Number(existing?.updatedAt || 0), Number(next?.updatedAt || 0));
+    const sameContext = !existing?.context || !next?.context || existing.context === next.context;
+    const existingPrices = sameContext ? normalizeCachedPrices(existing) : {};
+    const nextPrices = normalizeCachedPrices(next);
+    const prices = {
+      ...existingPrices,
+      ...nextPrices
+    };
     return {
       ...(existing || {}),
       ...(next || {}),
-      localizedName: next?.localizedName || existing?.localizedName || next?.price?.localizedName || existing?.price?.localizedName || "",
+      localizedName: next?.localizedName || getAnyCachedPriceLocalizedName({ prices: nextPrices }) || (sameContext ? getAnyCachedPriceLocalizedName({ ...existing, prices: existingPrices }) : ""),
       coverUrl: next?.coverUrl || existing?.coverUrl || "",
       coverVerified: next?.coverVerified === true || existing?.coverVerified === true,
-      price: next?.price || existing?.price || null,
+      prices,
+      price: null,
       storeItem: mergeStoreItem(existing?.storeItem, next?.storeItem),
       updatedAt: updatedAt || Date.now()
     };
@@ -7913,28 +8680,59 @@
   }
 
   function normalizeSavedStoreCache(storeCache) {
-    const normalized = {};
-    Object.entries(storeCache || {}).forEach(([appid, entry]) => {
-      if (isRestorableStoreCacheEntry(entry)) {
-        normalized[String(appid)] = {
-          ...(typeof entry.supported === "boolean" ? { supported: entry.supported } : {}),
-          context: entry.context || STORE_CACHE_CONTEXT,
-          localizedName: entry.localizedName || entry.price?.localizedName || "",
-          coverUrl: entry.coverUrl || "",
-          coverVerified: entry.coverVerified === true,
-          price: isFreshOriginalPriceCacheEntry(entry.price) ? entry.price : null,
-          storeItem: isFreshStoreItemCacheEntry(entry) ? entry.storeItem : null,
-          updatedAt: Number(entry.updatedAt || Date.now())
-        };
+    const normalizedBuckets = {};
+    const sourceBuckets = storeCache?.[STORE_CACHE_BUCKETS_KEY] && typeof storeCache[STORE_CACHE_BUCKETS_KEY] === "object"
+      ? storeCache[STORE_CACHE_BUCKETS_KEY]
+      : { [STORE_CACHE_CONTEXT]: storeCache || {} };
+    Object.entries(sourceBuckets).forEach(([context, bucket]) => {
+      const normalizedBucket = {};
+      Object.entries(bucket || {}).forEach(([appid, entry]) => {
+        const normalizedEntry = normalizeSavedStoreCacheEntry(entry, context);
+        if (normalizedEntry) {
+          normalizedBucket[String(appid)] = normalizedEntry;
+        }
+      });
+      if (Object.keys(normalizedBucket).length) {
+        normalizedBuckets[context] = normalizedBucket;
       }
     });
-    return normalized;
+    return { [STORE_CACHE_BUCKETS_KEY]: normalizedBuckets };
+  }
+
+  function normalizeSavedStoreCacheEntry(entry, context) {
+    const normalizedContext = entry?.context || context || STORE_CACHE_CONTEXT;
+    if (isRestorableStoreCacheEntry(entry, normalizedContext)) {
+      const prices = normalizeCachedPrices(entry);
+      return {
+        ...(typeof entry.supported === "boolean" ? { supported: entry.supported } : {}),
+        context: normalizedContext,
+        localizedName: entry.localizedName || getAnyCachedPriceLocalizedName({ prices }) || "",
+        coverUrl: entry.coverUrl || "",
+        coverVerified: entry.coverVerified === true,
+        prices,
+        price: null,
+        storeItem: isFreshStoreItemCacheEntry(entry, normalizedContext) ? entry.storeItem : null,
+        updatedAt: Number(entry.updatedAt || Date.now())
+      };
+    }
+    return null;
   }
 
   // ===== 网络请求与底层工具 =====
 
   function requestJson(url) {
     return request(url, "json");
+  }
+
+  function requestPostJson(url, data) {
+    return request(url, "json", {
+      method: "POST",
+      data: JSON.stringify(data),
+      headers: {
+        "Accept": "application/json,text/javascript,*/*;q=0.1",
+        "Content-Type": "application/json"
+      }
+    });
   }
 
   function requestStoreJson(url, rawDataPath) {
@@ -7967,17 +8765,19 @@
     return request(url, "text");
   }
 
-  function request(url, responseType) {
+  function request(url, responseType, options = {}) {
     return new Promise((resolve, reject) => {
       const endpoint = describeRequestEndpoint(url);
       GM_xmlhttpRequest({
-        method: "GET",
+        method: options.method || "GET",
         url,
         anonymous: false,
         withCredentials: true,
         headers: {
-          "Accept": responseType === "json" ? "application/json,text/javascript,*/*;q=0.1" : "application/xml,text/xml,text/html,*/*;q=0.1"
+          "Accept": responseType === "json" ? "application/json,text/javascript,*/*;q=0.1" : "application/xml,text/xml,text/html,*/*;q=0.1",
+          ...(options.headers || {})
         },
+        ...(options.data != null ? { data: options.data } : {}),
         responseType: responseType === "json" ? "json" : "text",
         timeout: 30000,
         onload(response) {
@@ -8033,6 +8833,16 @@
     } catch (error) {
       return "unknown";
     }
+  }
+
+  function appendQuery(url, params) {
+    const parsed = new URL(url);
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value != null && value !== "") {
+        parsed.searchParams.set(key, String(value));
+      }
+    });
+    return parsed.toString();
   }
 
   function createHttpError(status, message) {

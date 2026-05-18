@@ -25,9 +25,11 @@ import {
 } from "@mantine/core";
 import { createRoot } from "react-dom/client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import type { AnalysisReport, AppSettings, AppStatus, LocaleMode, PriceMode, TargetProfile } from "./types";
 import { analyzeTarget, getAppStatus, loadSettings, saveSettings } from "./services/desktop";
+
+const analysisHistoryKey = "sffa.desktop.analysisInputHistory";
 
 const defaultSettings: AppSettings = {
   steamApiKey: "",
@@ -39,6 +41,27 @@ const defaultSettings: AppSettings = {
 };
 
 type AppPage = "analysis" | "settings";
+type AnalysisStage = "prepare" | "result";
+
+type AnalysisHistoryEntry = {
+  id: string;
+  inputValue: string;
+  accounts: AnalysisHistoryAccount[];
+  updatedAt: number;
+};
+
+type AnalysisHistoryAccount = {
+  displayName: string;
+  steamid64: string;
+};
+
+type ResultGameRow = {
+  appid: string;
+  name: string;
+  storeLink: string;
+  ownerNames: string[];
+  ownerIds: string[];
+};
 
 const helpLinks = {
   steamApiKey: {
@@ -102,6 +125,8 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("准备就绪");
   const [activePage, setActivePage] = useState<AppPage>("analysis");
+  const [analysisStage, setAnalysisStage] = useState<AnalysisStage>("prepare");
+  const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryEntry[]>(() => loadAnalysisHistory());
   const [settingsReady, setSettingsReady] = useState(false);
 
   useEffect(() => {
@@ -133,19 +158,33 @@ function App() {
     setSettingsReady(true);
   }
 
-  async function handleAnalyze() {
+  async function handleAnalyze(inputOverride?: string) {
+    const analysisInput = inputOverride ?? targetInput;
+    if (inputOverride !== undefined) {
+      setTargetInput(inputOverride);
+    }
     setBusy(true);
     setMessage("正在请求 Steam Web API");
     try {
       await saveSettings(settings);
-      const nextReport = await analyzeTarget({ targetInput, settings });
+      const nextReport = await analyzeTarget({ targetInput: analysisInput, settings });
       setReport(nextReport);
+      if (nextReport.targetCount > 0) {
+        setAnalysisHistory(previousHistory => saveAnalysisHistory(upsertAnalysisHistory(previousHistory, analysisInput, nextReport)));
+        setAnalysisStage("result");
+      } else {
+        setAnalysisStage("prepare");
+      }
       setMessage(nextReport.targetCount ? "目标公开游戏库读取完成" : "请输入至少一个目标账号");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleDeleteHistoryEntry(entryId: string) {
+    setAnalysisHistory(previousHistory => saveAnalysisHistory(previousHistory.filter(entry => entry.id !== entryId)));
   }
 
   return (
@@ -188,29 +227,30 @@ function App() {
           </aside>
 
           <main className="main-pane">
-            <section className="editor-body">
+            <section className={`editor-body ${activePage === "analysis" && analysisStage === "result" && report ? "is-result-view" : ""}`}>
               {activePage === "analysis" ? (
-                <>
-                  <Group justify="space-between" align="center" className="main-heading analysis-heading">
-                    <Stack gap={1}>
-                      <Text component="h1" className="title">账号分析</Text>
-                      <Text size="sm" c="dimmed">读取目标公开游戏库，后续接入家庭库比对。</Text>
-                    </Stack>
-                    <Button color="steamBlue" loading={busy} onClick={() => void handleAnalyze()}>开始分析</Button>
-                  </Group>
-
-                  <AnalysisPanel
+                analysisStage === "prepare" || !report ? (
+                  <AnalysisPreparePage
                     targetInput={targetInput}
-                    settings={settings}
+                    history={analysisHistory}
+                    message={message}
+                    busy={busy}
+                    onTargetInputChange={setTargetInput}
+                    onAnalyze={handleAnalyze}
+                    onDeleteHistoryEntry={handleDeleteHistoryEntry}
+                  />
+                ) : (
+                  <AnalysisResultPage
                     report={report}
+                    settings={settings}
                     priceLabel={priceLabel}
                     message={message}
                     warningText={warningText}
                     busy={busy}
-                    onTargetInputChange={setTargetInput}
+                    onBack={() => setAnalysisStage("prepare")}
                     onAnalyze={handleAnalyze}
                   />
-                </>
+                )
               ) : (
                 <SettingsPage
                   settings={settings}
@@ -347,6 +387,18 @@ function HelpIcon() {
       <circle cx="8" cy="8" r="6" />
       <path d="M6.55 6.55a1.55 1.55 0 1 1 2.3 1.36c-.58.36-.85.72-.85 1.49" />
       <path d="M8 11.75h.01" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="history-delete-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M3.25 4.25h9.5" />
+      <path d="M6.25 4.25V3h3.5v1.25" />
+      <path d="M5 6.25l.35 6.25h5.3L11 6.25" />
+      <path d="M7.1 7.25v3.9" />
+      <path d="M8.9 7.25v3.9" />
     </svg>
   );
 }
@@ -493,68 +545,182 @@ function SettingsPanel({
   );
 }
 
-function AnalysisPanel({
+function AnalysisPreparePage({
   targetInput,
-  settings,
+  history,
+  message,
+  busy,
+  onTargetInputChange,
+  onAnalyze,
+  onDeleteHistoryEntry
+}: {
+  targetInput: string;
+  history: AnalysisHistoryEntry[];
+  message: string;
+  busy: boolean;
+  onTargetInputChange: (value: string) => void;
+  onAnalyze: (inputOverride?: string) => Promise<void>;
+  onDeleteHistoryEntry: (entryId: string) => void;
+}) {
+  return (
+    <div className="analysis-prepare-layout">
+      <aside className="history-pane">
+        <Group justify="space-between" align="center" className="history-head">
+          <Stack gap={1}>
+            <Text fw={700}>历史分析</Text>
+            <Text size="xs" c="dimmed">点击后实时重新分析</Text>
+          </Stack>
+        </Group>
+        <ScrollArea className="history-scroll">
+          <Stack gap={4}>
+            {history.length ? history.map(entry => (
+              <div key={entry.id} className="history-item">
+                <button
+                  type="button"
+                  className="history-item-main"
+                  disabled={busy}
+                  onClick={() => void onAnalyze(entry.inputValue)}
+                >
+                  <span className="history-item-copy">
+                    <span className="history-item-name">{formatHistoryAccountNames(entry)}</span>
+                    <span className="history-item-id">{formatHistoryAccountIds(entry)}</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="history-delete"
+                  aria-label="删除历史分析"
+                  onClick={() => onDeleteHistoryEntry(entry.id)}
+                >
+                  <TrashIcon />
+                </button>
+              </div>
+            )) : (
+              <Text className="history-empty" c="dimmed" size="sm">暂无历史分析</Text>
+            )}
+          </Stack>
+        </ScrollArea>
+      </aside>
+
+      <section className="analysis-draft-pane">
+        <section className="input-pane">
+          <Group justify="space-between" mb="xs" align="flex-start">
+            <Stack gap={2}>
+              <Text component="h1" className="title">账号分析</Text>
+              <Text size="sm" c="dimmed">输入目标账号后读取公开游戏库；结果不会从历史缓存中恢复。</Text>
+            </Stack>
+            <Button color="steamBlue" loading={busy} onClick={() => void onAnalyze()}>开始分析</Button>
+          </Group>
+          <Textarea
+            minRows={6}
+            autosize
+            value={targetInput}
+            onChange={event => onTargetInputChange(event.currentTarget.value)}
+            placeholder="SteamID64、好友码、个人主页 URL 或自定义 ID；多个账号用空格或换行分隔"
+          />
+          <Alert className="status-alert" color={message.includes("失败") || message.includes("错误") ? "red" : "steamGreen"} variant="light">
+            {message}
+          </Alert>
+        </section>
+
+        <section className="analysis-blank-pane" aria-label="预留区域" />
+      </section>
+    </div>
+  );
+}
+
+function AnalysisResultPage({
   report,
+  settings,
   priceLabel,
   message,
   warningText,
   busy,
-  onTargetInputChange,
+  onBack,
   onAnalyze
 }: {
-  targetInput: string;
+  report: AnalysisReport;
   settings: AppSettings;
-  report: AnalysisReport | null;
   priceLabel: string;
   message: string;
   warningText: string;
   busy: boolean;
-  onTargetInputChange: (value: string) => void;
-  onAnalyze: () => Promise<void>;
+  onBack: () => void;
+  onAnalyze: (inputOverride?: string) => Promise<void>;
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const games = useMemo(() => buildResultGameRows(report), [report]);
+  const visibleGames = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return games;
+    }
+    return games.filter(game => game.name.toLowerCase().includes(query) || game.appid.includes(query));
+  }, [games, searchQuery]);
+
   return (
-    <div className="analysis-workspace">
-      <section className="input-pane">
-        <Group justify="space-between" mb="xs">
-          <Text fw={700}>目标账号</Text>
-          <Button size="xs" variant="subtle" color="steamBlue" loading={busy} onClick={() => void onAnalyze()}>运行</Button>
-        </Group>
-        <Textarea
-          minRows={6}
-          autosize
-          value={targetInput}
-          onChange={event => onTargetInputChange(event.currentTarget.value)}
-          placeholder="SteamID64、好友码、个人主页 URL 或自定义 ID；多个账号用空格或换行分隔"
-        />
-      </section>
-
-      <Alert className="status-alert" color={message.includes("失败") || message.includes("错误") ? "red" : "steamGreen"} variant="light">
-        {message}
-      </Alert>
-
-      <SimpleGrid cols={4} spacing={0} className="metric-strip">
-        <Metric label="目标数" value={report ? String(report.targetCount) : "-"} />
-        <Metric label="公开游戏" value={report ? String(report.totalPublicGames) : "-"} />
-        <Metric label="当前已拥有" value={report ? String(report.currentOwnedOverlapCount) : "-"} />
-        <Metric label="价格口径" value={priceLabel} />
-      </SimpleGrid>
-
-      <section className="result-pane">
-        <Group justify="space-between" className="result-head">
-          <Text fw={700}>目标账号</Text>
-          <Text size="xs" c={warningText ? "orange" : "dimmed"}>
-            {warningText || `${settings.storeCountry}:${settings.locale}`}
-          </Text>
-        </Group>
-        <ScrollArea.Autosize mah={360}>
-          <Stack gap={0}>
-            {report?.targets.length
-              ? report.targets.map(target => <TargetRow key={target.steamid64 || target.displayName} target={target} />)
-              : <Text p="md" c="dimmed">暂无目标</Text>}
+    <div className="analysis-result-layout">
+      <aside className="result-data-pane">
+        <div className="result-data-head">
+          <Stack gap={2}>
+            <Text component="h1" className="title">分析结果</Text>
+            <Text size="xs" c="dimmed">{settings.storeCountry}:{settings.locale} · {priceLabel}</Text>
           </Stack>
-        </ScrollArea.Autosize>
+          <div className="result-actions">
+            <Button size="xs" variant="subtle" color="steamBlue" onClick={onBack}>返回输入</Button>
+            <Button size="xs" color="steamBlue" variant="light" loading={busy} onClick={() => void onAnalyze()}>
+              重新实时分析
+            </Button>
+          </div>
+        </div>
+
+        <Alert className="status-alert result-status" color={message.includes("失败") || message.includes("错误") ? "red" : "steamGreen"} variant="light">
+          {message}
+        </Alert>
+
+        <div className="result-metrics">
+          <Metric label="目标数" value={String(report.targetCount)} />
+          <Metric label="公开游戏" value={String(report.totalPublicGames)} />
+          <Metric label="当前已拥有" value={String(report.currentOwnedOverlapCount)} />
+          <Metric label="游戏列表" value={String(games.length)} />
+        </div>
+
+        <section className="result-targets">
+          <Group justify="space-between" className="result-head">
+            <Text fw={700}>目标账号</Text>
+            <Text size="xs" c={warningText ? "orange" : "dimmed"}>{warningText || "实时结果"}</Text>
+          </Group>
+          <ScrollArea.Autosize mah={360}>
+            <Stack gap={0}>
+              {report.targets.map(target => <TargetRow key={target.steamid64 || target.displayName} target={target} />)}
+            </Stack>
+          </ScrollArea.Autosize>
+        </section>
+      </aside>
+
+      <section className="result-games-pane">
+        <Group justify="space-between" align="flex-start" className="game-list-head">
+          <Stack gap={2}>
+            <Text fw={700}>游戏展示</Text>
+            <Text size="sm" c="dimmed">参考脚本封面卡片视图，当前展示目标公开游戏。</Text>
+          </Stack>
+          <TextInput
+            className="game-search"
+            value={searchQuery}
+            onChange={event => setSearchQuery(event.currentTarget.value)}
+            placeholder="搜索游戏名或 AppID"
+          />
+        </Group>
+
+        <ScrollArea className="game-scroll">
+          {visibleGames.length ? (
+            <div className="game-card-grid">
+              {visibleGames.map(game => <GameCard key={game.appid} game={game} />)}
+            </div>
+          ) : (
+            <Text c="dimmed" p="md">没有匹配的游戏</Text>
+          )}
+        </ScrollArea>
       </section>
     </div>
   );
@@ -595,7 +761,6 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function TargetRow({ target }: { target: TargetProfile }) {
-  const sample = target.sampleGames.slice(0, 6).map(game => game.name).join("、");
   return (
     <div className="target-row">
       <Group wrap="nowrap" align="center">
@@ -609,11 +774,114 @@ function TargetRow({ target }: { target: TargetProfile }) {
           </Text>
         </Stack>
       </Group>
-      <Text mt="xs" size="sm" c="dimmed" truncate>
-        {sample || "暂无可展示样例游戏"}
-      </Text>
     </div>
   );
+}
+
+function GameCard({ game }: { game: ResultGameRow }) {
+  return (
+    <a
+      className="game-card"
+      href={game.storeLink}
+      onClick={event => {
+        event.preventDefault();
+        void openHelpUrl(game.storeLink);
+      }}
+      style={{ "--game-cover": `url("${getSteamCoverUrl(game.appid)}")` } as CSSProperties}
+      aria-label={game.name}
+      title={game.name}
+    >
+      <span className="game-card-media">
+        <span className="game-card-title">{game.name}</span>
+        <span className="game-card-chip">AppID {game.appid}</span>
+      </span>
+      <span className="game-card-body">
+        <span>{game.ownerNames.length > 1 ? `${game.ownerNames.length} 个目标账号拥有` : game.ownerNames[0] || "-"}</span>
+        <span>{game.ownerIds.join("、") || "-"}</span>
+      </span>
+    </a>
+  );
+}
+
+function loadAnalysisHistory(): AnalysisHistoryEntry[] {
+  const raw = localStorage.getItem(analysisHistoryKey);
+  if (!raw) {
+    return [];
+  }
+  const parsed = JSON.parse(raw) as AnalysisHistoryEntry[];
+  return Array.isArray(parsed) ? parsed.slice(0, 30) : [];
+}
+
+function saveAnalysisHistory(history: AnalysisHistoryEntry[]): AnalysisHistoryEntry[] {
+  const nextHistory = history.slice(0, 30);
+  localStorage.setItem(analysisHistoryKey, JSON.stringify(nextHistory));
+  return nextHistory;
+}
+
+function upsertAnalysisHistory(
+  history: AnalysisHistoryEntry[],
+  inputValue: string,
+  report: AnalysisReport
+): AnalysisHistoryEntry[] {
+  const normalizedInput = inputValue.trim();
+  const accounts = report.targets.map(target => ({
+    displayName: target.displayName || target.steamid64 || normalizedInput,
+    steamid64: target.steamid64 || "-"
+  }));
+  const previous = history.find(entry => entry.inputValue === normalizedInput);
+  const entry: AnalysisHistoryEntry = {
+    id: previous?.id || `${Date.now()}-${normalizedInput}`,
+    inputValue: normalizedInput,
+    accounts,
+    updatedAt: Date.now()
+  };
+  return [entry, ...history.filter(item => item.inputValue !== normalizedInput)].slice(0, 30);
+}
+
+function formatHistoryAccountNames(entry: AnalysisHistoryEntry): string {
+  const names = entry.accounts.map(account => account.displayName).filter(Boolean);
+  return names.length ? names.join("、") : entry.inputValue;
+}
+
+function formatHistoryAccountIds(entry: AnalysisHistoryEntry): string {
+  const ids = entry.accounts.map(account => account.steamid64).filter(Boolean);
+  return ids.length ? ids.join("、") : entry.inputValue;
+}
+
+function buildResultGameRows(report: AnalysisReport): ResultGameRow[] {
+  const gameById = new Map<string, ResultGameRow>();
+
+  report.targets.forEach(target => {
+    const games = target.games.length ? target.games : target.sampleGames;
+    games.forEach(game => {
+      const appid = String(game.appid || "");
+      if (!appid) {
+        return;
+      }
+      const existing = gameById.get(appid);
+      if (existing) {
+        existing.ownerNames.push(target.displayName || target.steamid64);
+        existing.ownerIds.push(target.steamid64);
+        return;
+      }
+      gameById.set(appid, {
+        appid,
+        name: game.name || `App ${appid}`,
+        storeLink: game.storeLink || `https://store.steampowered.com/app/${appid}/`,
+        ownerNames: [target.displayName || target.steamid64],
+        ownerIds: [target.steamid64]
+      });
+    });
+  });
+
+  return Array.from(gameById.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-CN", {
+    numeric: true,
+    sensitivity: "base"
+  }));
+}
+
+function getSteamCoverUrl(appid: string): string {
+  return `https://cdn.cloudflare.steamstatic.com/steam/apps/${encodeURIComponent(appid)}/library_600x900_2x.jpg`;
 }
 
 async function openHelpUrl(url: string): Promise<void> {

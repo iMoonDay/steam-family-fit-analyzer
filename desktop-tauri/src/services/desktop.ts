@@ -69,6 +69,7 @@ export async function analyzeTarget(input: AnalyzeInput): Promise<AnalysisReport
         avatar: "",
         gameCount: 0,
         rawGameCount: 0,
+        games: [],
         sampleGames: []
       })),
       warnings: ["浏览器预览模式不会请求 Steam API，请使用 Tauri 桌面窗口运行真实分析。"]

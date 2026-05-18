@@ -41,6 +41,7 @@ struct TargetProfile {
   avatar: String,
   game_count: usize,
   raw_game_count: usize,
+  games: Vec<TargetGame>,
   sample_games: Vec<TargetGame>,
   #[serde(skip_serializing)]
   appids: Vec<String>,
@@ -309,7 +310,7 @@ async fn fetch_target_profile(
     .filter_map(normalize_target_game)
     .collect::<Vec<_>>();
   let appids = normalized_games.iter().map(|game| game.appid.clone()).collect::<Vec<_>>();
-  let sample_games = normalized_games.into_iter().take(30).collect::<Vec<_>>();
+  let sample_games = normalized_games.iter().take(30).cloned().collect::<Vec<_>>();
 
   Ok(TargetProfile {
     steamid64: identity.steamid64,
@@ -318,6 +319,7 @@ async fn fetch_target_profile(
     avatar: summary.avatar,
     game_count: games.len(),
     raw_game_count: games.len(),
+    games: normalized_games,
     sample_games,
     appids,
   })

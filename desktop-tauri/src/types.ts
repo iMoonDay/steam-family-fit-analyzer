@@ -36,6 +36,7 @@ export type TargetProfile = {
   avatar: string;
   gameCount: number;
   rawGameCount: number;
+  games: TargetGame[];
   sampleGames: TargetGame[];
 };
 

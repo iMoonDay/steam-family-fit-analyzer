@@ -23,6 +23,13 @@ pub struct AnalyzeInput {
     pub settings: AppSettings,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshReportPricesInput {
+    pub report: AnalysisReport,
+    pub settings: AppSettings,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoSteamConfigResult {
@@ -51,7 +58,7 @@ pub struct AnalysisPreview {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetProfile {
     pub steamid64: String,
@@ -64,7 +71,7 @@ pub struct TargetProfile {
     pub sample_games: Vec<TargetGame>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetGame {
     pub appid: String,
@@ -85,7 +92,7 @@ pub struct FamilyLibrary {
     pub owner_names_by_id: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReportGame {
     pub appid: String,
@@ -97,11 +104,20 @@ pub struct ReportGame {
     pub family_owners: Vec<String>,
     pub family_owner_names: Vec<String>,
     pub family_acquired_at: i64,
+    #[serde(default)]
+    pub prices: ReportGamePrices,
     pub price: Option<PriceInfo>,
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportGamePrices {
+    pub original: Option<PriceInfo>,
+    pub history_low: Option<PriceInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PriceInfo {
     pub initial: Option<i64>,
@@ -113,7 +129,7 @@ pub struct PriceInfo {
     pub history_low_at: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReportGameLists {
     pub all: Vec<ReportGame>,
@@ -124,7 +140,7 @@ pub struct ReportGameLists {
     pub not_current_owned: Vec<ReportGame>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisReport {
     pub target_count: usize,

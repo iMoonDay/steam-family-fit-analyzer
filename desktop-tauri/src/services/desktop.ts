@@ -110,6 +110,17 @@ export async function analyzeTarget(input: AnalyzeInput): Promise<AnalysisReport
   }
 }
 
+export async function refreshReportPrices(report: AnalysisReport, settings: AppSettings): Promise<AnalysisReport> {
+  try {
+    return await invoke<AnalysisReport>("refresh_report_prices", { input: { report, settings } });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    return report;
+  }
+}
+
 function isTauriRuntimeError(error: unknown): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && Boolean(error);
 }

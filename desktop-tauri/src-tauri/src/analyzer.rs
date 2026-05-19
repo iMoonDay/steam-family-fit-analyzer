@@ -1,6 +1,7 @@
 use crate::{
     models::{
-        AnalysisReport, FamilyLibrary, PriceInfo, ReportGame, ReportGameLists, TargetProfile,
+        AnalysisReport, FamilyLibrary, PriceInfo, ReportGame, ReportGameLists, ReportGamePrices,
+        TargetProfile,
     },
     steam::StoreItemEnrichment,
 };
@@ -97,6 +98,7 @@ fn build_report_game_lists(
                     family_acquired_at: family_game
                         .map(|family_game| family_game.acquired_at)
                         .unwrap_or(0),
+                    prices: ReportGamePrices::default(),
                     price: None,
                     status: status.to_string(),
                 });
@@ -146,6 +148,7 @@ fn build_report_game_lists(
                     family_owners: family_game.owners.clone(),
                     family_owner_names: resolve_family_owner_names(family_game, family_library),
                     family_acquired_at: family_game.acquired_at,
+                    prices: ReportGamePrices::default(),
                     price: None,
                     status: "relativeNew".to_string(),
                 })
@@ -206,6 +209,7 @@ fn apply_store_enrichment_to_games(
             if !item.cover_url.is_empty() {
                 game.cover_url = item.cover_url.clone();
             }
+            game.prices.original = item.price.clone();
             game.price = item.price.clone();
         }
     }
@@ -214,6 +218,7 @@ fn apply_store_enrichment_to_games(
 fn apply_prices_to_games(games: &mut [ReportGame], prices: &HashMap<String, PriceInfo>) {
     for game in games {
         if let Some(price) = prices.get(&game.appid) {
+            game.prices.history_low = Some(price.clone());
             game.price = Some(price.clone());
         }
     }

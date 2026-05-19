@@ -68,6 +68,11 @@ export type PriceInfo = {
   historyLowAt: string;
 };
 
+export type ReportGamePrices = {
+  original?: PriceInfo | null;
+  historyLow?: PriceInfo | null;
+};
+
 export type ReportGame = TargetGame & {
   coverUrl: string;
   targetOwners: string[];
@@ -75,6 +80,7 @@ export type ReportGame = TargetGame & {
   familyOwners: string[];
   familyOwnerNames: string[];
   familyAcquiredAt: number;
+  prices?: ReportGamePrices;
   price: PriceInfo | null;
   status: ReportGameStatus;
 };

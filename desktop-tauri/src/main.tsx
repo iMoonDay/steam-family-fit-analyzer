@@ -24,10 +24,10 @@ import {
   createTheme
 } from "@mantine/core";
 import { createRoot } from "react-dom/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, ReactNode, SetStateAction } from "react";
 import type { AnalysisReport, AppSettings, AppStatus, LocaleMode, PriceInfo, PriceMode, ReportGame, ReportGameStatus, TargetProfile } from "./types";
-import { analyzeTarget, clearCache, getAppStatus, loadSettings, saveSettings, startBrowserConfigCallback } from "./services/desktop";
+import { analyzeTarget, clearCache, getAppStatus, loadSettings, refreshReportPrices, saveSettings, startBrowserConfigCallback } from "./services/desktop";
 import type { AutoSteamConfigResult } from "./types";
 
 const analysisHistoryKey = "sffa.desktop.analysisInputHistory";
@@ -231,9 +231,11 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("准备就绪");
   const [activePage, setActivePage] = useState<AppPage>(restoredReport ? "result" : "analysis");
+  const [priceModeControlValue, setPriceModeControlValue] = useState<PriceMode>(defaultSettings.priceMode);
   const [resultViewState, setResultViewState] = useState<ResultViewState>(defaultResultViewState);
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryEntry[]>(() => loadAnalysisHistory());
   const [settingsReady, setSettingsReady] = useState(false);
+  const priceModeRevertTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     void bootstrap();
@@ -270,16 +272,18 @@ function App() {
     ]);
     setStatus(nextStatus);
     setSettings(savedSettings);
+    setPriceModeControlValue(savedSettings.priceMode);
     setSettingsReady(true);
   }
 
-  async function handleAnalyze(inputOverride?: string) {
+  async function handleAnalyze(inputOverride?: string, settingsOverride?: AppSettings) {
     const analysisInput = inputOverride ?? targetInput;
+    const analysisSettings = settingsOverride || settings;
     setBusy(true);
     setMessage("正在请求 Steam Web API");
     try {
-      await saveSettings(settings);
-      const nextReport = await analyzeTarget({ targetInput: analysisInput, settings });
+      await saveSettings(analysisSettings);
+      const nextReport = await analyzeTarget({ targetInput: analysisInput, settings: analysisSettings });
       if (nextReport.targetCount > 0) {
         setReport(nextReport);
         saveLastAnalysisReport(nextReport);
@@ -298,6 +302,52 @@ function App() {
     setAnalysisHistory(previousHistory => saveAnalysisHistory(previousHistory.filter(entry => entry.id !== entryId)));
   }
 
+  function handlePriceModeChange(priceMode: PriceMode) {
+    if (priceMode === "historyLow" && !settings.itadApiKey.trim()) {
+      if (priceModeRevertTimerRef.current !== null) {
+        window.clearTimeout(priceModeRevertTimerRef.current);
+      }
+      setPriceModeControlValue("historyLow");
+      setMessage("史低需要先在配置中填写 IsThereAnyDeal API Key");
+      priceModeRevertTimerRef.current = window.setTimeout(() => {
+        priceModeRevertTimerRef.current = null;
+        setPriceModeControlValue("original");
+      }, 260);
+      return;
+    }
+
+    if (priceModeRevertTimerRef.current !== null) {
+      window.clearTimeout(priceModeRevertTimerRef.current);
+      priceModeRevertTimerRef.current = null;
+    }
+    setPriceModeControlValue(priceMode);
+    const nextSettings = { ...settings, priceMode };
+    setSettings(nextSettings);
+    void saveSettings(nextSettings);
+    if (report && !reportHasPriceModeData(report, priceMode)) {
+      void handleRefreshReportPrices(report, nextSettings);
+    }
+  }
+
+  async function handleRefreshReportPrices(currentReport: AnalysisReport, nextSettings: AppSettings) {
+    setBusy(true);
+    setMessage("正在更新价格");
+    try {
+      const nextReport = await refreshReportPrices(currentReport, nextSettings);
+      setReport(nextReport);
+      saveLastAnalysisReport(nextReport);
+      setMessage("价格已更新");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleNavigatePage(page: AppPage) {
+    startTransition(() => setActivePage(page));
+  }
+
   return (
     <AppShell className="app-shell" padding={0}>
       <div className="frameless-shell">
@@ -314,7 +364,7 @@ function App() {
                 type="button"
                 className={`activity-item ${activePage === "analysis" ? "is-active" : ""}`}
                 aria-label="分析"
-                onClick={() => setActivePage("analysis")}
+                onClick={() => handleNavigatePage("analysis")}
               >
                 <ActivityIcon type="analysis" />
               </button>
@@ -324,7 +374,7 @@ function App() {
                 type="button"
                 className={`activity-item ${activePage === "result" ? "is-active" : ""}`}
                 aria-label="分析结果"
-                onClick={() => setActivePage("result")}
+                onClick={() => handleNavigatePage("result")}
               >
                 <ActivityIcon type="result" />
               </button>
@@ -334,7 +384,7 @@ function App() {
                 type="button"
                 className={`activity-item ${activePage === "settings" ? "is-active" : ""}`}
                 aria-label="配置"
-                onClick={() => setActivePage("settings")}
+                onClick={() => handleNavigatePage("settings")}
               >
                 <ActivityIcon type="settings" />
               </button>
@@ -348,43 +398,51 @@ function App() {
           </aside>
 
           <main className="main-pane">
-            <ScrollArea className={`editor-body ${activePage === "result" && report ? "is-result-view" : ""}`} type="auto" scrollbarSize={10}>
-              {activePage === "analysis" ? (
-                <AnalysisPreparePage
-                  targetInput={targetInput}
-                  history={analysisHistory}
-                  message={message}
-                  busy={busy}
-                  onTargetInputChange={setTargetInput}
-                  onAnalyze={handleAnalyze}
-                  onDeleteHistoryEntry={handleDeleteHistoryEntry}
-                  onMessage={setMessage}
-                />
-              ) : activePage === "result" ? (
-                report ? (
-                  <AnalysisResultPage
-                    report={report}
+            <ScrollArea className={`editor-body ${activePage === "result" && report ? "is-result-view" : ""} ${activePage === "settings" ? "is-settings-view" : ""}`} type="auto" scrollbarSize={10}>
+              <div className="page-stack">
+                <div className={`page-slot ${activePage === "analysis" ? "is-active" : ""}`}>
+                  <AnalysisPreparePage
+                    targetInput={targetInput}
+                    history={analysisHistory}
                     message={message}
-                    warningText={warningText}
-                    priceLabel={priceLabel}
-                    tablePriceLabel={tablePriceLabel}
-                    viewState={resultViewState}
                     busy={busy}
-                    onViewStateChange={setResultViewState}
-                    onBack={() => setActivePage("analysis")}
+                    onTargetInputChange={setTargetInput}
                     onAnalyze={handleAnalyze}
+                    onDeleteHistoryEntry={handleDeleteHistoryEntry}
                     onMessage={setMessage}
                   />
-                ) : (
-                  <EmptyResultPage onGoAnalysis={() => setActivePage("analysis")} />
-                )
-              ) : (
-                <SettingsPage
-                  settings={settings}
-                  status={status}
-                  onSettingsChange={setSettings}
-                />
-              )}
+                </div>
+                <div className={`page-slot ${activePage === "result" ? "is-active" : ""}`}>
+                  {report ? (
+                    <AnalysisResultPage
+                      report={report}
+                      message={message}
+                      warningText={warningText}
+                      priceLabel={priceLabel}
+                      tablePriceLabel={tablePriceLabel}
+                      priceMode={settings.priceMode}
+                      priceModeControlValue={priceModeControlValue}
+                      hasHistoryLowApiKey={Boolean(settings.itadApiKey.trim())}
+                      viewState={resultViewState}
+                      busy={busy}
+                      onPriceModeChange={handlePriceModeChange}
+                      onViewStateChange={setResultViewState}
+                      onBack={() => handleNavigatePage("analysis")}
+                      onAnalyze={handleAnalyze}
+                      onMessage={setMessage}
+                    />
+                  ) : (
+                    <EmptyResultPage onGoAnalysis={() => handleNavigatePage("analysis")} />
+                  )}
+                </div>
+                <div className={`page-slot ${activePage === "settings" ? "is-active" : ""}`}>
+                  <SettingsPage
+                    settings={settings}
+                    status={status}
+                    onSettingsChange={setSettings}
+                  />
+                </div>
+              </div>
             </ScrollArea>
 
             <footer className="status-bar">
@@ -566,7 +624,7 @@ function SettingsPage({
       <div className="main-heading settings-heading">
         <Stack gap={1}>
           <Text component="h1" className="title">配置</Text>
-          <Text size="sm" c="dimmed">管理 Steam Web API、IsThereAnyDeal、地区、语言和价格口径。</Text>
+          <Text size="sm" c="dimmed">管理 Steam Web API、IsThereAnyDeal、地区和语言。</Text>
         </Stack>
       </div>
 
@@ -762,17 +820,6 @@ function SettingsPanel({
           />
         </SimpleGrid>
 
-        <SegmentedControl
-          className="price-mode-control"
-          color="steamBlue"
-          value={draftSettings.priceMode}
-          data={[
-            { value: "original", label: "原价" },
-            { value: "historyLow", label: "史低" }
-          ]}
-          onChange={value => updateDraft("priceMode", value as PriceMode, true)}
-        />
-
         <Divider />
         <Stack gap={4}>
           <Text size="xs" c="dimmed" fw={700}>缓存目录</Text>
@@ -932,8 +979,12 @@ function AnalysisResultPage({
   warningText,
   priceLabel,
   tablePriceLabel,
+  priceMode,
+  priceModeControlValue,
+  hasHistoryLowApiKey,
   viewState,
   busy,
+  onPriceModeChange,
   onViewStateChange,
   onBack,
   onAnalyze,
@@ -944,8 +995,12 @@ function AnalysisResultPage({
   warningText: string;
   priceLabel: string;
   tablePriceLabel: string;
+  priceMode: PriceMode;
+  priceModeControlValue: PriceMode;
+  hasHistoryLowApiKey: boolean;
   viewState: ResultViewState;
   busy: boolean;
+  onPriceModeChange: (priceMode: PriceMode) => void;
   onViewStateChange: (value: SetStateAction<ResultViewState>) => void;
   onBack: () => void;
   onAnalyze: (inputOverride?: string) => Promise<void>;
@@ -956,8 +1011,9 @@ function AnalysisResultPage({
   const [gameContextMenu, setGameContextMenu] = useState<GameContextMenuState | null>(null);
   const [moreMenu, setMoreMenu] = useState<MoreMenuState | null>(null);
   const includeTargetOwners = report.targets.length > 1;
-  const resultMetrics = useMemo(() => buildResultMetrics(report), [report]);
-  const games = useMemo(() => buildResultGameRows(report.games[activeGameList]), [activeGameList, report]);
+  const resultMetrics = useMemo(() => buildResultMetrics(report, priceMode), [priceMode, report]);
+  const games = useMemo(() => buildResultGameRows(report.games[activeGameList], priceMode), [activeGameList, priceMode, report]);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const tableSortOptions = useMemo(
     () => buildTableSortSelectOptions(activeGameList, includeTargetOwners, showAppId, tablePriceLabel),
     [activeGameList, includeTargetOwners, showAppId, tablePriceLabel]
@@ -966,12 +1022,12 @@ function AnalysisResultPage({
   const sortSelectData = tableSortOptions;
   const sortSelectValue = serializeTableSortState(activeTableSort);
   const filteredGames = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = deferredSearchQuery.trim().toLowerCase();
     if (!query) {
       return games;
     }
     return games.filter(game => game.name.toLowerCase().includes(query) || game.appid.includes(query));
-  }, [games, searchQuery]);
+  }, [deferredSearchQuery, games]);
   const visibleGames = useMemo(() => sortTableGameRows(filteredGames, activeTableSort), [activeTableSort, filteredGames]);
 
   useEffect(() => {
@@ -1044,42 +1100,48 @@ function AnalysisResultPage({
 
   function handleToggleAppId() {
     const nextShowAppId = !showAppId;
-    onViewStateChange(current => {
-      const nextTableSortByList = { ...current.tableSortByList };
-      if (!nextShowAppId && nextTableSortByList[activeGameList]?.key === "appid") {
-        delete nextTableSortByList[activeGameList];
-      }
-      return {
-        ...current,
-        showAppId: nextShowAppId,
-        tableSortByList: nextTableSortByList
-      };
+    startTransition(() => {
+      onViewStateChange(current => {
+        const nextTableSortByList = { ...current.tableSortByList };
+        if (!nextShowAppId && nextTableSortByList[activeGameList]?.key === "appid") {
+          delete nextTableSortByList[activeGameList];
+        }
+        return {
+          ...current,
+          showAppId: nextShowAppId,
+          tableSortByList: nextTableSortByList
+        };
+      });
     });
   }
 
   function handleTableSort(columnKey: string) {
-    onViewStateChange(current => {
-      const previous = normalizeTableSortState(current.tableSortByList[activeGameList], tableSortOptions);
-      const direction: TableSortDirection = previous?.key === columnKey && previous.direction === "asc" ? "desc" : "asc";
-      return {
-        ...current,
-        tableSortByList: {
-          ...current.tableSortByList,
-          [activeGameList]: { key: columnKey, direction }
-        }
-      };
+    startTransition(() => {
+      onViewStateChange(current => {
+        const previous = normalizeTableSortState(current.tableSortByList[activeGameList], tableSortOptions);
+        const direction: TableSortDirection = previous?.key === columnKey && previous.direction === "asc" ? "desc" : "asc";
+        return {
+          ...current,
+          tableSortByList: {
+            ...current.tableSortByList,
+            [activeGameList]: { key: columnKey, direction }
+          }
+        };
+      });
     });
   }
 
   function handleSortSelectChange(value: string | null) {
     const nextSort = parseTableSortSelectValue(value);
-    onViewStateChange(current => ({
-      ...current,
-      tableSortByList: {
-        ...current.tableSortByList,
-        [activeGameList]: nextSort
-      }
-    }));
+    startTransition(() => {
+      onViewStateChange(current => ({
+        ...current,
+        tableSortByList: {
+          ...current.tableSortByList,
+          [activeGameList]: nextSort
+        }
+      }));
+    });
   }
 
   async function handleCopyCurrentList() {
@@ -1088,7 +1150,7 @@ function AnalysisResultPage({
   }
 
   async function handleCopyReport() {
-    await writeClipboard(formatReportText(report));
+    await writeClipboard(formatReportText(report, priceMode));
     onMessage("已复制分析报告");
   }
 
@@ -1140,8 +1202,8 @@ function AnalysisResultPage({
       </aside>
 
       <section className="result-games-pane">
-        <Group justify="space-between" align="flex-start" className="game-list-head">
-          <Stack gap={0} className="game-list-primary">
+        <div className="game-list-head">
+          <div className="game-list-tab-row">
             <SegmentedControl
               className="game-list-tabs"
               size="xs"
@@ -1153,9 +1215,32 @@ function AnalysisResultPage({
                 { value: "relativeNew", label: `相对新增 ${report.games.relativeNew.length}` },
                 { value: "overlap", label: `重复 ${report.games.overlap.length}` }
               ]}
-              onChange={value => onViewStateChange(current => ({ ...current, activeGameList: value as ResultGameListKey }))}
+              onChange={value => startTransition(() => onViewStateChange(current => ({ ...current, activeGameList: value as ResultGameListKey })))}
             />
-          </Stack>
+            <SegmentedControl
+              className="result-price-mode-control"
+              size="xs"
+              color="steamBlue"
+              value={priceModeControlValue}
+              data={[
+                { value: "original", label: "原价" },
+                {
+                  value: "historyLow",
+                  label: (
+                    <Tooltip
+                      label={hasHistoryLowApiKey ? "使用 IsThereAnyDeal 史低价格" : "史低需要先在配置中填写 IsThereAnyDeal API Key"}
+                      withArrow
+                      openDelay={250}
+                    >
+                      <span className="segmented-label-content">史低</span>
+                    </Tooltip>
+                  )
+                }
+              ]}
+              disabled={busy}
+              onChange={value => onPriceModeChange(value as PriceMode)}
+            />
+          </div>
           <div className="game-list-tools">
             <SegmentedControl
               className="game-view-toggle"
@@ -1166,7 +1251,7 @@ function AnalysisResultPage({
                 { value: "cover", label: "封面" },
                 { value: "table", label: "表格" }
               ]}
-              onChange={value => onViewStateChange(current => ({ ...current, viewMode: value as ResultGameViewMode }))}
+              onChange={value => startTransition(() => onViewStateChange(current => ({ ...current, viewMode: value as ResultGameViewMode })))}
             />
             <Select
               className="game-sort"
@@ -1195,7 +1280,7 @@ function AnalysisResultPage({
               <MoreIcon />
             </ActionIcon>
           </div>
-        </Group>
+        </div>
 
         {visibleGames.length ? (
           viewMode === "cover" ? (
@@ -1355,7 +1440,7 @@ function TargetRow({ target }: { target: TargetProfile }) {
   );
 }
 
-function GameCard({
+const GameCard = memo(function GameCard({
   game,
   listKey,
   showAppId,
@@ -1396,9 +1481,9 @@ function GameCard({
       </span>
     </a>
   );
-}
+});
 
-function GameTable({
+const GameTable = memo(function GameTable({
   games,
   listKey,
   includeTargetOwners,
@@ -1466,7 +1551,7 @@ function GameTable({
       </div>
     </ScrollArea>
   );
-}
+});
 
 function buildGameTableColumns(
   listKey: ResultGameListKey,
@@ -1888,7 +1973,7 @@ function formatHistoryAnalysisInput(entry: AnalysisHistoryEntry): string {
   return accountIds.length ? accountIds.join("\n") : entry.inputValue.trim();
 }
 
-function buildResultGameRows(games: ReportGame[]): ResultGameRow[] {
+function buildResultGameRows(games: ReportGame[], priceMode: PriceMode): ResultGameRow[] {
   return games.map(game => ({
     appid: game.appid,
     name: game.name || `App ${game.appid}`,
@@ -1898,7 +1983,7 @@ function buildResultGameRows(games: ReportGame[]): ResultGameRow[] {
     ownerIds: game.targetOwners,
     familyOwners: game.familyOwners,
     familyOwnerNames: game.familyOwnerNames || [],
-    price: game.price,
+    price: getReportGamePrice(game, priceMode),
     status: game.status
   })).sort((left, right) => left.name.localeCompare(right.name, "zh-CN", {
     numeric: true,
@@ -1906,7 +1991,20 @@ function buildResultGameRows(games: ReportGame[]): ResultGameRow[] {
   }));
 }
 
-function buildResultMetrics(report: AnalysisReport): ResultMetric[] {
+function getReportGamePrice(game: ReportGame, priceMode: PriceMode): PriceInfo | null {
+  if (priceMode === "historyLow") {
+    return game.prices?.historyLow || (game.price?.source === "itadStoreLow" ? game.price : null);
+  }
+  return game.prices?.original || (game.price?.source !== "itadStoreLow" ? game.price : null);
+}
+
+function reportHasPriceModeData(report: AnalysisReport, priceMode: PriceMode): boolean {
+  return report.games.all
+    .concat(report.games.relativeNew)
+    .some(game => Boolean(getReportGamePrice(game, priceMode)));
+}
+
+function buildResultMetrics(report: AnalysisReport, priceMode: PriceMode): ResultMetric[] {
   const targets = report.targets;
   const familyCount = report.familyGameCount;
   const targetLabelById = new Map(targets.map(target => [
@@ -1928,7 +2026,7 @@ function buildResultMetrics(report: AnalysisReport): ResultMetric[] {
   }));
   const addedValueRows = targetIds.map(steamid64 => ({
     label: targetLabelById.get(steamid64) || steamid64 || "未知账号",
-    value: formatMoneyFromMinor(sumGamePricesForTarget(report.games.new, steamid64), getReportCurrency(report.games.new))
+    value: formatMoneyFromMinor(sumGamePricesForTarget(report.games.new, steamid64, priceMode), getReportCurrency(report.games.new, priceMode))
   }));
   const overlapRows = targetIds.map(steamid64 => ({
     label: targetLabelById.get(steamid64) || steamid64 || "未知账号",
@@ -1957,7 +2055,7 @@ function buildResultMetrics(report: AnalysisReport): ResultMetric[] {
     },
     {
       label: "新增价值",
-      value: formatMoneyFromMinor(sumGamePrices(report.games.new), getReportCurrency(report.games.new)),
+      value: formatMoneyFromMinor(sumGamePrices(report.games.new, priceMode), getReportCurrency(report.games.new, priceMode)),
       tooltipRows: addedValueRows
     },
     {
@@ -1977,20 +2075,25 @@ function countGamesForTarget(games: ReportGame[], steamid64: string): number {
   return games.filter(game => game.targetOwners.includes(steamid64)).length;
 }
 
-function sumGamePricesForTarget(games: ReportGame[], steamid64: string): number {
-  return sumGamePrices(games.filter(game => game.targetOwners.includes(steamid64)));
+function sumGamePricesForTarget(games: ReportGame[], steamid64: string, priceMode: PriceMode): number {
+  return sumGamePrices(games.filter(game => game.targetOwners.includes(steamid64)), priceMode);
 }
 
-function sumGamePrices(games: ReportGame[]): number {
-  return games.reduce((sum, game) => isCountablePrice(game.price) ? sum + Number(game.price.initial || 0) : sum, 0);
+function sumGamePrices(games: ReportGame[], priceMode: PriceMode): number {
+  return games.reduce((sum, game) => {
+    const price = getReportGamePrice(game, priceMode);
+    return isCountablePrice(price) ? sum + Number(price.initial || 0) : sum;
+  }, 0);
 }
 
 function isCountablePrice(price: PriceInfo | null): price is PriceInfo {
   return Boolean(price && !price.unavailable && price.initial != null);
 }
 
-function getReportCurrency(games: ReportGame[]): string {
-  return games.find(game => isCountablePrice(game.price))?.price?.currency || "CNY";
+function getReportCurrency(games: ReportGame[], priceMode: PriceMode): string {
+  return games
+    .map(game => getReportGamePrice(game, priceMode))
+    .find(price => isCountablePrice(price))?.currency || "CNY";
 }
 
 function sortTableGameRows(games: ResultGameRow[], sort?: TableSortState): ResultGameRow[] {
@@ -2179,8 +2282,8 @@ function buildReportTargetInput(report: AnalysisReport | null): string {
     .join("\n");
 }
 
-function formatReportText(report: AnalysisReport): string {
-  const resultMetrics = buildResultMetrics(report);
+function formatReportText(report: AnalysisReport, priceMode: PriceMode): string {
+  const resultMetrics = buildResultMetrics(report, priceMode);
   const lines = [
     "Steam 家庭库分析报告",
     ...resultMetrics.map(metric => `${metric.label}：${metric.value}`),
@@ -2189,7 +2292,7 @@ function formatReportText(report: AnalysisReport): string {
     ...report.targets.map(target => `${target.displayName || target.steamid64}\t${target.steamid64}\t${target.gameCount} 个公开游戏`),
     "",
     "新增候选：",
-    ...buildResultGameRows(report.games.new).map(game => `${game.name}\t${game.appid}\t${formatPrice(game.price)}\t${game.storeLink}`)
+    ...buildResultGameRows(report.games.new, priceMode).map(game => `${game.name}\t${game.appid}\t${formatPrice(game.price)}\t${game.storeLink}`)
   ];
   if (report.warnings.length) {
     lines.push("", "警告：", ...report.warnings);

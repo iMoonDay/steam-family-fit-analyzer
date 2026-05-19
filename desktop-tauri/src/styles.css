@@ -273,11 +273,6 @@ textarea {
   background: var(--color-control-hover);
 }
 
-.price-mode-control {
-  width: fit-content;
-  min-width: 220px;
-}
-
 .main-pane {
   display: grid;
   grid-template-rows: minmax(0, 1fr) 25px;
@@ -293,6 +288,10 @@ textarea {
   height: 100%;
   overflow: hidden;
   padding: 24px 28px 32px;
+}
+
+.editor-body.is-settings-view {
+  padding: 0;
 }
 
 .editor-body > .mantine-ScrollArea-viewport {
@@ -316,6 +315,25 @@ textarea {
 }
 
 .editor-body.is-result-view > .mantine-ScrollArea-viewport > div {
+  height: 100%;
+}
+
+.page-stack,
+.page-slot.is-active {
+  min-width: 0;
+  min-height: 0;
+}
+
+.page-stack {
+  height: 100%;
+}
+
+.page-slot {
+  display: none;
+}
+
+.page-slot.is-active {
+  display: block;
   height: 100%;
 }
 
@@ -554,6 +572,7 @@ textarea {
   display: grid;
   width: min(100%, 760px);
   gap: 16px;
+  padding: 24px 28px 32px;
 }
 
 .settings-page-panel {
@@ -664,20 +683,23 @@ textarea {
 }
 
 .game-list-head {
-  gap: 12px 18px;
+  display: grid;
+  gap: 10px;
   padding: 0 0 14px;
   border-bottom: 1px solid var(--color-border-soft);
   min-width: 0;
 }
 
-.game-list-primary {
+.game-list-tab-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
-  flex: 0 0 auto;
 }
 
 .game-list-tools {
   display: flex;
-  flex: 1 1 560px;
   justify-content: flex-end;
   align-items: flex-start;
   gap: 8px;
@@ -713,6 +735,17 @@ textarea {
 .game-view-toggle {
   flex: 0 0 auto;
   background: var(--color-control);
+}
+
+.result-price-mode-control {
+  flex: 0 0 auto;
+  background: var(--color-control);
+}
+
+.segmented-label-content {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
 }
 
 .game-search {
@@ -784,6 +817,8 @@ textarea {
   text-decoration: none;
   overflow: hidden;
   box-shadow: 0 10px 24px rgba(31, 41, 55, 0.08);
+  content-visibility: auto;
+  contain-intrinsic-size: 235px 352px;
 }
 
 .game-card:hover {
@@ -1049,6 +1084,8 @@ textarea {
   color: inherit;
   font-size: 12px;
   text-decoration: none;
+  content-visibility: auto;
+  contain-intrinsic-size: 100% 58px;
 }
 
 .game-table-row:hover {
@@ -1355,6 +1392,10 @@ textarea {
     align-items: stretch;
   }
 
+  .game-list-tab-row {
+    flex-wrap: wrap;
+  }
+
   .game-list-tools {
     justify-content: flex-start;
     flex-wrap: wrap;
@@ -1368,6 +1409,10 @@ textarea {
 
   .game-view-toggle {
     flex: 1 1 132px;
+  }
+
+  .result-price-mode-control {
+    flex: 0 0 auto;
   }
 
   .game-search {

@@ -12,7 +12,7 @@ use crate::{
     input::{normalize_target_token, split_target_input},
     models::{
         AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus,
-        AutoSteamConfigResult, BrowserCallbackSession, PriceInfo,
+        AutoSteamConfigResult, BrowserCallbackSession, PriceInfo, RefreshReportPricesInput,
     },
     steam::StoreItemEnrichment,
 };
@@ -146,15 +146,7 @@ async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisR
         family_library.as_ref(),
         warnings,
     );
-    let report_appids = report
-        .games
-        .all
-        .iter()
-        .chain(report.games.relative_new.iter())
-        .map(|game| game.appid.clone())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
+    let report_appids = collect_report_appids(&report);
     let mut cache_store = match cache::CacheStore::open(&app) {
         Ok(cache_store) => Some(cache_store),
         Err(error) => {
@@ -180,9 +172,87 @@ async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisR
             &mut report,
         )
         .await?;
+    } else {
+        apply_display_prices(&mut report, "original");
     }
 
     Ok(report)
+}
+
+#[tauri::command]
+async fn refresh_report_prices(
+    app: AppHandle,
+    input: RefreshReportPricesInput,
+) -> Result<AnalysisReport, String> {
+    if input.settings.price_mode == "historyLow" && input.settings.itad_api_key.trim().is_empty() {
+        return Err("史低模式需要 IsThereAnyDeal API Key".to_string());
+    }
+
+    let client = steam::build_client()?;
+    let mut report = input.report;
+    let report_appids = collect_report_appids(&report);
+    let mut cache_store = match cache::CacheStore::open(&app) {
+        Ok(cache_store) => Some(cache_store),
+        Err(error) => {
+            report.warnings.push(format!("缓存不可用：{error}"));
+            None
+        }
+    };
+
+    if input.settings.price_mode == "historyLow" {
+        apply_history_low_prices(
+            &client,
+            cache_store.as_mut(),
+            &report_appids,
+            &input.settings,
+            &mut report,
+        )
+        .await?;
+        apply_display_prices(&mut report, "historyLow");
+    } else {
+        apply_store_enrichment(
+            &client,
+            cache_store.as_mut(),
+            &report_appids,
+            &input.settings,
+            &mut report,
+        )
+        .await;
+        apply_display_prices(&mut report, "original");
+    }
+
+    Ok(report)
+}
+
+fn apply_display_prices(report: &mut AnalysisReport, price_mode: &str) {
+    apply_display_prices_to_games(&mut report.games.all, price_mode);
+    apply_display_prices_to_games(&mut report.games.new, price_mode);
+    apply_display_prices_to_games(&mut report.games.relative_new, price_mode);
+    apply_display_prices_to_games(&mut report.games.overlap, price_mode);
+    apply_display_prices_to_games(&mut report.games.current_owned, price_mode);
+    apply_display_prices_to_games(&mut report.games.not_current_owned, price_mode);
+}
+
+fn apply_display_prices_to_games(games: &mut [crate::models::ReportGame], price_mode: &str) {
+    for game in games {
+        game.price = if price_mode == "historyLow" {
+            game.prices.history_low.clone()
+        } else {
+            game.prices.original.clone()
+        };
+    }
+}
+
+fn collect_report_appids(report: &AnalysisReport) -> Vec<String> {
+    report
+        .games
+        .all
+        .iter()
+        .chain(report.games.relative_new.iter())
+        .map(|game| game.appid.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 async fn apply_store_enrichment(
@@ -273,7 +343,8 @@ pub fn run() {
             auto_detect_steam_config,
             start_browser_config_callback,
             analyze_preview,
-            analyze_target
+            analyze_target,
+            refresh_report_prices
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop app");

@@ -5,6 +5,7 @@ use crate::{
 use std::{collections::HashMap, error::Error, time::Duration};
 
 const STORE_ITEM_ASSET_BASE_URL: &str = "https://shared.fastly.steamstatic.com/store_item_assets/";
+const FAMILY_SHARING_CATEGORY_ID: i64 = 62;
 
 #[derive(Debug, Clone)]
 struct TargetIdentity {
@@ -23,6 +24,7 @@ struct PlayerSummary {
 #[derive(Debug, Clone)]
 pub struct StoreItemEnrichment {
     pub localized_name: String,
+    pub family_sharing_supported: bool,
     pub cover_url: String,
     pub price: Option<PriceInfo>,
 }
@@ -261,7 +263,7 @@ pub async fn fetch_store_item_enrichment(
                 "country_code": normalized_store_country(settings.store_country.as_str())
             },
             "data_request": {
-                "include_basic_info": false,
+                "include_basic_info": true,
                 "include_assets": true,
                 "include_all_purchase_options": true,
                 "include_tag_count": 0
@@ -298,12 +300,14 @@ pub async fn fetch_store_item_enrichment(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("")
                 .to_string();
+            let family_sharing_supported = is_family_sharing_supported(item);
             let cover_url = extract_store_card_cover_url(item);
             let price = normalize_store_item_original_price(item, settings);
             enrichment.insert(
                 appid,
                 StoreItemEnrichment {
                     localized_name,
+                    family_sharing_supported,
                     cover_url,
                     price,
                 },
@@ -312,6 +316,17 @@ pub async fn fetch_store_item_enrichment(
     }
 
     Ok(enrichment)
+}
+
+fn is_family_sharing_supported(item: &serde_json::Value) -> bool {
+    item.get("categories")
+        .and_then(|categories| categories.get("feature_categoryids"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|ids| {
+            ids.iter()
+                .filter_map(value_to_i64)
+                .any(|id| id == FAMILY_SHARING_CATEGORY_ID)
+        })
 }
 
 async fn resolve_target_identity(
@@ -706,6 +721,7 @@ mod tests {
             store_country: "CN".to_string(),
             locale: "zh-CN".to_string(),
             price_mode: "original".to_string(),
+            cache_directory: String::new(),
         };
 
         let price = normalize_store_item_original_price(&item, &settings).expect("price");
@@ -714,5 +730,16 @@ mod tests {
         assert_eq!(price.currency, "CNY");
         assert_eq!(price.localized_name, "Example");
         assert!(!price.unavailable);
+    }
+
+    #[test]
+    fn detects_family_sharing_feature_category() {
+        let item = serde_json::json!({
+            "categories": {
+                "feature_categoryids": [1, 62, 99]
+            }
+        });
+
+        assert!(is_family_sharing_supported(&item));
     }
 }

@@ -5,15 +5,15 @@ export function ResultMoreMenu({
   showAppId,
   onToggleAppId,
   onCopyList,
-  onCopyReport,
-  onClearCache
+  onCopyNames,
+  onCopyReport
 }: {
   state: MoreMenuState;
   showAppId: boolean;
   onToggleAppId: () => void;
   onCopyList: () => void;
+  onCopyNames: () => void;
   onCopyReport: () => void;
-  onClearCache: () => void;
 }) {
   return (
     <div
@@ -25,11 +25,11 @@ export function ResultMoreMenu({
       <button type="button" role="menuitem" onClick={onCopyList}>
         复制列表
       </button>
+      <button type="button" role="menuitem" onClick={onCopyNames}>
+        复制游戏名
+      </button>
       <button type="button" role="menuitem" onClick={onCopyReport}>
         复制报告
-      </button>
-      <button type="button" role="menuitem" onClick={onClearCache}>
-        清除缓存
       </button>
       <button
         type="button"

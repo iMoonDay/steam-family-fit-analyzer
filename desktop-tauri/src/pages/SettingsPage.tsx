@@ -1,20 +1,24 @@
 import { listen } from "@tauri-apps/api/event";
-import { Button, Divider, Group, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Tooltip } from "@mantine/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import { ActionIcon, Button, Divider, Group, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import type { AppSettings, AppStatus, LocaleMode, AutoSteamConfigResult } from "../types";
-import { startBrowserConfigCallback } from "../services/desktop";
+import { clearCache, openCacheDirectory, startBrowserConfigCallback } from "../services/desktop";
 import { FieldLabel, HelpSteps } from "../components/fields";
+import { CacheActionIcon } from "../components/icons";
 import { openExternalUrl, writeClipboard } from "../core/external";
 import { browserConfigHelpSteps } from "../core/help";
 
 export function SettingsPage({
   settings,
   status,
-  onSettingsChange
+  onSettingsChange,
+  onMessage
 }: {
   settings: AppSettings;
   status: AppStatus | null;
   onSettingsChange: (settings: AppSettings) => void;
+  onMessage: (message: string) => void;
 }) {
   return (
     <div className="settings-workspace">
@@ -30,6 +34,7 @@ export function SettingsPage({
           settings={settings}
           status={status}
           onSettingsChange={onSettingsChange}
+          onMessage={onMessage}
         />
       </section>
     </div>
@@ -39,15 +44,18 @@ export function SettingsPage({
 function SettingsPanel({
   settings,
   status,
-  onSettingsChange
+  onSettingsChange,
+  onMessage
 }: {
   settings: AppSettings;
   status: AppStatus | null;
   onSettingsChange: (settings: AppSettings) => void;
+  onMessage: (message: string) => void;
 }) {
   const [autoDetectBusy, setAutoDetectBusy] = useState(false);
   const [autoDetectMessage, setAutoDetectMessage] = useState("");
   const latestSettingsRef = useRef(settings);
+  const displayedCacheDirectory = settings.cacheDirectory.trim() || status?.cacheDirectory || "-";
 
   useEffect(() => {
     latestSettingsRef.current = settings;
@@ -107,6 +115,49 @@ function SettingsPanel({
     } finally {
       setAutoDetectBusy(false);
     }
+  }
+
+  async function handleOpenCacheDirectory() {
+    try {
+      await openCacheDirectory(settings);
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleClearCache() {
+    try {
+      await clearCache(settings);
+      onMessage("缓存已清理");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleSelectCacheDirectory() {
+    try {
+      const selected = await open({
+        title: "选择缓存目录",
+        directory: true,
+        multiple: false,
+        defaultPath: settings.cacheDirectory.trim() || status?.cacheDirectory || undefined
+      });
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+      updateSettings("cacheDirectory", selected);
+      onMessage("缓存目录已更新");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function handleUseDefaultCacheDirectory() {
+    if (!settings.cacheDirectory.trim()) {
+      return;
+    }
+    updateSettings("cacheDirectory", "");
+    onMessage("已恢复默认缓存目录");
   }
 
   return (
@@ -184,9 +235,66 @@ function SettingsPanel({
         <Divider />
         <Stack gap={4}>
           <Text size="xs" c="dimmed" fw={700}>缓存目录</Text>
-          <Text size="xs" className="path-text">{status?.cacheDirectory || "-"}</Text>
+          <Group gap="xs" wrap="nowrap" className="settings-cache-row">
+            <Text size="xs" className="path-text">{displayedCacheDirectory}</Text>
+            <Group gap={6} wrap="nowrap" className="settings-cache-actions">
+              <CacheActionButton
+                label="前往目录"
+                icon="open"
+                disabled={!displayedCacheDirectory || displayedCacheDirectory === "-"}
+                onClick={() => void handleOpenCacheDirectory()}
+              />
+              <CacheActionButton
+                label="修改路径"
+                icon="change"
+                onClick={() => void handleSelectCacheDirectory()}
+              />
+              <CacheActionButton
+                label="恢复默认"
+                icon="reset"
+                disabled={!settings.cacheDirectory.trim()}
+                onClick={handleUseDefaultCacheDirectory}
+              />
+              <CacheActionButton
+                label="清除缓存"
+                icon="clear"
+                onClick={() => void handleClearCache()}
+              />
+            </Group>
+          </Group>
         </Stack>
       </Stack>
     </div>
+  );
+}
+
+function CacheActionButton({
+  label,
+  icon,
+  disabled,
+  onClick
+}: {
+  label: string;
+  icon: "open" | "change" | "reset" | "clear";
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip label={label} withArrow openDelay={250}>
+      <span className="settings-cache-action-wrap">
+        <ActionIcon
+          className="settings-cache-action"
+          size={28}
+          radius="md"
+          variant="light"
+          color="steamBlue"
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          <CacheActionIcon type={icon} />
+        </ActionIcon>
+      </span>
+    </Tooltip>
   );
 }

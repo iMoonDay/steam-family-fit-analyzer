@@ -310,6 +310,12 @@ export function getReportGameStatusLabel(status: ReportGameStatus): string {
   if (status === "currentOwned") {
     return "不计入新增";
   }
+  if (status === "unsupported") {
+    return "不可共享";
+  }
+  if (status === "noValue") {
+    return "无新增价值";
+  }
   return "-";
 }
 
@@ -478,6 +484,10 @@ export function formatGameListText(games: ResultGameRow[]): string {
     formatPrice(game.price),
     game.storeLink
   ].join("\t")).join("\n");
+}
+
+export function formatGameNamesText(games: ResultGameRow[]): string {
+  return games.map(game => game.name).join("\n");
 }
 
 export function buildReportTargetInput(report: AnalysisReport | null): string {

@@ -436,6 +436,7 @@ mod tests {
             store_country: "CN".to_string(),
             locale: "zh-CN".to_string(),
             price_mode: "historyLow".to_string(),
+            cache_directory: String::new(),
         };
 
         let price = normalize_history_low_price(Some(&item), &settings);

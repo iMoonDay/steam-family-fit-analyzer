@@ -6,10 +6,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::{
     collections::HashMap,
     fs,
-    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const STORE_CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
 const PRICE_CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
@@ -19,8 +18,8 @@ pub struct CacheStore {
 }
 
 impl CacheStore {
-    pub fn open(app: &AppHandle) -> Result<Self, String> {
-        let cache_dir = app_cache_dir(app)?;
+    pub fn open(app: &AppHandle, settings: &AppSettings) -> Result<Self, String> {
+        let cache_dir = crate::settings::cache_directory(app, settings)?;
         fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
         let connection = Connection::open(cache_dir.join("cache.sqlite3"))
             .map_err(|error| format!("打开缓存数据库失败：{error}"))?;
@@ -39,12 +38,18 @@ impl CacheStore {
         let mut result = HashMap::new();
 
         for appid in appids {
-            let Some((localized_name, cover_url)) = self
+            let Some((localized_name, cover_url, family_sharing_supported)) = self
                 .connection
                 .query_row(
-                    "SELECT localized_name, cover_url FROM store_cache WHERE context = ?1 AND appid = ?2 AND updated_at >= ?3",
+                    "SELECT localized_name, cover_url, supported FROM store_cache WHERE context = ?1 AND appid = ?2 AND updated_at >= ?3 AND supported IS NOT NULL",
                     params![context, appid, fresh_after],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)? != 0,
+                        ))
+                    },
                 )
                 .optional()
                 .map_err(|error| format!("读取商店缓存失败：{error}"))?
@@ -56,6 +61,7 @@ impl CacheStore {
                 appid.clone(),
                 StoreItemEnrichment {
                     localized_name,
+                    family_sharing_supported,
                     cover_url,
                     price,
                 },
@@ -79,13 +85,21 @@ impl CacheStore {
 
         for (appid, item) in enrichment {
             tx.execute(
-                "INSERT INTO store_cache (context, appid, localized_name, cover_url, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO store_cache (context, appid, localized_name, supported, cover_url, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(context, appid) DO UPDATE SET
                    localized_name = excluded.localized_name,
+                   supported = excluded.supported,
                    cover_url = excluded.cover_url,
                    updated_at = excluded.updated_at",
-                params![context, appid, item.localized_name, item.cover_url, updated_at],
+                params![
+                    context,
+                    appid,
+                    item.localized_name,
+                    i64::from(item.family_sharing_supported),
+                    item.cover_url,
+                    updated_at
+                ],
             )
             .map_err(|error| format!("写入商店缓存失败：{error}"))?;
             if let Some(price) = &item.price {
@@ -245,12 +259,6 @@ fn save_price_with_connection(
         )
         .map_err(|error| format!("写入价格缓存失败：{error}"))?;
     Ok(())
-}
-
-fn app_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_cache_dir()
-        .map_err(|error| error.to_string())
 }
 
 fn cache_context(settings: &AppSettings) -> String {

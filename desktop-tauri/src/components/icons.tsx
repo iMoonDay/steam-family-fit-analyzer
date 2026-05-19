@@ -109,3 +109,46 @@ export function TrashIcon() {
     </svg>
   );
 }
+
+export function CacheActionIcon({ type }: { type: "open" | "change" | "reset" | "clear" }) {
+  if (type === "open") {
+    return (
+      <svg className="cache-action-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M2.75 5.25h3.55l1.05 1.25h5.9v6.25H2.75z" />
+        <path d="M2.75 5.25V3.75h3.1l1.05 1.5" />
+        <path d="M9.75 9.6h2.25" />
+        <path d="M10.9 8.45l1.1 1.15-1.1 1.15" />
+      </svg>
+    );
+  }
+
+  if (type === "change") {
+    return (
+      <svg className="cache-action-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M3 12.65l2.05-.45 6.65-6.65-1.6-1.6-6.65 6.65z" />
+        <path d="M9.15 4.9l1.6 1.6" />
+        <path d="M2.75 13.25h10.5" />
+      </svg>
+    );
+  }
+
+  if (type === "reset") {
+    return (
+      <svg className="cache-action-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M4.1 6.25a4.35 4.35 0 1 1 .8 4.95" />
+        <path d="M4.1 3.65v2.6h2.6" />
+        <path d="M8 5.9v2.55l1.7 1" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="cache-action-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M3.25 4.25h9.5" />
+      <path d="M6.25 4.25V3h3.5v1.25" />
+      <path d="M5 6.25l.35 6.25h5.3L11 6.25" />
+      <path d="M7.1 7.25v3.9" />
+      <path d="M8.9 7.25v3.9" />
+    </svg>
+  );
+}

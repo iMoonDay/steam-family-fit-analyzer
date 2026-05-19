@@ -228,6 +228,31 @@ textarea {
   line-height: 1.55;
 }
 
+.settings-cache-row {
+  min-width: 0;
+}
+
+.settings-cache-row .path-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-cache-actions {
+  flex: 0 0 auto;
+}
+
+.settings-cache-action-wrap {
+  display: inline-flex;
+}
+
+.settings-cache-action {
+  color: var(--color-muted);
+}
+
+.settings-cache-action:not(:disabled):hover {
+  color: var(--color-accent);
+}
+
 .settings-pane .mantine-Input-input,
 .settings-pane .mantine-SegmentedControl-root,
 .editor-body .mantine-Input-input,
@@ -940,6 +965,13 @@ textarea {
   color: #34485d;
 }
 
+.game-card .status-tag-unsupported,
+.game-card .status-tag-noValue {
+  background: rgba(229, 231, 235, 0.54);
+  border-color: rgba(209, 213, 219, 0.36);
+  color: #374151;
+}
+
 .game-card-owner-tags {
   gap: 6px;
 }
@@ -1167,6 +1199,13 @@ textarea {
   color: #44576b;
 }
 
+.status-tag-unsupported,
+.status-tag-noValue {
+  border-color: rgba(107, 114, 128, 0.32);
+  background: rgba(229, 231, 235, 0.96);
+  color: #374151;
+}
+
 .game-table-name {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
@@ -1327,6 +1366,16 @@ textarea {
 
 .path-text {
   overflow-wrap: anywhere;
+}
+
+.cache-action-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
 }
 
 .field-help-icon {

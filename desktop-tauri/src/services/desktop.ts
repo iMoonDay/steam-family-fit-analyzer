@@ -39,14 +39,25 @@ export async function loadSettings(defaults: AppSettings): Promise<AppSettings> 
   }
 }
 
-export async function clearCache(): Promise<void> {
+export async function clearCache(settings: AppSettings): Promise<void> {
   try {
-    await invoke("clear_cache");
+    await invoke("clear_cache", { settings });
   } catch (error) {
     if (isTauriRuntimeError(error)) {
       throw new Error(String(error));
     }
     localStorage.removeItem("sffa.desktop.cache");
+  }
+}
+
+export async function openCacheDirectory(settings: AppSettings): Promise<void> {
+  try {
+    await invoke("open_cache_directory", { settings });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能打开缓存目录，请使用 Tauri 桌面窗口。");
   }
 }
 

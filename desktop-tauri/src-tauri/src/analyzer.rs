@@ -34,11 +34,9 @@ pub fn apply_store_enrichment_to_report(
     enrichment: &HashMap<String, StoreItemEnrichment>,
 ) {
     apply_store_enrichment_to_games(&mut report.games.all, enrichment);
-    apply_store_enrichment_to_games(&mut report.games.new, enrichment);
     apply_store_enrichment_to_games(&mut report.games.relative_new, enrichment);
-    apply_store_enrichment_to_games(&mut report.games.overlap, enrichment);
-    apply_store_enrichment_to_games(&mut report.games.current_owned, enrichment);
-    apply_store_enrichment_to_games(&mut report.games.not_current_owned, enrichment);
+    reclassify_new_candidates(&mut report.games.all, enrichment);
+    refresh_report_lists_from_all(report);
 }
 
 pub fn apply_prices_to_report(report: &mut AnalysisReport, prices: &HashMap<String, PriceInfo>) {
@@ -220,6 +218,65 @@ fn apply_store_enrichment_to_games(
     }
 }
 
+fn reclassify_new_candidates(
+    games: &mut [ReportGame],
+    enrichment: &HashMap<String, StoreItemEnrichment>,
+) {
+    for game in games {
+        if game.status != "new" {
+            continue;
+        }
+        let Some(item) = enrichment.get(&game.appid) else {
+            continue;
+        };
+        if !item.family_sharing_supported {
+            game.status = "unsupported".to_string();
+        } else if is_zero_value_original_price(game.prices.original.as_ref()) {
+            game.status = "noValue".to_string();
+        }
+    }
+}
+
+fn is_zero_value_original_price(price: Option<&PriceInfo>) -> bool {
+    price.is_some_and(|price| {
+        !price.unavailable && (price.is_free || price.initial.is_some_and(|initial| initial <= 0))
+    })
+}
+
+fn refresh_report_lists_from_all(report: &mut AnalysisReport) {
+    report.games.new = report
+        .games
+        .all
+        .iter()
+        .filter(|game| game.status == "new")
+        .cloned()
+        .collect();
+    report.games.overlap = report
+        .games
+        .all
+        .iter()
+        .filter(|game| game.status == "overlap")
+        .cloned()
+        .collect();
+    report.games.current_owned = report
+        .games
+        .all
+        .iter()
+        .filter(|game| game.status == "currentOwned")
+        .cloned()
+        .collect();
+    report.games.not_current_owned = report
+        .games
+        .all
+        .iter()
+        .filter(|game| game.status != "currentOwned")
+        .cloned()
+        .collect();
+    report.new_game_count = report.games.new.len();
+    report.overlap_count = report.games.overlap.len();
+    report.current_owned_overlap_count = report.games.current_owned.len();
+}
+
 fn apply_prices_to_games(games: &mut [ReportGame], prices: &HashMap<String, PriceInfo>) {
     for game in games {
         if let Some(price) = prices.get(&game.appid) {
@@ -318,6 +375,59 @@ mod tests {
         assert_eq!(overlap.family_owner_names, vec!["Carol"]);
     }
 
+    #[test]
+    fn store_enrichment_filters_unsupported_and_zero_value_new_games() {
+        let targets = vec![test_target(
+            "76561190000000001",
+            "Alice",
+            vec![
+                test_game("10", "Unsupported"),
+                test_game("20", "Free"),
+                test_game("30", "Paid"),
+            ],
+        )];
+        let mut report = build_analysis_report(targets, &[], Some(&empty_family_library()), Vec::new());
+        let enrichment = HashMap::from([
+            (
+                "10".to_string(),
+                test_enrichment(false, Some(test_price(9900, false))),
+            ),
+            (
+                "20".to_string(),
+                test_enrichment(true, Some(test_price(0, true))),
+            ),
+            (
+                "30".to_string(),
+                test_enrichment(true, Some(test_price(9900, false))),
+            ),
+        ]);
+
+        apply_store_enrichment_to_report(&mut report, &enrichment);
+
+        assert_eq!(report.new_game_count, 1);
+        assert_eq!(report.games.new[0].appid, "30");
+        assert_eq!(
+            report
+                .games
+                .all
+                .iter()
+                .find(|game| game.appid == "10")
+                .expect("unsupported game")
+                .status,
+            "unsupported"
+        );
+        assert_eq!(
+            report
+                .games
+                .all
+                .iter()
+                .find(|game| game.appid == "20")
+                .expect("free game")
+                .status,
+            "noValue"
+        );
+    }
+
     fn test_target(steamid64: &str, display_name: &str, games: Vec<TargetGame>) -> TargetProfile {
         TargetProfile {
             steamid64: steamid64.to_string(),
@@ -336,6 +446,34 @@ mod tests {
             appid: appid.to_string(),
             name: name.to_string(),
             store_link: format!("https://store.steampowered.com/app/{appid}/"),
+        }
+    }
+
+    fn empty_family_library() -> FamilyLibrary {
+        FamilyLibrary {
+            games_by_id: HashMap::new(),
+            owner_names_by_id: HashMap::new(),
+        }
+    }
+
+    fn test_enrichment(family_sharing_supported: bool, price: Option<PriceInfo>) -> StoreItemEnrichment {
+        StoreItemEnrichment {
+            localized_name: String::new(),
+            family_sharing_supported,
+            cover_url: String::new(),
+            price,
+        }
+    }
+
+    fn test_price(initial: i64, is_free: bool) -> PriceInfo {
+        PriceInfo {
+            initial: Some(initial),
+            currency: "CNY".to_string(),
+            localized_name: String::new(),
+            source: "original".to_string(),
+            is_free,
+            unavailable: false,
+            history_low_at: String::new(),
         }
     }
 }

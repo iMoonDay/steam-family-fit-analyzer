@@ -23,7 +23,6 @@ import type {
   TableSortDirection,
   TableSortState
 } from "../appTypes";
-import { clearCache } from "../services/desktop";
 import { MoreIcon } from "../components/icons";
 import { GameCard } from "../components/result/GameCard";
 import { GameTable } from "../components/result/GameTable";
@@ -37,6 +36,7 @@ import {
   buildReportTargetInput,
   buildTableSortSelectOptions,
   formatGameListText,
+  formatGameNamesText,
   formatReportText,
   matchesResultGameSearch,
   normalizeTableSortState,
@@ -228,14 +228,14 @@ export function AnalysisResultPage({
     onMessage(`已复制当前列表：${visibleGames.length} 个游戏`);
   }
 
+  async function handleCopyGameNames() {
+    await writeClipboard(formatGameNamesText(visibleGames));
+    onMessage(`已复制游戏名：${visibleGames.length} 个游戏`);
+  }
+
   async function handleCopyReport() {
     await writeClipboard(formatReportText(report, priceMode));
     onMessage("已复制分析报告");
-  }
-
-  async function handleClearCache() {
-    await clearCache();
-    onMessage("缓存已清理，下次分析会重新请求商店与价格数据");
   }
 
   return (
@@ -413,8 +413,8 @@ export function AnalysisResultPage({
           showAppId={showAppId}
           onToggleAppId={handleToggleAppId}
           onCopyList={() => void handleCopyCurrentList().catch(error => onMessage(String(error))).finally(() => setMoreMenu(null))}
+          onCopyNames={() => void handleCopyGameNames().catch(error => onMessage(String(error))).finally(() => setMoreMenu(null))}
           onCopyReport={() => void handleCopyReport().catch(error => onMessage(String(error))).finally(() => setMoreMenu(null))}
-          onClearCache={() => void handleClearCache().catch(error => onMessage(String(error))).finally(() => setMoreMenu(null))}
         />
       ) : null}
     </div>

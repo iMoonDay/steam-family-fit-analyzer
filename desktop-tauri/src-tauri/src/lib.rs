@@ -17,7 +17,7 @@ use crate::{
     steam::StoreItemEnrichment,
 };
 use std::collections::HashMap;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 #[tauri::command]
 fn get_app_status(app: AppHandle) -> Result<AppStatus, String> {
@@ -35,8 +35,13 @@ fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn clear_cache(app: AppHandle) -> Result<(), String> {
-    cache::CacheStore::open(&app)?.clear_all()
+fn clear_cache(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    cache::CacheStore::open(&app, &settings)?.clear_all()
+}
+
+#[tauri::command]
+fn open_cache_directory(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    settings::open_cache_directory(app, settings)
 }
 
 #[tauri::command]
@@ -147,7 +152,7 @@ async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisR
         warnings,
     );
     let report_appids = collect_report_appids(&report);
-    let mut cache_store = match cache::CacheStore::open(&app) {
+    let mut cache_store = match cache::CacheStore::open(&app, &input.settings) {
         Ok(cache_store) => Some(cache_store),
         Err(error) => {
             report.warnings.push(format!("缓存不可用：{error}"));
@@ -191,7 +196,7 @@ async fn refresh_report_prices(
     let client = steam::build_client()?;
     let mut report = input.report;
     let report_appids = collect_report_appids(&report);
-    let mut cache_store = match cache::CacheStore::open(&app) {
+    let mut cache_store = match cache::CacheStore::open(&app, &input.settings) {
         Ok(cache_store) => Some(cache_store),
         Err(error) => {
             report.warnings.push(format!("缓存不可用：{error}"));
@@ -334,12 +339,20 @@ async fn apply_history_low_prices(
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                window.center()?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_app_status,
             load_settings,
             save_settings,
             clear_cache,
+            open_cache_directory,
             auto_detect_steam_config,
             start_browser_config_callback,
             analyze_preview,

@@ -39,7 +39,8 @@ const defaultSettings: AppSettings = {
   familyGroupId: "",
   storeCountry: "CN",
   locale: "auto",
-  priceMode: "original"
+  priceMode: "original",
+  cacheDirectory: ""
 };
 
 const defaultResultViewState: ResultViewState = {
@@ -324,6 +325,7 @@ function App() {
                     settings={settings}
                     status={status}
                     onSettingsChange={handleSettingsChange}
+                    onMessage={setMessage}
                   />
                 </div>
               </div>

@@ -14,6 +14,8 @@ pub struct AppSettings {
     pub store_country: String,
     pub locale: String,
     pub price_mode: String,
+    #[serde(default)]
+    pub cache_directory: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

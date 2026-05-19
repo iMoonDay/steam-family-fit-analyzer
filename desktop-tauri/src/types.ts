@@ -10,6 +10,7 @@ export type AppSettings = {
   storeCountry: string;
   locale: LocaleMode;
   priceMode: PriceMode;
+  cacheDirectory: string;
 };
 
 export type AnalyzeInput = {
@@ -56,7 +57,7 @@ export type TargetProfile = {
   sampleGames: TargetGame[];
 };
 
-export type ReportGameStatus = "new" | "relativeNew" | "overlap" | "currentOwned" | "notCurrentOwned";
+export type ReportGameStatus = "new" | "relativeNew" | "overlap" | "currentOwned" | "notCurrentOwned" | "unsupported" | "noValue";
 
 export type PriceInfo = {
   initial: number | null;

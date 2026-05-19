@@ -1,6 +1,10 @@
 use crate::models::{AppSettings, AppStatus};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::PathBuf,
+};
 use tauri::{AppHandle, Manager};
+use tauri_plugin_opener::OpenerExt;
 
 pub fn app_status(app: AppHandle) -> Result<AppStatus, String> {
     let config_dir = app_config_dir(&app)?;
@@ -26,12 +30,35 @@ pub fn load(app: AppHandle, defaults: AppSettings) -> Result<AppSettings, String
 }
 
 pub fn save(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    let cache_dir = cache_directory(&app, &settings)?;
+    fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
     let path = settings_path(&app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let text = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
     fs::write(path, text).map_err(|error| error.to_string())
+}
+
+pub fn open_cache_directory(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    let cache_dir = cache_directory(&app, &settings)?;
+    fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
+    app.opener()
+        .open_path(cache_dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+pub fn cache_directory(app: &AppHandle, settings: &AppSettings) -> Result<PathBuf, String> {
+    let custom_dir = settings.cache_directory.trim();
+    if custom_dir.is_empty() {
+        return app_cache_dir(app);
+    }
+
+    let path = PathBuf::from(custom_dir);
+    if !path.is_absolute() {
+        return Err("缓存目录必须使用绝对路径".to_string());
+    }
+    Ok(path)
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {

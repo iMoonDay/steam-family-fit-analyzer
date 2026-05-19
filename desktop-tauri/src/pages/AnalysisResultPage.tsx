@@ -417,7 +417,7 @@ export function AnalysisResultPage({
           return;
         }
         if (result.warnings.length) {
-          onMessage(`封面刷新失败：${result.warnings[0]}`);
+          onMessage(`封面失败：${result.warnings[0]}`);
         }
       })
       .catch(error => {
@@ -427,7 +427,7 @@ export function AnalysisResultPage({
 
   function handleReloadCurrentListCovers() {
     if (!visibleGames.length) {
-      onMessage("当前列表没有可重载的封面");
+      onMessage("没有封面");
       setMoreMenu(null);
       return;
     }
@@ -473,10 +473,10 @@ export function AnalysisResultPage({
           });
         }
         if (result.warnings.length) {
-          onMessage(`部分封面重载失败：${result.warnings[0]}`);
+          onMessage(`部分失败：${result.warnings[0]}`);
           return;
         }
-        onMessage(`已重载封面：${result.covers.length} / ${visibleGames.length}`);
+        onMessage(`已重载 ${result.covers.length} / ${visibleGames.length}`);
       })
       .catch(error => {
         onMessage(error instanceof Error ? error.message : String(error));
@@ -541,17 +541,17 @@ export function AnalysisResultPage({
 
   async function handleCopyCurrentList() {
     await writeClipboard(formatGameListText(visibleGames));
-    onMessage(`已复制当前列表：${visibleGames.length} 个游戏`);
+    onMessage(`已复制 ${visibleGames.length} 个`);
   }
 
   async function handleCopyGameNames() {
     await writeClipboard(formatGameNamesText(visibleGames));
-    onMessage(`已复制游戏名：${visibleGames.length} 个游戏`);
+    onMessage(`已复制 ${visibleGames.length} 个`);
   }
 
   async function handleCopyReport() {
     await writeClipboard(formatReportText(effectiveReport, priceMode));
-    onMessage("已复制分析报告");
+    onMessage("已复制");
   }
 
   function handleTargetCheckedChange(steamid64: string, checked: boolean) {
@@ -559,7 +559,7 @@ export function AnalysisResultPage({
       return;
     }
     if (!checked && activeSelectedTargetIds.length <= 1) {
-      onMessage("至少保留一个目标账号参与统计");
+      onMessage("至少保留一个账号");
       return;
     }
     const nextSelectedTargetIds = checked
@@ -575,7 +575,7 @@ export function AnalysisResultPage({
 
   function handleOpenListPosterDialog() {
     if (!visibleGames.length) {
-      onMessage("当前列表没有可保存的封面图");
+      onMessage("没有封面");
       setMoreMenu(null);
       return;
     }
@@ -601,7 +601,7 @@ export function AnalysisResultPage({
       return;
     }
 
-    onMessage("正在整理封面图...");
+    onMessage("整理封面");
     const result = await cacheCovers(settings, visibleGames.map(game => ({
       appid: game.appid,
       url: game.coverUrl ? getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0) : ""
@@ -614,7 +614,7 @@ export function AnalysisResultPage({
       setCoverCachePaths(nextCoverPaths);
     }
 
-    onMessage("正在生成封面图...");
+    onMessage("生成图片");
     const coverUrlsByAppid = Object.fromEntries(visibleGames.map(game => [
       game.appid,
       nextCoverPaths[game.appid] ? getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0, nextCoverPaths[game.appid]) : ""
@@ -627,8 +627,8 @@ export function AnalysisResultPage({
     });
     await savePngFile(ensurePngFilePath(outputPath), dataUrl);
     onMessage(result.warnings.length
-      ? `已保存封面图：${visibleGames.length} 个游戏，部分封面使用占位图`
-      : `已保存封面图：${visibleGames.length} 个游戏`);
+      ? `已保存 ${visibleGames.length} 个，部分缺图`
+      : `已保存 ${visibleGames.length} 个`);
   }
 
   return (

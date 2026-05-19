@@ -2,3 +2,5 @@
 *.log
 .deepseek/
 .codex/
+.playwright*/
+.trae/

@@ -1,6 +1,9 @@
 use crate::{
     input::{is_steamid64, normalize_target_token, steam_friend_code_to_steamid64},
-    models::{AppSettings, FamilyGame, FamilyLibrary, PriceInfo, TargetGame, TargetProfile},
+    models::{
+        AppSettings, FamilyGame, FamilyLibrary, PriceInfo, SteamLoginProfile, TargetGame,
+        TargetProfile,
+    },
 };
 use std::{collections::HashMap, error::Error, time::Duration};
 
@@ -128,6 +131,65 @@ pub async fn fetch_player_display_names(
     }
 
     Ok(names)
+}
+
+pub async fn fetch_steam_login_profile(
+    client: &reqwest::Client,
+    api_key: &str,
+    steamid64: &str,
+) -> Result<SteamLoginProfile, String> {
+    if !is_steamid64(steamid64) {
+        return Err("SteamID64 必须是 17 位数字".to_string());
+    }
+    if api_key.trim().is_empty() {
+        return fetch_public_steam_profile(client, steamid64).await;
+    }
+
+    let identity = TargetIdentity {
+        steamid64: steamid64.to_string(),
+        profile_url: format!("https://steamcommunity.com/profiles/{steamid64}"),
+        display_name: steamid64.to_string(),
+    };
+    let summary = fetch_player_summary(client, api_key, &identity).await?;
+    Ok(SteamLoginProfile {
+        steamid64: steamid64.to_string(),
+        display_name: summary.display_name,
+        profile_url: summary.profile_url,
+        avatar: summary.avatar,
+    })
+}
+
+async fn fetch_public_steam_profile(
+    client: &reqwest::Client,
+    steamid64: &str,
+) -> Result<SteamLoginProfile, String> {
+    let url = format!("https://steamcommunity.com/profiles/{steamid64}?xml=1");
+    let response = client
+        .get(url)
+        .header(
+            reqwest::header::ACCEPT,
+            "application/xml,text/xml,*/*;q=0.1",
+        )
+        .send()
+        .await
+        .map_err(|error| crate::error::AppError::from_reqwest(error, "Steam 资料"))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(crate::error::AppError::from_http_status(status, "Steam 资料").user_message());
+    }
+    let xml = response.text().await.map_err(|error| {
+        crate::error::AppError::DataFormat(format!("Steam 资料无法读取：{error}")).user_message()
+    })?;
+    Ok(SteamLoginProfile {
+        steamid64: steamid64.to_string(),
+        display_name: extract_xml_tag(&xml, "steamID").unwrap_or_else(|| steamid64.to_string()),
+        profile_url: extract_xml_tag(&xml, "profileURL")
+            .unwrap_or_else(|| format!("https://steamcommunity.com/profiles/{steamid64}")),
+        avatar: extract_xml_tag(&xml, "avatarFull")
+            .or_else(|| extract_xml_tag(&xml, "avatarMedium"))
+            .or_else(|| extract_xml_tag(&xml, "avatarIcon"))
+            .unwrap_or_default(),
+    })
 }
 
 pub async fn fetch_family_group_id(
@@ -616,9 +678,7 @@ async fn request_json(
         )
         .send()
         .await
-        .map_err(|error| {
-            crate::error::AppError::from_reqwest(error, &context)
-        })?;
+        .map_err(|error| crate::error::AppError::from_reqwest(error, &context))?;
     let status = response.status();
     if !status.is_success() {
         return Err(crate::error::AppError::from_http_status(status, &context).user_message());
@@ -638,19 +698,21 @@ fn describe_request_context(url: &str, query: &[(&str, &str)]) -> String {
         .rsplit('/')
         .take(2)
         .collect::<Vec<_>>();
-    let endpoint = endpoint
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join("/");
+    let endpoint = endpoint.into_iter().rev().collect::<Vec<_>>().join("/");
     let endpoint = if endpoint.is_empty() {
         "Steam API".to_string()
     } else {
         format!("Steam API {endpoint}")
     };
-    if query.iter().any(|(key, value)| *key == "access_token" && !value.trim().is_empty()) {
+    if query
+        .iter()
+        .any(|(key, value)| *key == "access_token" && !value.trim().is_empty())
+    {
         format!("{endpoint}（家庭库 Access Token）")
-    } else if query.iter().any(|(key, value)| *key == "key" && !value.trim().is_empty()) {
+    } else if query
+        .iter()
+        .any(|(key, value)| *key == "key" && !value.trim().is_empty())
+    {
         format!("{endpoint}（Steam Web API Key）")
     } else {
         endpoint
@@ -670,6 +732,28 @@ fn normalize_target_game(game: &serde_json::Value) -> Option<TargetGame> {
         appid,
         name,
     })
+}
+
+fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = xml.find(&open)? + open.len();
+    let end = xml[start..].find(&close)? + start;
+    let value = xml[start..end]
+        .trim()
+        .trim_start_matches("<![CDATA[")
+        .trim_end_matches("]]>")
+        .trim();
+    (!value.is_empty()).then(|| decode_xml_entities(value))
+}
+
+fn decode_xml_entities(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
 }
 
 pub(crate) fn extract_store_card_cover_url(item: &serde_json::Value) -> String {
@@ -883,6 +967,7 @@ mod tests {
             locale: "zh-CN".to_string(),
             price_mode: "original".to_string(),
             cache_directory: String::new(),
+            config_directory: String::new(),
         };
 
         let price = normalize_store_item_original_price(&item, &settings).expect("price");

@@ -5,16 +5,35 @@ import type {
   AnalyzeInput,
   AppSettings,
   AppStatus,
+  AutoSteamConfigResult,
   BrowserCallbackSession,
   CacheCoversOutput,
-  CoverCacheRequest
+  CoverCacheRequest,
+  SteamLoginProfile,
+  SteamLoginRefreshResult,
+  SteamQrLoginPollResult,
+  SteamQrLoginSession
 } from "../types";
 import { normalizeTargetToken, splitTargetInput } from "../core/input";
 
 const fallbackStatus: AppStatus = {
   appName: "Steam 家庭库分析器",
   storageReady: false,
-  cacheDirectory: "浏览器预览模式"
+  cacheDirectory: "浏览器预览模式",
+  configDirectory: "浏览器预览模式"
+};
+
+const fallbackSettings: AppSettings = {
+  steamApiKey: "",
+  itadApiKey: "",
+  currentSteamId64: "",
+  familyAccessToken: "",
+  familyGroupId: "",
+  storeCountry: "CN",
+  locale: "auto",
+  priceMode: "original",
+  cacheDirectory: "",
+  configDirectory: ""
 };
 
 export async function getAppStatus(): Promise<AppStatus> {
@@ -26,19 +45,20 @@ export async function getAppStatus(): Promise<AppStatus> {
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
+  const persistedSettings = stripLoginDerivedSettings(normalizeSettings(settings));
   try {
-    await invoke("save_settings", { settings });
+    await invoke("save_settings", { settings: persistedSettings });
   } catch (error) {
     if (isTauriRuntimeError(error)) {
       throw new Error(`保存设置失败：${String(error)}`);
     }
-    localStorage.setItem("sffa.desktop.settings", JSON.stringify(settings));
+    localStorage.setItem("sffa.desktop.settings", JSON.stringify(persistedSettings));
   }
 }
 
 export async function exportSettings(path: string, settings: AppSettings): Promise<void> {
   try {
-    await invoke("export_settings", { path, settings });
+    await invoke("export_settings", { path, settings: stripLoginDerivedSettings(normalizeSettings(settings)) });
   } catch (error) {
     if (isTauriRuntimeError(error)) {
       throw new Error(`导出设置失败：${String(error)}`);
@@ -49,7 +69,7 @@ export async function exportSettings(path: string, settings: AppSettings): Promi
 
 export async function importSettings(path: string): Promise<AppSettings> {
   try {
-    return await invoke<AppSettings>("import_settings", { path });
+    return normalizeSettings(await invoke<AppSettings>("import_settings", { path }));
   } catch (error) {
     if (isTauriRuntimeError(error)) {
       throw new Error(`导入设置失败：${String(error)}`);
@@ -59,15 +79,66 @@ export async function importSettings(path: string): Promise<AppSettings> {
 }
 
 export async function loadSettings(defaults: AppSettings): Promise<AppSettings> {
+  const normalizedDefaults = normalizeSettings(defaults);
   try {
-    return await invoke<AppSettings>("load_settings", { defaults });
+    return normalizeSettings(await invoke<AppSettings>("load_settings", { defaults: normalizedDefaults }));
   } catch (error) {
     if (isTauriRuntimeError(error)) {
       throw new Error(`读取设置失败：${String(error)}`);
     }
     const saved = localStorage.getItem("sffa.desktop.settings");
-    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    return saved ? normalizeSettings({ ...normalizedDefaults, ...JSON.parse(saved) }) : normalizedDefaults;
   }
+}
+
+export async function migrateConfigDirectory(oldPath: string, newPath: string): Promise<void> {
+  try {
+    await invoke("migrate_config_directory", { oldPath, newPath });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能迁移配置目录，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function migrateCacheDirectory(oldPath: string, newPath: string): Promise<void> {
+  try {
+    await invoke("migrate_cache_directory", { oldPath, newPath });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能迁移缓存目录，请使用 Tauri 桌面窗口。");
+  }
+}
+
+function stripLoginDerivedSettings(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    steamApiKey: "",
+    currentSteamId64: "",
+    familyAccessToken: "",
+    familyGroupId: ""
+  };
+}
+
+function normalizeSettings(settings: Partial<AppSettings> | null | undefined): AppSettings {
+  const parsed = settings || {};
+  return {
+    ...fallbackSettings,
+    ...parsed,
+    steamApiKey: parsed.steamApiKey || "",
+    itadApiKey: parsed.itadApiKey || "",
+    currentSteamId64: parsed.currentSteamId64 || "",
+    familyAccessToken: parsed.familyAccessToken || "",
+    familyGroupId: parsed.familyGroupId || "",
+    storeCountry: parsed.storeCountry || fallbackSettings.storeCountry,
+    locale: parsed.locale || fallbackSettings.locale,
+    priceMode: parsed.priceMode || fallbackSettings.priceMode,
+    cacheDirectory: parsed.cacheDirectory || "",
+    configDirectory: parsed.configDirectory || ""
+  };
 }
 
 export async function clearCache(settings: AppSettings): Promise<void> {
@@ -89,6 +160,17 @@ export async function openCacheDirectory(settings: AppSettings): Promise<void> {
       throw new Error(String(error));
     }
     throw new Error("浏览器预览模式不能打开缓存目录，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function openConfigDirectory(settings: AppSettings): Promise<void> {
+  try {
+    await invoke("open_config_directory", { settings });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能打开配置目录，请使用 Tauri 桌面窗口。");
   }
 }
 
@@ -125,6 +207,87 @@ export async function startBrowserConfigCallback(): Promise<BrowserCallbackSessi
       throw new Error(String(error));
     }
     throw new Error("浏览器预览模式不能启动本地回调服务，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function beginSteamQrLogin(): Promise<SteamQrLoginSession> {
+  try {
+    return await invoke<SteamQrLoginSession>("begin_steam_qr_login");
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能启动 Steam 登录 API，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function pollSteamQrLogin(session: SteamQrLoginSession): Promise<SteamQrLoginPollResult> {
+  try {
+    return await invoke<SteamQrLoginPollResult>("poll_steam_qr_login", {
+      clientId: session.clientId,
+      requestId: session.requestId
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能轮询 Steam 登录 API，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function fetchFamilyConfigFromSteamLogin(result: SteamQrLoginPollResult): Promise<AutoSteamConfigResult> {
+  try {
+    return await invoke<AutoSteamConfigResult>("fetch_family_config_from_steam_login", {
+      steamid64: result.steamid64,
+      accessToken: result.accessToken
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能通过 Steam 登录态读取家庭库配置，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function fetchSteamApiKeyFromSteamLogin(result: SteamQrLoginPollResult): Promise<string | null> {
+  try {
+    return await invoke<string | null>("fetch_steam_api_key_from_steam_login", {
+      steamid64: result.steamid64,
+      accessToken: result.accessToken
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能通过 Steam 登录态读取 Steam Web API Key，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function refreshSteamLogin(steamid64: string, refreshToken: string): Promise<SteamLoginRefreshResult> {
+  try {
+    return await invoke<SteamLoginRefreshResult>("refresh_steam_login", {
+      steamid64,
+      refreshToken
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能刷新 Steam 登录态，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function fetchSteamLoginProfile(steamid64: string, steamApiKey: string): Promise<SteamLoginProfile> {
+  try {
+    return await invoke<SteamLoginProfile>("fetch_steam_login_profile", {
+      steamid64,
+      steamApiKey
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能读取 Steam 资料，请使用 Tauri 桌面窗口。");
   }
 }
 

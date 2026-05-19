@@ -419,17 +419,17 @@ impl CacheStore {
         url: &str,
         url_hash: &str,
     ) -> Result<CoverCacheItem, String> {
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|error| {
-                let ctx = format!("封面下载：{appid}");
-                crate::error::AppError::from_reqwest(error, &ctx).to_string()
-            })?;
+        let response = client.get(url).send().await.map_err(|error| {
+            let ctx = format!("封面下载：{appid}");
+            crate::error::AppError::from_reqwest(error, &ctx).to_string()
+        })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(crate::error::AppError::from_http_status(status, &format!("封面下载：{appid}")).to_string());
+            return Err(crate::error::AppError::from_http_status(
+                status,
+                &format!("封面下载：{appid}"),
+            )
+            .to_string());
         }
         let bytes = response
             .bytes()

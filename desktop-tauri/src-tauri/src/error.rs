@@ -25,26 +25,31 @@ impl AppError {
     pub fn from_http_status(status: reqwest::StatusCode, context: &str) -> Self {
         match status.as_u16() {
             401 => Self::AuthFailure(format!("{context}：鉴权失败（HTTP 401）")),
-            403 => Self::PrivateLibrary(format!("{context}：访问被拒绝（HTTP 403），可能为私密资料")),
+            403 => {
+                Self::PrivateLibrary(format!("{context}：访问被拒绝（HTTP 403），可能为私密资料"))
+            }
             404 => Self::NotFound(format!("{context}：资源不存在（HTTP 404）")),
             429 => Self::RateLimited(format!("{context}：请求过于频繁，请稍后重试（HTTP 429）")),
-            500..=599 => Self::Internal(format!(
-                "{context}：服务器内部错误（HTTP {status}）"
-            )),
+            500..=599 => Self::Internal(format!("{context}：服务器内部错误（HTTP {status}）")),
             _ => Self::Internal(format!("{context}：HTTP {status}")),
         }
     }
 
     /// 从 reqwest 网络错误构造
     pub fn from_reqwest(error: reqwest::Error, context: &str) -> Self {
-        if error.is_timeout() {
-            Self::NetworkFailure(format!("{context}：请求超时"))
-        } else if error.is_connect() {
-            Self::NetworkFailure(format!("{context}：无法连接到服务器"))
-        } else if error.is_body() || error.is_decode() {
-            Self::DataFormat(format!("{context}：响应数据读取失败"))
+        let is_timeout = error.is_timeout();
+        let is_connect = error.is_connect();
+        let is_body = error.is_body();
+        let is_decode = error.is_decode();
+        let detail = error.without_url().to_string();
+        if is_timeout {
+            Self::NetworkFailure(format!("{context}：请求超时（{detail}）"))
+        } else if is_connect {
+            Self::NetworkFailure(format!("{context}：无法连接到服务器（{detail}）"))
+        } else if is_body || is_decode {
+            Self::DataFormat(format!("{context}：响应数据读取失败（{detail}）"))
         } else {
-            Self::NetworkFailure(format!("{context}：网络请求失败"))
+            Self::NetworkFailure(format!("{context}：网络请求失败（{detail}）"))
         }
     }
 

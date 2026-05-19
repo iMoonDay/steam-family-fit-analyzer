@@ -22,7 +22,7 @@ export function WindowControlIcon({ type }: { type: "minimize" | "maximize" | "c
   );
 }
 
-export function ActivityIcon({ type }: { type: "logo" | "analysis" | "result" | "settings" | "help" }) {
+export function ActivityIcon({ type }: { type: "logo" | "analysis" | "result" | "login" | "settings" | "help" }) {
   if (type === "logo") {
     return (
       <svg className="activity-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
@@ -65,6 +65,16 @@ export function ActivityIcon({ type }: { type: "logo" | "analysis" | "result" | 
         <path d="M12.68 11.13l1.73 1" />
         <path d="M3.59 12.12l1.73-1" />
         <path d="M12.68 6.87l1.73-1" />
+      </svg>
+    );
+  }
+
+  if (type === "login") {
+    return (
+      <svg className="activity-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+        <path d="M4 8.25V6a5 5 0 0 1 10 0v2.25" />
+        <rect x="3.25" y="7.75" width="11.5" height="7" rx="1.25" />
+        <path d="M9 10.25v2" />
       </svg>
     );
   }
@@ -136,7 +146,7 @@ export function TrashIcon() {
   );
 }
 
-export function CacheActionIcon({ type }: { type: "open" | "change" | "reset" | "clear" }) {
+export function CacheActionIcon({ type }: { type: "open" | "change" | "reset" | "configReset" | "clear" }) {
   if (type === "open") {
     return (
       <svg className="cache-action-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -164,6 +174,17 @@ export function CacheActionIcon({ type }: { type: "open" | "change" | "reset" | 
         <path d="M4.1 6.25a4.35 4.35 0 1 1 .8 4.95" />
         <path d="M4.1 3.65v2.6h2.6" />
         <path d="M8 5.9v2.55l1.7 1" />
+      </svg>
+    );
+  }
+
+  if (type === "configReset") {
+    return (
+      <svg className="cache-action-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M4.25 2.75h5.25l2.25 2.25v8.25h-7.5z" />
+        <path d="M9.5 2.75V5h2.25" />
+        <path d="M6.1 8a2.1 2.1 0 1 1 .45 2.3" />
+        <path d="M6.1 6.75V8h1.25" />
       </svg>
     );
   }

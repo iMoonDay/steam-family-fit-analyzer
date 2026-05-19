@@ -7,6 +7,7 @@ mod itad;
 mod models;
 mod settings;
 mod steam;
+mod steam_login;
 
 use crate::{
     analyzer::{apply_prices_to_report, apply_store_enrichment_to_report, build_analysis_report},
@@ -14,7 +15,8 @@ use crate::{
     models::{
         AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus,
         AutoSteamConfigResult, BrowserCallbackSession, CacheCoversInput, CacheCoversOutput,
-        PriceInfo, RefreshReportPricesInput,
+        PriceInfo, RefreshReportPricesInput, SteamLoginCache, SteamLoginProfile,
+        SteamLoginRefreshResult, SteamQrLoginPollResult, SteamQrLoginSession,
     },
     steam::StoreItemEnrichment,
 };
@@ -49,6 +51,46 @@ fn import_settings(path: String) -> Result<AppSettings, String> {
 }
 
 #[tauri::command]
+fn migrate_config_directory(old_path: String, new_path: String) -> Result<(), String> {
+    settings::migrate_config_directory(old_path, new_path)
+}
+
+#[tauri::command]
+fn migrate_cache_directory(old_path: String, new_path: String) -> Result<(), String> {
+    settings::migrate_cache_directory(old_path, new_path)
+}
+
+#[tauri::command]
+fn load_steam_login_cache(app: AppHandle) -> Result<Option<SteamLoginCache>, String> {
+    settings::load_steam_login_cache(app)
+}
+
+#[tauri::command]
+fn save_steam_login_cache(app: AppHandle, cache: SteamLoginCache) -> Result<(), String> {
+    settings::save_steam_login_cache(app, cache)
+}
+
+#[tauri::command]
+fn clear_steam_login_cache(app: AppHandle) -> Result<(), String> {
+    settings::clear_steam_login_cache(app)
+}
+
+#[tauri::command]
+fn load_steam_login_notice(app: AppHandle) -> Result<String, String> {
+    settings::load_steam_login_notice(app)
+}
+
+#[tauri::command]
+fn save_steam_login_notice(app: AppHandle, message: String) -> Result<(), String> {
+    settings::save_steam_login_notice(app, message)
+}
+
+#[tauri::command]
+fn clear_steam_login_notice(app: AppHandle) -> Result<(), String> {
+    settings::clear_steam_login_notice(app)
+}
+
+#[tauri::command]
 fn clear_cache(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     cache::CacheStore::open(&app, &settings)?.clear_all()
 }
@@ -56,6 +98,11 @@ fn clear_cache(app: AppHandle, settings: AppSettings) -> Result<(), String> {
 #[tauri::command]
 fn open_cache_directory(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     settings::open_cache_directory(app, settings)
+}
+
+#[tauri::command]
+fn open_config_directory(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    settings::open_config_directory(app, settings)
 }
 
 #[tauri::command]
@@ -97,6 +144,57 @@ fn start_browser_config_callback(app: AppHandle) -> Result<BrowserCallbackSessio
 }
 
 #[tauri::command]
+async fn begin_steam_qr_login() -> Result<SteamQrLoginSession, String> {
+    let client = steam::build_client()?;
+    steam_login::begin_qr_login(&client).await
+}
+
+#[tauri::command]
+async fn poll_steam_qr_login(
+    client_id: String,
+    request_id: String,
+) -> Result<SteamQrLoginPollResult, String> {
+    let client = steam::build_client()?;
+    steam_login::poll_qr_login(&client, &client_id, &request_id).await
+}
+
+#[tauri::command]
+async fn fetch_family_config_from_steam_login(
+    steamid64: String,
+    access_token: String,
+) -> Result<AutoSteamConfigResult, String> {
+    let client = steam::build_client()?;
+    steam_login::fetch_family_config_from_login(&client, &steamid64, &access_token).await
+}
+
+#[tauri::command]
+async fn fetch_steam_api_key_from_steam_login(
+    steamid64: String,
+    access_token: String,
+) -> Result<Option<String>, String> {
+    let client = steam::build_client()?;
+    steam_login::fetch_steam_api_key_from_login(&client, &steamid64, &access_token).await
+}
+
+#[tauri::command]
+async fn refresh_steam_login(
+    steamid64: String,
+    refresh_token: String,
+) -> Result<SteamLoginRefreshResult, String> {
+    let client = steam::build_client()?;
+    steam_login::refresh_access_token(&client, &steamid64, &refresh_token).await
+}
+
+#[tauri::command]
+async fn fetch_steam_login_profile(
+    steamid64: String,
+    steam_api_key: String,
+) -> Result<SteamLoginProfile, String> {
+    let client = steam::build_client()?;
+    steam::fetch_steam_login_profile(&client, &steam_api_key, &steamid64).await
+}
+
+#[tauri::command]
 fn analyze_preview(input: AnalyzeInput) -> Result<AnalysisPreview, String> {
     let normalized_targets = split_target_input(&input.target_input)
         .into_iter()
@@ -125,7 +223,10 @@ fn analyze_preview(input: AnalyzeInput) -> Result<AnalysisPreview, String> {
 async fn validate_steam_api_key(settings: AppSettings) -> Result<String, String> {
     let api_key = settings.steam_api_key.trim();
     if api_key.is_empty() {
-        return Err(crate::error::AppError::InputValidation("Steam Web API Key 未填写".to_string()).user_message());
+        return Err(crate::error::AppError::InputValidation(
+            "Steam Web API Key 未填写".to_string(),
+        )
+        .user_message());
     }
 
     let client = steam::build_client()?;
@@ -141,7 +242,10 @@ async fn validate_steam_api_key(settings: AppSettings) -> Result<String, String>
 #[tauri::command]
 async fn validate_itad_api_key(settings: AppSettings) -> Result<String, String> {
     if settings.itad_api_key.trim().is_empty() {
-        return Err(crate::error::AppError::InputValidation("IsThereAnyDeal API Key 未填写".to_string()).user_message());
+        return Err(crate::error::AppError::InputValidation(
+            "IsThereAnyDeal API Key 未填写".to_string(),
+        )
+        .user_message());
     }
 
     let client = steam::build_client()?;
@@ -153,27 +257,41 @@ async fn validate_itad_api_key(settings: AppSettings) -> Result<String, String> 
 async fn validate_family_access_token(settings: AppSettings) -> Result<String, String> {
     let access_token = settings.family_access_token.trim();
     if access_token.is_empty() {
-        return Err(crate::error::AppError::InputValidation("家庭库 Access Token 未填写".to_string()).user_message());
+        return Err(crate::error::AppError::InputValidation(
+            "家庭库 Access Token 未填写".to_string(),
+        )
+        .user_message());
     }
 
     let client = steam::build_client()?;
     let family_group_id = steam::fetch_family_group_id(&client, access_token).await?;
-    Ok(format!("家庭库 Access Token 有效，家庭组 ID：{family_group_id}"))
+    Ok(format!(
+        "家庭库 Access Token 有效，家庭组 ID：{family_group_id}"
+    ))
 }
 
 #[tauri::command]
 async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisReport, String> {
     let api_key = input.settings.steam_api_key.trim().to_string();
     if api_key.is_empty() {
-        return Err(crate::error::AppError::InputValidation("Steam Web API Key 未填写".to_string()).user_message());
+        return Err(crate::error::AppError::InputValidation(
+            "Steam Web API Key 未填写".to_string(),
+        )
+        .user_message());
     }
     if input.settings.price_mode == "historyLow" && input.settings.itad_api_key.trim().is_empty() {
-        return Err(crate::error::AppError::InputValidation("史低模式需要 IsThereAnyDeal API Key".to_string()).user_message());
+        return Err(crate::error::AppError::InputValidation(
+            "史低模式需要 IsThereAnyDeal API Key".to_string(),
+        )
+        .user_message());
     }
 
     let tokens = split_target_input(&input.target_input);
     if tokens.is_empty() {
-        return Err(crate::error::AppError::InputValidation("请输入至少一个目标账号".to_string()).user_message());
+        return Err(
+            crate::error::AppError::InputValidation("请输入至少一个目标账号".to_string())
+                .user_message(),
+        );
     }
 
     let client = steam::build_client()?;
@@ -433,12 +551,27 @@ pub fn run() {
             save_settings,
             export_settings,
             import_settings,
+            migrate_config_directory,
+            migrate_cache_directory,
+            load_steam_login_cache,
+            save_steam_login_cache,
+            clear_steam_login_cache,
+            load_steam_login_notice,
+            save_steam_login_notice,
+            clear_steam_login_notice,
             clear_cache,
             open_cache_directory,
+            open_config_directory,
             save_png_file,
             cache_covers,
             auto_detect_steam_config,
             start_browser_config_callback,
+            begin_steam_qr_login,
+            poll_steam_qr_login,
+            fetch_family_config_from_steam_login,
+            fetch_steam_api_key_from_steam_login,
+            refresh_steam_login,
+            fetch_steam_login_profile,
             analyze_preview,
             validate_steam_api_key,
             validate_itad_api_key,

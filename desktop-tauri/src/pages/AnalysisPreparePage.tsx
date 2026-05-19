@@ -64,7 +64,7 @@ export function AnalysisPreparePage({
   async function handleCopyHistoryEntry(entry: AnalysisHistoryEntry) {
     await writeClipboard(formatHistoryAnalysisInput(entry));
     setHistoryContextMenu(null);
-    onMessage("已复制历史分析账号");
+    onMessage("已复制");
   }
 
   return (

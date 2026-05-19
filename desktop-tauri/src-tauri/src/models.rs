@@ -4,18 +4,22 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default, skip_serializing)]
     pub steam_api_key: String,
     pub itad_api_key: String,
+    #[serde(default, skip_serializing)]
     pub current_steam_id64: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub family_access_token: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub family_group_id: String,
     pub store_country: String,
     pub locale: String,
     pub price_mode: String,
     #[serde(default)]
     pub cache_directory: String,
+    #[serde(default)]
+    pub config_directory: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +70,7 @@ pub struct CoverCacheItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoSteamConfigResult {
-    pub family_access_token: String,
+    pub access_token: String,
     pub current_steam_id64: String,
     pub family_group_id: String,
     pub messages: Vec<String>,
@@ -79,6 +83,68 @@ pub struct BrowserCallbackSession {
     pub bookmarklet: String,
     pub steam_store_url: String,
     pub expires_in_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamQrLoginSession {
+    pub client_id: String,
+    pub request_id: String,
+    pub challenge_url: String,
+    pub interval_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamQrLoginPollResult {
+    pub status: String,
+    pub steamid64: String,
+    pub account_name: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub access_token_expires_at: Option<i64>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamLoginRefreshResult {
+    pub steamid64: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub access_token_expires_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamLoginProfile {
+    pub steamid64: String,
+    pub display_name: String,
+    pub profile_url: String,
+    pub avatar: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamLoginCache {
+    pub steamid64: String,
+    #[serde(default)]
+    pub account_name: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub profile_url: String,
+    #[serde(default)]
+    pub avatar: String,
+    #[serde(default)]
+    pub access_token: String,
+    pub refresh_token: String,
+    pub access_token_expires_at: Option<i64>,
+    #[serde(default)]
+    pub steam_api_key: String,
+    #[serde(default)]
+    pub family_group_id: String,
+    pub saved_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -195,4 +261,5 @@ pub struct AppStatus {
     pub app_name: String,
     pub storage_ready: bool,
     pub cache_directory: String,
+    pub config_directory: String,
 }

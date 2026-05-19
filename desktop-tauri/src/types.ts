@@ -11,6 +11,7 @@ export type AppSettings = {
   locale: LocaleMode;
   priceMode: PriceMode;
   cacheDirectory: string;
+  configDirectory: string;
 };
 
 export type AnalyzeInput = {
@@ -34,7 +35,7 @@ export type CacheCoversOutput = {
 };
 
 export type AutoSteamConfigResult = {
-  familyAccessToken: string;
+  accessToken: string;
   currentSteamId64: string;
   familyGroupId: string;
   messages: string[];
@@ -45,6 +46,37 @@ export type BrowserCallbackSession = {
   bookmarklet: string;
   steamStoreUrl: string;
   expiresInSeconds: number;
+};
+
+export type SteamQrLoginSession = {
+  clientId: string;
+  requestId: string;
+  challengeUrl: string;
+  intervalSeconds: number;
+};
+
+export type SteamQrLoginPollResult = {
+  status: "waiting_scan" | "waiting_confirmation" | "confirmed" | string;
+  steamid64: string;
+  accountName: string;
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: number | null;
+  message: string;
+};
+
+export type SteamLoginRefreshResult = {
+  steamid64: string;
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: number | null;
+};
+
+export type SteamLoginProfile = {
+  steamid64: string;
+  displayName: string;
+  profileUrl: string;
+  avatar: string;
 };
 
 export type AnalysisPreview = {
@@ -127,4 +159,5 @@ export type AppStatus = {
   appName: string;
   storageReady: boolean;
   cacheDirectory: string;
+  configDirectory: string;
 };

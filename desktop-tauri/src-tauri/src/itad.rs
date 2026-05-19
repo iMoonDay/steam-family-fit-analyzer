@@ -86,8 +86,9 @@ async fn request_post_json<T: serde::Serialize>(
     query: &[(&str, &str)],
     body: &T,
 ) -> Result<serde_json::Value, String> {
-    let request_url = reqwest::Url::parse_with_params(url, query)
-        .map_err(|error| crate::error::AppError::DataFormat(format!("ITAD 请求 URL 无效：{error}")).user_message())?;
+    let request_url = reqwest::Url::parse_with_params(url, query).map_err(|error| {
+        crate::error::AppError::DataFormat(format!("ITAD 请求 URL 无效：{error}")).user_message()
+    })?;
     let response = client
         .post(request_url)
         .header(
@@ -97,9 +98,7 @@ async fn request_post_json<T: serde::Serialize>(
         .json(body)
         .send()
         .await
-        .map_err(|error| {
-            crate::error::AppError::from_reqwest(error, "ITAD API")
-        })?;
+        .map_err(|error| crate::error::AppError::from_reqwest(error, "ITAD API"))?;
     let status = response.status();
     if !status.is_success() {
         return Err(crate::error::AppError::from_http_status(status, "ITAD API").user_message());
@@ -435,6 +434,7 @@ mod tests {
             locale: "zh-CN".to_string(),
             price_mode: "historyLow".to_string(),
             cache_directory: String::new(),
+            config_directory: String::new(),
         };
 
         let price = normalize_history_low_price(Some(&item), &settings);

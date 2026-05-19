@@ -20,7 +20,7 @@ const BROWSER_CALLBACK_TTL_SECONDS: u64 = 10 * 60;
 pub async fn detect(settings: &AppSettings) -> Result<AutoSteamConfigResult, String> {
     let client = steam::build_client()?;
     let mut result = AutoSteamConfigResult {
-        family_access_token: String::new(),
+        access_token: String::new(),
         current_steam_id64: String::new(),
         family_group_id: String::new(),
         messages: Vec::new(),
@@ -41,7 +41,7 @@ pub async fn detect(settings: &AppSettings) -> Result<AutoSteamConfigResult, Str
     match fetch_steam_session_from_store_page(&client).await {
         Ok(session) => {
             if !session.access_token.is_empty() {
-                result.family_access_token = session.access_token;
+                result.access_token = session.access_token;
                 result
                     .messages
                     .push("已从 Steam 商店页面读取家庭库 access token".to_string());
@@ -56,10 +56,10 @@ pub async fn detect(settings: &AppSettings) -> Result<AutoSteamConfigResult, Str
         Err(error) => result.messages.push(error),
     }
 
-    let access_token = if result.family_access_token.is_empty() {
+    let access_token = if result.access_token.is_empty() {
         settings.family_access_token.trim()
     } else {
-        result.family_access_token.as_str()
+        result.access_token.as_str()
     };
     if !access_token.is_empty() {
         match steam::fetch_family_group_id(&client, access_token).await {
@@ -150,9 +150,9 @@ fn handle_callback_stream(app: &AppHandle, token: &str, stream: &mut TcpStream) 
         return http_response(400, "payload 不是有效配置 JSON");
     };
 
-    if payload.family_group_id.is_empty() && !payload.family_access_token.trim().is_empty() {
+    if payload.family_group_id.is_empty() && !payload.access_token.trim().is_empty() {
         match tauri::async_runtime::block_on(fetch_family_group_id_for_callback(
-            payload.family_access_token.trim(),
+            payload.access_token.trim(),
         )) {
             Ok(family_group_id) => {
                 payload.family_group_id = family_group_id;
@@ -237,7 +237,7 @@ fn random_token() -> String {
 fn build_bookmarklet(callback_url: &str) -> String {
     let escaped_callback = callback_url.replace('\\', "\\\\").replace('\'', "\\'");
     format!(
-        "javascript:(()=>{{const cb='{escaped_callback}';function a(n){{const e=document.getElementById('application_config')||document.querySelector('[data-store_user_config][data-userinfo]');if(!e)return null;try{{return JSON.parse(e.getAttribute(n)||'null')}}catch(_ ){{return null}}}}const s=a('data-store_user_config')||{{}};const u=a('data-userinfo')||{{}};let id=String(u.steamid||window.g_steamID||window.g_steamID64||'');if(!/^\\d{{17}}$/.test(id))id='';const p={{familyAccessToken:String(s.webapi_token||''),currentSteamId64:id,familyGroupId:'',messages:['已通过浏览器辅助脚本读取家庭库配置']}};if(!p.familyAccessToken&&!p.currentSteamId64){{alert('当前页面没有可读取的 Steam 家庭库配置，请在 Steam 家庭管理页面执行。');return}}window.open(cb+'&payload='+encodeURIComponent(JSON.stringify(p)),'_blank','noopener,noreferrer');}})()"
+        "javascript:(()=>{{const cb='{escaped_callback}';function a(n){{const e=document.getElementById('application_config')||document.querySelector('[data-store_user_config][data-userinfo]');if(!e)return null;try{{return JSON.parse(e.getAttribute(n)||'null')}}catch(_ ){{return null}}}}const s=a('data-store_user_config')||{{}};const u=a('data-userinfo')||{{}};let id=String(u.steamid||window.g_steamID||window.g_steamID64||'');if(!/^\\d{{17}}$/.test(id))id='';const p={{accessToken:String(s.webapi_token||''),currentSteamId64:id,familyGroupId:'',messages:['已通过浏览器辅助脚本读取家庭库配置']}};if(!p.accessToken&&!p.currentSteamId64){{alert('当前页面没有可读取的 Steam 家庭库配置，请在 Steam 家庭管理页面执行。');return}}window.open(cb+'&payload='+encodeURIComponent(JSON.stringify(p)),'_blank','noopener,noreferrer');}})()"
     )
 }
 
@@ -300,10 +300,9 @@ async fn request_text(client: &reqwest::Client, url: &str) -> Result<String, Str
     if !status.is_success() {
         return Err(crate::error::AppError::from_http_status(status, "Steam 页面").user_message());
     }
-    response
-        .text()
-        .await
-        .map_err(|error| crate::error::AppError::DataFormat(format!("Steam 页面无法读取：{error}"))        .user_message())
+    response.text().await.map_err(|error| {
+        crate::error::AppError::DataFormat(format!("Steam 页面无法读取：{error}")).user_message()
+    })
 }
 
 fn detect_recent_steamid64() -> Option<String> {

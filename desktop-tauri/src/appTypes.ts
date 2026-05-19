@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { PriceInfo, ReportGameStatus } from "./types";
 
-export type AppPage = "analysis" | "result" | "settings";
+export type AppPage = "analysis" | "result" | "login" | "settings";
 
 export type AnalysisHistoryEntry = {
   id: string;

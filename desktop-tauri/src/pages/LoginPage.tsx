@@ -1,4 +1,4 @@
-import { Button, Checkbox, Group, PasswordInput, Stack, Text, TextInput } from "@mantine/core";
+import { Button, Checkbox, Group, PasswordInput, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import type { AutoSteamConfigResult, SteamQrLoginPollResult, SteamQrLoginSession } from "../types";
@@ -18,7 +18,7 @@ import {
 } from "../core/steamLoginCache";
 import type { SteamLoginCache } from "../core/steamLoginCache";
 
-type LoginMode = "qr" | "password";
+type LoginMode = "qr" | "password" | "cookie";
 
 type LoginSuccessState = {
   familyConfigSynced: boolean;
@@ -49,6 +49,8 @@ export function LoginPage({
   const [qrCode, setQrCode] = useState("");
   const [accountNameInput, setAccountNameInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
+  const [sessionIdInput, setSessionIdInput] = useState("");
+  const [steamLoginSecureInput, setSteamLoginSecureInput] = useState("");
   const [loginAccount, setLoginAccount] = useState<SteamLoginCache | null>(null);
   const pollingRef = useRef(false);
   const profileFetchAttemptRef = useRef("");
@@ -282,6 +284,10 @@ export function LoginPage({
     onMessage("请使用二维码登录");
   }
 
+  function handleCookieLogin() {
+    onMessage("Cookie 登录暂未实现");
+  }
+
   function handleLogout() {
     setRememberLogin(false);
     setLoginAccount(null);
@@ -316,7 +322,7 @@ export function LoginPage({
               onBegin={() => void handleBeginQrLogin()}
               onPoll={() => session ? void pollQrLogin(session, true) : undefined}
             />
-          ) : (
+          ) : loginMode === "password" ? (
             <PasswordLoginPanel
               busy={busy}
               accountName={accountNameInput}
@@ -324,6 +330,15 @@ export function LoginPage({
               onAccountNameChange={setAccountNameInput}
               onPasswordChange={setPasswordInput}
               onSubmit={handlePasswordLogin}
+            />
+          ) : (
+            <CookieLoginPanel
+              busy={busy}
+              sessionId={sessionIdInput}
+              steamLoginSecure={steamLoginSecureInput}
+              onSessionIdChange={setSessionIdInput}
+              onSteamLoginSecureChange={setSteamLoginSecureInput}
+              onSubmit={handleCookieLogin}
             />
           )}
         </div>
@@ -346,6 +361,14 @@ export function LoginPage({
                 onClick={() => setLoginMode("password")}
               >
                 账号密码
+              </button>
+              <button
+                type="button"
+                className={loginMode === "cookie" ? "is-active" : ""}
+                aria-selected={loginMode === "cookie"}
+                onClick={() => setLoginMode("cookie")}
+              >
+                Cookie
               </button>
             </div>
 
@@ -482,6 +505,45 @@ function PasswordLoginPanel({
         value={password}
         onChange={event => onPasswordChange(event.currentTarget.value)}
         autoComplete="current-password"
+      />
+      <Button color="steamBlue" loading={busy} onClick={onSubmit}>
+        登录
+      </Button>
+    </Stack>
+  );
+}
+
+function CookieLoginPanel({
+  busy,
+  sessionId,
+  steamLoginSecure,
+  onSessionIdChange,
+  onSteamLoginSecureChange,
+  onSubmit
+}: {
+  busy: boolean;
+  sessionId: string;
+  steamLoginSecure: string;
+  onSessionIdChange: (value: string) => void;
+  onSteamLoginSecureChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <Stack gap="sm" className="login-password-panel">
+      <TextInput
+        label="sessionid"
+        value={sessionId}
+        onChange={event => onSessionIdChange(event.currentTarget.value)}
+        autoComplete="off"
+      />
+      <Textarea
+        label="steamLoginSecure"
+        value={steamLoginSecure}
+        onChange={event => onSteamLoginSecureChange(event.currentTarget.value)}
+        autosize
+        minRows={5}
+        maxRows={7}
+        autoComplete="off"
       />
       <Button color="steamBlue" loading={busy} onClick={onSubmit}>
         登录

@@ -325,6 +325,91 @@ pub async fn fetch_store_cover_candidates(
     appid: &str,
     settings: &AppSettings,
 ) -> Result<Vec<String>, String> {
+    let mut candidates = fetch_store_cover_candidates_batch(client, &[appid.to_string()], settings)
+        .await?
+        .remove(appid)
+        .unwrap_or_default();
+    if candidates.is_empty() {
+        candidates = fetch_appdetails_cover_candidates(client, appid, settings).await?;
+    }
+    Ok(candidates)
+}
+
+pub async fn fetch_store_cover_candidates_batch(
+    client: &reqwest::Client,
+    appids: &[String],
+    settings: &AppSettings,
+) -> Result<HashMap<String, Vec<String>>, String> {
+    let unique_appids = appids
+        .iter()
+        .filter(|appid| appid.chars().all(|char| char.is_ascii_digit()))
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut candidates = HashMap::new();
+
+    for chunk in unique_appids.chunks(100) {
+        let ids = chunk
+            .iter()
+            .filter_map(|appid| {
+                appid
+                    .parse::<u64>()
+                    .ok()
+                    .map(|appid| serde_json::json!({ "appid": appid }))
+            })
+            .collect::<Vec<_>>();
+        if ids.is_empty() {
+            continue;
+        }
+
+        let input = serde_json::json!({
+            "ids": ids,
+            "context": {
+                "language": steam_store_language(settings.locale.as_str()),
+                "country_code": normalized_store_country(settings.store_country.as_str())
+            },
+            "data_request": {
+                "include_basic_info": false,
+                "include_assets": true,
+                "include_all_purchase_options": false,
+                "include_tag_count": 0
+            }
+        })
+        .to_string();
+        let data = request_json(
+            client,
+            "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/",
+            &[("input_json", input.as_str())],
+        )
+        .await?;
+        let Some(items) = data
+            .get("response")
+            .and_then(|response| response.get("store_items"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+
+        for item in items {
+            let Some(appid) = item.get("appid").and_then(value_to_appid) else {
+                continue;
+            };
+            let urls = extract_store_card_cover_urls(item);
+            if !urls.is_empty() {
+                candidates.insert(appid, urls);
+            }
+        }
+    }
+
+    Ok(candidates)
+}
+
+pub(crate) async fn fetch_appdetails_cover_candidates(
+    client: &reqwest::Client,
+    appid: &str,
+    settings: &AppSettings,
+) -> Result<Vec<String>, String> {
     let data = request_json(
         client,
         "https://store.steampowered.com/api/appdetails",
@@ -564,7 +649,10 @@ fn normalize_target_game(game: &serde_json::Value) -> Option<TargetGame> {
 }
 
 pub(crate) fn extract_store_card_cover_url(item: &serde_json::Value) -> String {
-    extract_store_asset_url_from_item(item, &["header", "main_capsule", "small_capsule"])
+    extract_store_card_cover_urls(item)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
 }
 
 fn normalize_store_item_original_price(
@@ -600,22 +688,41 @@ fn value_to_i64(value: &serde_json::Value) -> Option<i64> {
         .or_else(|| value.as_str().and_then(|text| text.parse::<i64>().ok()))
 }
 
-fn extract_store_asset_url_from_item(item: &serde_json::Value, asset_keys: &[&str]) -> String {
+fn extract_store_card_cover_urls(item: &serde_json::Value) -> Vec<String> {
+    extract_store_asset_urls_from_item(
+        item,
+        &[
+            "library_capsule",
+            "library_capsule_2x",
+            "main_capsule",
+            "main_capsule_2x",
+            "header",
+            "header_2x",
+            "small_capsule",
+            "small_capsule_2x",
+        ],
+    )
+}
+
+fn extract_store_asset_urls_from_item(
+    item: &serde_json::Value,
+    asset_keys: &[&str],
+) -> Vec<String> {
     let assets = item.get("assets").unwrap_or(&serde_json::Value::Null);
     let asset_url_format = assets
         .get("asset_url_format")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
     if asset_url_format.trim().is_empty() {
-        return String::new();
+        return Vec::new();
     }
 
     asset_keys
         .iter()
         .filter_map(|key| assets.get(*key).and_then(serde_json::Value::as_str))
         .map(|filename| build_store_item_asset_url(asset_url_format, filename))
-        .find(|url| !url.is_empty())
-        .unwrap_or_default()
+        .filter(|url| !url.is_empty())
+        .collect()
 }
 
 fn build_store_item_asset_url(asset_url_format: &str, filename: &str) -> String {
@@ -729,7 +836,7 @@ mod tests {
 
         assert_eq!(
             extract_store_card_cover_url(&item),
-            "https://shared.fastly.steamstatic.com/store_item_assets/apps/10/header.jpg"
+            "https://shared.fastly.steamstatic.com/store_item_assets/apps/10/library.jpg"
         );
     }
 

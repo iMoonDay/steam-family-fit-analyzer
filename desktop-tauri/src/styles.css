@@ -842,8 +842,6 @@ textarea {
   text-decoration: none;
   overflow: hidden;
   box-shadow: 0 10px 24px rgba(31, 41, 55, 0.08);
-  content-visibility: auto;
-  contain-intrinsic-size: 235px 352px;
 }
 
 .game-card:hover {
@@ -866,17 +864,11 @@ textarea {
   background-size: cover;
 }
 
-.game-card-top-tags {
+.game-card-status-tag {
   position: absolute;
   top: 9px;
-  right: 9px;
   left: 9px;
   z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 6px;
   pointer-events: none;
 }
 
@@ -909,7 +901,7 @@ textarea {
 .game-card-chip {
   position: absolute;
   left: 9px;
-  top: 37px;
+  top: 9px;
   z-index: 2;
   min-height: 22px;
   padding: 0 8px;
@@ -923,11 +915,21 @@ textarea {
   backdrop-filter: blur(2px);
 }
 
+.game-card-chip.has-status-tag {
+  top: 37px;
+}
+
 .game-card-overlay {
   color: #ffffff;
 }
 
 .game-card-price-tag {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
   min-height: 22px;
   padding: 2px 8px;
   border: 1px solid rgba(255, 255, 255, 0.24);
@@ -936,7 +938,7 @@ textarea {
   color: #e9f1f7;
   font-size: 11px;
   font-weight: 900;
-  line-height: 1.3;
+  line-height: 1.2;
   backdrop-filter: blur(2px);
 }
 

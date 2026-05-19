@@ -283,13 +283,13 @@ function getTableSortValue(game: ResultGameRow, key: string): string | number {
 
 function getTablePriceSortValue(price: PriceInfo | null): number {
   if (!price) {
-    return Number.POSITIVE_INFINITY;
+    return Number.NEGATIVE_INFINITY;
   }
   if (price.unavailable) {
     return Number.NEGATIVE_INFINITY;
   }
   if (price.initial == null) {
-    return Number.POSITIVE_INFINITY;
+    return Number.NEGATIVE_INFINITY;
   }
   return Number(price.initial || 0);
 }
@@ -389,7 +389,8 @@ export function buildTableSortSelectOptions(
   listKey: ResultGameListKey,
   includeTargetOwners: boolean,
   showAppId: boolean,
-  priceLabel: string
+  priceLabel: string,
+  viewMode: "cover" | "table" = "table"
 ): SortSelectOption[] {
   const columns: Array<{ key: string; label: string }> = [{ key: "name", label: "游戏" }];
 
@@ -402,7 +403,7 @@ export function buildTableSortSelectOptions(
   if (listKey === "all") {
     columns.push({ key: "status", label: "状态" });
   }
-  if (listKey === "new" || listKey === "relativeNew") {
+  if (viewMode === "cover" || listKey === "new" || listKey === "relativeNew") {
     columns.push({ key: "price", label: priceLabel });
   }
   if (showAppId) {
@@ -520,7 +521,11 @@ export function formatReportText(report: AnalysisReport, priceMode: PriceMode): 
 }
 
 export function getSteamCoverUrl(game: ResultGameRow, reloadToken = 0, coverCachePath = ""): string {
-  const url = toAssetUrl(coverCachePath) || game.coverUrl || `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appid}/library_600x900_2x.jpg`;
+  const assetUrl = toAssetUrl(coverCachePath);
+  if (assetUrl) {
+    return assetUrl;
+  }
+  const url = game.coverUrl || `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appid}/library_600x900_2x.jpg`;
   return reloadToken ? `${url}${url.includes("?") ? "&" : "?"}t=${reloadToken}` : url;
 }
 

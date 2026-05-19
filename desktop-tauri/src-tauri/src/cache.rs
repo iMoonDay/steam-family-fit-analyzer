@@ -87,16 +87,20 @@ impl CacheStore {
             if family_sharing_supported && price.is_none() {
                 continue;
             }
-            let cover_url = if cover_verified {
+            let cached_cover_url = if cover_verified {
                 cover_url
             } else {
                 String::new()
             };
-            let cover_url = if cover_url.trim().is_empty() {
-                extract_cover_url_from_store_item_json(&store_item_json)
+            let stored_item_cover_url = extract_cover_url_from_store_item_json(&store_item_json);
+            let cover_url = if stored_item_cover_url.trim().is_empty() {
+                cached_cover_url
             } else {
-                cover_url
+                stored_item_cover_url
             };
+            if cover_url.trim().is_empty() {
+                continue;
+            }
             result.insert(
                 appid.clone(),
                 StoreItemEnrichment {
@@ -218,12 +222,30 @@ impl CacheStore {
         };
         let unique_covers = covers
             .iter()
-            .filter(|cover| !cover.appid.trim().is_empty() && is_cacheable_cover_url(&cover.url))
+            .filter(|cover| {
+                !cover.appid.trim().is_empty()
+                    && (cover.url.trim().is_empty() || is_cacheable_cover_url(&cover.url))
+            })
             .map(|cover| (cover.appid.trim().to_string(), cover.url.trim().to_string()))
             .collect::<BTreeMap<_, _>>();
+        let appids = unique_covers.keys().cloned().collect::<Vec<_>>();
+        let batch_candidates =
+            match steam::fetch_store_cover_candidates_batch(client, &appids, settings).await {
+                Ok(candidates) => candidates,
+                Err(error) => {
+                    output
+                        .warnings
+                        .push(format!("批量封面信息获取失败：{error}"));
+                    HashMap::new()
+                }
+            };
 
         for (appid, url) in unique_covers {
-            match self.cache_cover(client, settings, &appid, &url).await {
+            let fetched_urls = batch_candidates.get(&appid).cloned().unwrap_or_default();
+            match self
+                .cache_cover(client, settings, &appid, &url, &fetched_urls)
+                .await
+            {
                 Ok(Some(item)) => output.covers.push(item),
                 Ok(None) => {}
                 Err(error) => output.warnings.push(error),
@@ -316,9 +338,14 @@ impl CacheStore {
         settings: &AppSettings,
         appid: &str,
         url: &str,
+        fetched_urls: &[String],
     ) -> Result<Option<CoverCacheItem>, String> {
         let mut errors = Vec::new();
         let mut candidate_urls = cover_candidate_urls(appid, url);
+        for fetched_url in fetched_urls {
+            push_unique_cover_url(&mut candidate_urls, fetched_url);
+        }
+        let initial_candidate_count = candidate_urls.len();
         for candidate_url in candidate_urls.clone() {
             let url_hash = cover_url_hash(&candidate_url);
             if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
@@ -338,13 +365,17 @@ impl CacheStore {
             }
         }
 
-        if let Ok(fetched_urls) = steam::fetch_store_cover_candidates(client, appid, settings).await
+        match fetch_missing_cover_candidates(client, settings, appid, !fetched_urls.is_empty())
+            .await
         {
-            for fetched_url in fetched_urls {
-                push_unique_cover_url(&mut candidate_urls, &fetched_url);
+            Ok(fetched_urls) => {
+                for fetched_url in fetched_urls {
+                    push_unique_cover_url(&mut candidate_urls, &fetched_url);
+                }
             }
+            Err(error) => errors.push(error),
         }
-        for candidate_url in candidate_urls.into_iter().skip(errors.len()) {
+        for candidate_url in candidate_urls.into_iter().skip(initial_candidate_count) {
             let url_hash = cover_url_hash(&candidate_url);
             if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
                 return Ok(Some(CoverCacheItem {
@@ -602,6 +633,18 @@ fn extract_cover_url_from_store_item_json(store_item_json: &str) -> String {
     steam::extract_store_card_cover_url(&item)
 }
 
+async fn fetch_missing_cover_candidates(
+    client: &reqwest::Client,
+    settings: &AppSettings,
+    appid: &str,
+    already_used_store_batch: bool,
+) -> Result<Vec<String>, String> {
+    if already_used_store_batch {
+        return steam::fetch_appdetails_cover_candidates(client, appid, settings).await;
+    }
+    steam::fetch_store_cover_candidates(client, appid, settings).await
+}
+
 fn ensure_column(
     connection: &Connection,
     table_name: &str,
@@ -636,6 +679,18 @@ fn cover_candidate_urls(appid: &str, primary_url: &str) -> Vec<String> {
     if appid.chars().all(|char| char.is_ascii_digit()) {
         push_unique_cover_url(
             &mut urls,
+            &format!(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900_2x.jpg"
+            ),
+        );
+        push_unique_cover_url(
+            &mut urls,
+            &format!(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
+            ),
+        );
+        push_unique_cover_url(
+            &mut urls,
             &format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg"),
         );
         push_unique_cover_url(
@@ -648,12 +703,6 @@ fn cover_candidate_urls(appid: &str, primary_url: &str) -> Vec<String> {
             &mut urls,
             &format!(
                 "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/capsule_231x87.jpg"
-            ),
-        );
-        push_unique_cover_url(
-            &mut urls,
-            &format!(
-                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900_2x.jpg"
             ),
         );
     }

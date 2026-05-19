@@ -10,7 +10,7 @@ import {
   TextInput,
   Tooltip
 } from "@mantine/core";
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, SetStateAction } from "react";
 import type { AnalysisReport, AppSettings, PriceMode } from "../types";
 import type {
@@ -95,8 +95,10 @@ export function AnalysisResultPage({
   onMessage: (message: string) => void;
 }) {
   const { searchQuery, activeGameList, viewMode, showAppId, tableSortByList } = viewState;
+  const coverScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const [coverReloadTokens, setCoverReloadTokens] = useState<Record<string, number>>({});
   const [coverCachePaths, setCoverCachePaths] = useState<Record<string, string>>({});
+  const [viewportCoverAppids, setViewportCoverAppids] = useState<string[]>([]);
   const [gameContextMenu, setGameContextMenu] = useState<GameContextMenuState | null>(null);
   const [moreMenu, setMoreMenu] = useState<MoreMenuState | null>(null);
   const includeTargetOwners = report.targets.length > 1;
@@ -104,8 +106,8 @@ export function AnalysisResultPage({
   const games = useMemo(() => buildResultGameRows(report.games[activeGameList], priceMode), [activeGameList, priceMode, report]);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const tableSortOptions = useMemo(
-    () => buildTableSortSelectOptions(activeGameList, includeTargetOwners, showAppId, tablePriceLabel),
-    [activeGameList, includeTargetOwners, showAppId, tablePriceLabel]
+    () => buildTableSortSelectOptions(activeGameList, includeTargetOwners, showAppId, tablePriceLabel, viewMode),
+    [activeGameList, includeTargetOwners, showAppId, tablePriceLabel, viewMode]
   );
   const activeTableSort = normalizeTableSortState(tableSortByList[activeGameList], tableSortOptions);
   const sortSelectValue = serializeTableSortState(activeTableSort);
@@ -119,10 +121,81 @@ export function AnalysisResultPage({
   }, [report, settings.cacheDirectory, settings.locale, settings.storeCountry]);
 
   useEffect(() => {
-    const covers = visibleGames
-      .slice(0, 500)
-      .filter(game => !coverCachePaths[game.appid])
-      .map(game => ({ appid: game.appid, url: getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0) }));
+    if (viewMode !== "cover") {
+      setViewportCoverAppids([]);
+      return;
+    }
+
+    const root = coverScrollViewportRef.current;
+    if (!root) {
+      setViewportCoverAppids(visibleGames.slice(0, 30).map(game => game.appid));
+      return;
+    }
+
+    let timer = 0;
+    const syncVisibleAppids = () => {
+      const grid = root.querySelector<HTMLElement>(".game-card-grid");
+      const firstCard = grid?.querySelector<HTMLElement>(".game-card");
+      if (!grid || !firstCard) {
+        setViewportCoverAppids([]);
+        return;
+      }
+
+      const styles = window.getComputedStyle(grid);
+      const gap = Number.parseFloat(styles.rowGap || styles.gap || "0") || 0;
+      const cardWidth = firstCard.offsetWidth || 156;
+      const cardHeight = firstCard.offsetHeight || Math.round(cardWidth * 1.5);
+      const rowHeight = Math.max(1, cardHeight + gap);
+      const columnCount = Math.max(1, Math.floor((grid.clientWidth + gap) / (cardWidth + gap)));
+      const overscanRows = 2;
+      const startRow = Math.max(0, Math.floor(root.scrollTop / rowHeight) - overscanRows);
+      const endRow = Math.ceil((root.scrollTop + root.clientHeight) / rowHeight) + overscanRows;
+      const startIndex = startRow * columnCount;
+      const endIndex = Math.min(visibleGames.length, endRow * columnCount);
+      const next = visibleGames.slice(startIndex, endIndex).map(game => game.appid);
+      setViewportCoverAppids(current => current.length === next.length && current.every((appid, index) => appid === next[index]) ? current : next);
+    };
+    const scheduleSync = (delay = 160) => {
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        timer = 0;
+        syncVisibleAppids();
+      }, delay);
+    };
+
+    const handleScroll = () => scheduleSync();
+    const resizeObserver = new ResizeObserver(() => scheduleSync(80));
+    resizeObserver.observe(root);
+    root.addEventListener("scroll", handleScroll, { passive: true });
+    scheduleSync(0);
+    return () => {
+      resizeObserver.disconnect();
+      root.removeEventListener("scroll", handleScroll);
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [viewMode, visibleGames]);
+
+  useEffect(() => {
+    const coverRequests = new Map<string, { appid: string; url: string }>();
+    const queueCover = (game: ResultGameRow) => {
+      if (coverCachePaths[game.appid]) {
+        return;
+      }
+      coverRequests.set(game.appid, {
+        appid: game.appid,
+        url: game.coverUrl ? getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0) : ""
+      });
+    };
+    if (viewMode !== "cover" || !viewportCoverAppids.length) {
+      return;
+    }
+    const viewportAppids = new Set(viewportCoverAppids);
+    visibleGames.filter(game => viewportAppids.has(game.appid)).forEach(queueCover);
+    const covers = Array.from(coverRequests.values());
     if (!covers.length) {
       return;
     }
@@ -155,7 +228,7 @@ export function AnalysisResultPage({
     return () => {
       disposed = true;
     };
-  }, [coverCachePaths, coverReloadTokens, onMessage, settings, visibleGames]);
+  }, [coverCachePaths, coverReloadTokens, onMessage, settings, viewMode, viewportCoverAppids, visibleGames]);
 
   useEffect(() => {
     if (!gameContextMenu) {
@@ -208,6 +281,7 @@ export function AnalysisResultPage({
   }
 
   function handleRefreshCover(game: ResultGameRow) {
+    const reloadToken = Date.now();
     setCoverCachePaths(current => {
       const next = { ...current };
       delete next[game.appid];
@@ -215,9 +289,29 @@ export function AnalysisResultPage({
     });
     setCoverReloadTokens(tokens => ({
       ...tokens,
-      [game.appid]: Date.now()
+      [game.appid]: reloadToken
     }));
     setGameContextMenu(null);
+    void cacheCovers(settings, [{
+      appid: game.appid,
+      url: getSteamCoverUrl(game, reloadToken)
+    }])
+      .then(result => {
+        const cover = result.covers.find(item => item.appid === game.appid);
+        if (cover) {
+          setCoverCachePaths(current => ({
+            ...current,
+            [game.appid]: cover.filePath
+          }));
+          return;
+        }
+        if (result.warnings.length) {
+          onMessage(`封面刷新失败：${result.warnings[0]}`);
+        }
+      })
+      .catch(error => {
+        onMessage(error instanceof Error ? error.message : String(error));
+      });
   }
 
   function handleMoreMenu(event: MouseEvent<HTMLElement>) {
@@ -416,7 +510,7 @@ export function AnalysisResultPage({
 
         {visibleGames.length ? (
           viewMode === "cover" ? (
-            <ScrollArea className="game-scroll">
+            <ScrollArea className="game-scroll" viewportRef={coverScrollViewportRef}>
               <div className="game-card-grid">
                 {visibleGames.map(game => (
                   <GameCard

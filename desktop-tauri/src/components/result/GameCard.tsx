@@ -30,6 +30,7 @@ export const GameCard = memo(function GameCard({
   return (
     <a
       className="game-card"
+      data-game-appid={game.appid}
       href={game.storeLink}
       onClick={event => {
         event.preventDefault();
@@ -41,11 +42,9 @@ export const GameCard = memo(function GameCard({
       title={game.name}
     >
       <span className="game-card-media">
-        <span className="game-card-top-tags">
-          {shouldShowStatusTag ? <StatusTag status={game.status} /> : null}
-          {priceText !== "-" ? <span className="game-card-price-tag">{priceText}</span> : null}
-        </span>
-        {showAppId ? <span className="game-card-chip">ID {game.appid}</span> : null}
+        {shouldShowStatusTag ? <span className="game-card-status-tag"><StatusTag status={game.status} /></span> : null}
+        {priceText !== "-" ? <span className="game-card-price-tag">{priceText}</span> : null}
+        {showAppId ? <span className={`game-card-chip ${shouldShowStatusTag ? "has-status-tag" : ""}`}>ID {game.appid}</span> : null}
         <span className="game-card-overlay">
           <span className="game-card-title">{game.name}</span>
           <OwnerTagList owners={getGameCardOwnerTags(game, listKey)} className="game-card-owner-tags" />

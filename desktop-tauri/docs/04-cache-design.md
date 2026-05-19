@@ -21,6 +21,14 @@
 store_item:{country}:{language}:{appid}
 ```
 
+读取时只把可直接用于当前分析的条目视为命中：
+
+- 必须仍在 TTL 内，且 `supported` 已明确为布尔值。
+- 必须有本地化名称；若商店条目名称为空，可使用同上下文原价缓存里的本地化名称补齐。
+- `supported = true` 的游戏必须同时有同上下文、同 TTL 的原价缓存，避免新增价值和零价值过滤缺失。
+- `supported = false` 的游戏不强制要求价格，因为它只用于不可共享过滤。
+- `cover_url` 只有在 `cover_verified = true` 时才作为展示资源使用。
+
 ### 价格
 
 原价和史低分开保存。
@@ -118,4 +126,3 @@ CREATE TABLE cover_cache (
   created_at INTEGER NOT NULL
 );
 ```
-

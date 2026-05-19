@@ -14,6 +14,7 @@ export const GameTable = memo(function GameTable({
   priceLabel,
   sort,
   coverReloadTokens,
+  coverCachePaths,
   onSort,
   onContextMenu
 }: {
@@ -24,10 +25,11 @@ export const GameTable = memo(function GameTable({
   priceLabel: string;
   sort?: TableSortState;
   coverReloadTokens: Record<string, number>;
+  coverCachePaths: Record<string, string>;
   onSort: (columnKey: string) => void;
   onContextMenu: (event: MouseEvent<HTMLElement>, game: ResultGameRow) => void;
 }) {
-  const columns = buildGameTableColumns(listKey, includeTargetOwners, showAppId, priceLabel, coverReloadTokens);
+  const columns = buildGameTableColumns(listKey, includeTargetOwners, showAppId, priceLabel, coverReloadTokens, coverCachePaths);
   const tableStyle = {
     "--game-table-columns": getGameTableColumnsTemplate(listKey, includeTargetOwners, showAppId)
   } as CSSProperties;
@@ -81,7 +83,8 @@ function buildGameTableColumns(
   includeTargetOwners: boolean,
   showAppId: boolean,
   priceLabel: string,
-  coverReloadTokens: Record<string, number>
+  coverReloadTokens: Record<string, number>,
+  coverCachePaths: Record<string, string>
 ): GameTableColumn[] {
   const appidColumn: GameTableColumn = {
     key: "appid",
@@ -97,7 +100,7 @@ function buildGameTableColumns(
       <>
         <span
           className="game-table-cover"
-          style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0)}")` } as CSSProperties}
+          style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0, coverCachePaths[game.appid] || "")}")` } as CSSProperties}
           aria-hidden="true"
         />
         <span className="game-table-title">{game.name}</span>

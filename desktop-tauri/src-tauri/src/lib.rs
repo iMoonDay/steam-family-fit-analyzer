@@ -12,7 +12,8 @@ use crate::{
     input::{normalize_target_token, split_target_input},
     models::{
         AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus,
-        AutoSteamConfigResult, BrowserCallbackSession, PriceInfo, RefreshReportPricesInput,
+        AutoSteamConfigResult, BrowserCallbackSession, CacheCoversInput, CacheCoversOutput,
+        PriceInfo, RefreshReportPricesInput,
     },
     steam::StoreItemEnrichment,
 };
@@ -45,9 +46,20 @@ fn open_cache_directory(app: AppHandle, settings: AppSettings) -> Result<(), Str
 }
 
 #[tauri::command]
-async fn auto_detect_steam_config(
-    settings: AppSettings,
-) -> Result<AutoSteamConfigResult, String> {
+async fn cache_covers(
+    app: AppHandle,
+    input: CacheCoversInput,
+) -> Result<CacheCoversOutput, String> {
+    let client = steam::build_client()?;
+    let mut cache_store = cache::CacheStore::open(&app, &input.settings)?;
+    cache_store.allow_cover_asset_scope(&app)?;
+    Ok(cache_store
+        .cache_covers(&client, &input.settings, &input.covers)
+        .await)
+}
+
+#[tauri::command]
+async fn auto_detect_steam_config(settings: AppSettings) -> Result<AutoSteamConfigResult, String> {
     auto_config::detect(&settings).await
 }
 
@@ -353,6 +365,7 @@ pub fn run() {
             save_settings,
             clear_cache,
             open_cache_directory,
+            cache_covers,
             auto_detect_steam_config,
             start_browser_config_callback,
             analyze_preview,

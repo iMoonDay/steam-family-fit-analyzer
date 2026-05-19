@@ -29,7 +29,9 @@ pub async fn detect(settings: &AppSettings) -> Result<AutoSteamConfigResult, Str
     match detect_recent_steamid64() {
         Some(steamid64) => {
             result.current_steam_id64 = steamid64;
-            result.messages.push("已从本机 Steam 客户端读取最近登录的 SteamID64".to_string());
+            result
+                .messages
+                .push("已从本机 Steam 客户端读取最近登录的 SteamID64".to_string());
         }
         None => result
             .messages
@@ -40,11 +42,15 @@ pub async fn detect(settings: &AppSettings) -> Result<AutoSteamConfigResult, Str
         Ok(session) => {
             if !session.access_token.is_empty() {
                 result.family_access_token = session.access_token;
-                result.messages.push("已从 Steam 商店页面读取家庭库 access token".to_string());
+                result
+                    .messages
+                    .push("已从 Steam 商店页面读取家庭库 access token".to_string());
             }
             if result.current_steam_id64.is_empty() && !session.steamid64.is_empty() {
                 result.current_steam_id64 = session.steamid64;
-                result.messages.push("已从 Steam 商店页面读取 SteamID64".to_string());
+                result
+                    .messages
+                    .push("已从 Steam 商店页面读取 SteamID64".to_string());
             }
         }
         Err(error) => result.messages.push(error),
@@ -59,9 +65,13 @@ pub async fn detect(settings: &AppSettings) -> Result<AutoSteamConfigResult, Str
         match steam::fetch_family_group_id(&client, access_token).await {
             Ok(family_group_id) => {
                 result.family_group_id = family_group_id;
-                result.messages.push("已通过 access token 获取家庭组 ID".to_string());
+                result
+                    .messages
+                    .push("已通过 access token 获取家庭组 ID".to_string());
             }
-            Err(error) => result.messages.push(format!("家庭组 ID 自动获取失败：{error}")),
+            Err(error) => result
+                .messages
+                .push(format!("家庭组 ID 自动获取失败：{error}")),
         }
     } else {
         result
@@ -146,11 +156,13 @@ fn handle_callback_stream(app: &AppHandle, token: &str, stream: &mut TcpStream) 
         )) {
             Ok(family_group_id) => {
                 payload.family_group_id = family_group_id;
-                payload.messages.push("已通过浏览器回调获取家庭组 ID".to_string());
+                payload
+                    .messages
+                    .push("已通过浏览器回调获取家庭组 ID".to_string());
             }
-            Err(error) => payload
-                .messages
-                .push(format!("浏览器回调已获取 token，但家庭组 ID 获取失败：{error}")),
+            Err(error) => payload.messages.push(format!(
+                "浏览器回调已获取 token，但家庭组 ID 获取失败：{error}"
+            )),
         }
     }
     let _ = app.emit_to("main", "steam-auto-config-detected", payload);
@@ -201,10 +213,7 @@ fn percent_decode(value: &str) -> String {
             let hi = chars.next();
             let lo = chars.next();
             if let (Some(hi), Some(lo)) = (hi, lo) {
-                if let Ok(decoded) = u8::from_str_radix(
-                    &String::from_utf8_lossy(&[hi, lo]),
-                    16,
-                ) {
+                if let Ok(decoded) = u8::from_str_radix(&String::from_utf8_lossy(&[hi, lo]), 16) {
                     bytes.push(decoded);
                     continue;
                 }
@@ -241,8 +250,11 @@ struct SteamSession {
 async fn fetch_steam_session_from_store_page(
     client: &reqwest::Client,
 ) -> Result<SteamSession, String> {
-    let html = request_text(client, "https://store.steampowered.com/account/familymanagement")
-        .await?;
+    let html = request_text(
+        client,
+        "https://store.steampowered.com/account/familymanagement",
+    )
+    .await?;
     let access_token = extract_json_attribute(&html, "data-store_user_config")
         .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
         .and_then(|value| {
@@ -317,7 +329,9 @@ fn steam_install_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from(home).join(".steam").join("steam"));
     }
     for drive in 'A'..='Z' {
-        dirs.push(PathBuf::from(format!("{drive}:\\Program Files (x86)\\Steam")));
+        dirs.push(PathBuf::from(format!(
+            "{drive}:\\Program Files (x86)\\Steam"
+        )));
         dirs.push(PathBuf::from(format!("{drive}:\\Program Files\\Steam")));
         dirs.push(PathBuf::from(format!("{drive}:\\Steam")));
     }
@@ -333,7 +347,11 @@ fn steam_install_dirs_from_registry() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let registry_locations = [
         (HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath"),
-        (HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Valve\\Steam", "InstallPath"),
+        (
+            HKEY_LOCAL_MACHINE,
+            "SOFTWARE\\WOW6432Node\\Valve\\Steam",
+            "InstallPath",
+        ),
         (HKEY_LOCAL_MACHINE, "SOFTWARE\\Valve\\Steam", "InstallPath"),
     ];
 
@@ -424,16 +442,14 @@ fn extract_attribute(html: &str, attr: &str, quote: char) -> Option<String> {
 }
 
 fn extract_steam_global_id(html: &str) -> Option<String> {
-    ["g_steamID", "g_steamID64"]
-        .into_iter()
-        .find_map(|name| {
-            let index = html.find(name)?;
-            let end = (index + name.len() + 80).min(html.len());
-            html[index..end]
-                .split(|char: char| !char.is_ascii_digit())
-                .find(|part| is_steamid64(part))
-                .map(str::to_string)
-        })
+    ["g_steamID", "g_steamID64"].into_iter().find_map(|name| {
+        let index = html.find(name)?;
+        let end = (index + name.len() + 80).min(html.len());
+        html[index..end]
+            .split(|char: char| !char.is_ascii_digit())
+            .find(|part| is_steamid64(part))
+            .map(str::to_string)
+    })
 }
 
 fn decode_html_entities(value: &str) -> String {
@@ -488,13 +504,22 @@ mod tests {
 
         let token = extract_json_attribute(html, "data-store_user_config")
             .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
-            .and_then(|value| value.get("webapi_token").and_then(serde_json::Value::as_str).map(str::to_string));
+            .and_then(|value| {
+                value
+                    .get("webapi_token")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
         let steamid = extract_json_attribute(html, "data-userinfo")
             .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
-            .and_then(|value| value.get("steamid").and_then(serde_json::Value::as_str).map(str::to_string));
+            .and_then(|value| {
+                value
+                    .get("steamid")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
 
         assert_eq!(token.as_deref(), Some("token-123"));
         assert_eq!(steamid.as_deref(), Some("76561190000000003"));
     }
-
 }

@@ -18,6 +18,20 @@ export type AnalyzeInput = {
   settings: AppSettings;
 };
 
+export type CoverCacheRequest = {
+  appid: string;
+  url: string;
+};
+
+export type CoverCacheItem = CoverCacheRequest & {
+  filePath: string;
+};
+
+export type CacheCoversOutput = {
+  covers: CoverCacheItem[];
+  warnings: string[];
+};
+
 export type AutoSteamConfigResult = {
   familyAccessToken: string;
   currentSteamId64: string;

@@ -32,6 +32,35 @@ pub struct RefreshReportPricesInput {
     pub settings: AppSettings,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheCoversInput {
+    pub settings: AppSettings,
+    pub covers: Vec<CoverCacheRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverCacheRequest {
+    pub appid: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheCoversOutput {
+    pub covers: Vec<CoverCacheItem>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverCacheItem {
+    pub appid: String,
+    pub url: String,
+    pub file_path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoSteamConfigResult {

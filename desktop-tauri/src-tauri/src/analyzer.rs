@@ -386,7 +386,8 @@ mod tests {
                 test_game("30", "Paid"),
             ],
         )];
-        let mut report = build_analysis_report(targets, &[], Some(&empty_family_library()), Vec::new());
+        let mut report =
+            build_analysis_report(targets, &[], Some(&empty_family_library()), Vec::new());
         let enrichment = HashMap::from([
             (
                 "10".to_string(),
@@ -456,12 +457,16 @@ mod tests {
         }
     }
 
-    fn test_enrichment(family_sharing_supported: bool, price: Option<PriceInfo>) -> StoreItemEnrichment {
+    fn test_enrichment(
+        family_sharing_supported: bool,
+        price: Option<PriceInfo>,
+    ) -> StoreItemEnrichment {
         StoreItemEnrichment {
             localized_name: String::new(),
             family_sharing_supported,
             cover_url: String::new(),
             price,
+            store_item_json: String::new(),
         }
     }
 

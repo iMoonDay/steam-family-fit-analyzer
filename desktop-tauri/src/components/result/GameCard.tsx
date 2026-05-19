@@ -15,12 +15,14 @@ export const GameCard = memo(function GameCard({
   listKey,
   showAppId,
   coverReloadToken,
+  coverCachePath,
   onContextMenu
 }: {
   game: ResultGameRow;
   listKey: ResultGameListKey;
   showAppId: boolean;
   coverReloadToken: number;
+  coverCachePath: string;
   onContextMenu: (event: MouseEvent<HTMLElement>, game: ResultGameRow) => void;
 }) {
   const shouldShowStatusTag = listKey === "all" && getReportGameStatusLabel(game.status) !== "-";
@@ -34,7 +36,7 @@ export const GameCard = memo(function GameCard({
         void openExternalUrl(game.storeLink);
       }}
       onContextMenu={event => onContextMenu(event, game)}
-      style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadToken)}")` } as CSSProperties}
+      style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadToken, coverCachePath)}")` } as CSSProperties}
       aria-label={game.name}
       title={game.name}
     >

@@ -1,20 +1,25 @@
 use crate::{
-    models::{AppSettings, PriceInfo},
-    steam::StoreItemEnrichment,
+    models::{AppSettings, CacheCoversOutput, CoverCacheItem, CoverCacheRequest, PriceInfo},
+    steam::{self, StoreItemEnrichment},
 };
 use rusqlite::{params, Connection, OptionalExtension};
+use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
+    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 const STORE_CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
 const PRICE_CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
+const COVER_CACHE_MAX_COUNT: i64 = 500;
+const COVER_CACHE_MAX_BYTES: i64 = 300 * 1024 * 1024;
 
 pub struct CacheStore {
     connection: Connection,
+    cache_dir: PathBuf,
 }
 
 impl CacheStore {
@@ -23,7 +28,10 @@ impl CacheStore {
         fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
         let connection = Connection::open(cache_dir.join("cache.sqlite3"))
             .map_err(|error| format!("打开缓存数据库失败：{error}"))?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            cache_dir,
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -38,16 +46,26 @@ impl CacheStore {
         let mut result = HashMap::new();
 
         for appid in appids {
-            let Some((localized_name, cover_url, family_sharing_supported)) = self
+            let Some((
+                mut localized_name,
+                cover_url,
+                cover_verified,
+                family_sharing_supported,
+                store_item_json,
+            )) = self
                 .connection
                 .query_row(
-                    "SELECT localized_name, cover_url, supported FROM store_cache WHERE context = ?1 AND appid = ?2 AND updated_at >= ?3 AND supported IS NOT NULL",
+                    "SELECT localized_name, cover_url, cover_verified, supported, COALESCE(store_item_json, '')
+                     FROM store_cache
+                     WHERE context = ?1 AND appid = ?2 AND updated_at >= ?3 AND supported IS NOT NULL",
                     params![context, appid, fresh_after],
                     |row| {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, String>(1)?,
                             row.get::<_, i64>(2)? != 0,
+                            row.get::<_, i64>(3)? != 0,
+                            row.get::<_, String>(4)?,
                         ))
                     },
                 )
@@ -57,6 +75,28 @@ impl CacheStore {
                 continue;
             };
             let price = self.load_price(appid, settings, "original")?;
+            if localized_name.trim().is_empty() {
+                localized_name = price
+                    .as_ref()
+                    .map(|price| price.localized_name.clone())
+                    .unwrap_or_default();
+            }
+            if localized_name.trim().is_empty() {
+                continue;
+            }
+            if family_sharing_supported && price.is_none() {
+                continue;
+            }
+            let cover_url = if cover_verified {
+                cover_url
+            } else {
+                String::new()
+            };
+            let cover_url = if cover_url.trim().is_empty() {
+                extract_cover_url_from_store_item_json(&store_item_json)
+            } else {
+                cover_url
+            };
             result.insert(
                 appid.clone(),
                 StoreItemEnrichment {
@@ -64,6 +104,7 @@ impl CacheStore {
                     family_sharing_supported,
                     cover_url,
                     price,
+                    store_item_json: String::new(),
                 },
             );
         }
@@ -85,19 +126,35 @@ impl CacheStore {
 
         for (appid, item) in enrichment {
             tx.execute(
-                "INSERT INTO store_cache (context, appid, localized_name, supported, cover_url, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "INSERT INTO store_cache (context, appid, localized_name, supported, store_item_json, cover_url, cover_verified, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(context, appid) DO UPDATE SET
-                   localized_name = excluded.localized_name,
+                   localized_name = CASE
+                     WHEN excluded.localized_name <> '' THEN excluded.localized_name
+                     ELSE store_cache.localized_name
+                   END,
                    supported = excluded.supported,
-                   cover_url = excluded.cover_url,
-                   updated_at = excluded.updated_at",
+                   store_item_json = CASE
+                     WHEN excluded.store_item_json <> '' THEN excluded.store_item_json
+                     ELSE store_cache.store_item_json
+                   END,
+                   cover_url = CASE
+                     WHEN excluded.cover_url <> '' THEN excluded.cover_url
+                     ELSE store_cache.cover_url
+                   END,
+                   cover_verified = CASE
+                     WHEN excluded.cover_url <> '' THEN 1
+                     ELSE store_cache.cover_verified
+                   END,
+                   updated_at = MAX(store_cache.updated_at, excluded.updated_at)",
                 params![
                     context,
                     appid,
                     item.localized_name,
                     i64::from(item.family_sharing_supported),
+                    item.store_item_json,
                     item.cover_url,
+                    i64::from(!item.cover_url.trim().is_empty()),
                     updated_at
                 ],
             )
@@ -143,15 +200,57 @@ impl CacheStore {
             .map_err(|error| format!("提交价格缓存失败：{error}"))
     }
 
+    pub fn allow_cover_asset_scope(&self, app: &AppHandle) -> Result<(), String> {
+        app.asset_protocol_scope()
+            .allow_directory(self.cover_dir(), true)
+            .map_err(|error| format!("开放封面缓存读取权限失败：{error}"))
+    }
+
+    pub async fn cache_covers(
+        &mut self,
+        client: &reqwest::Client,
+        settings: &AppSettings,
+        covers: &[CoverCacheRequest],
+    ) -> CacheCoversOutput {
+        let mut output = CacheCoversOutput {
+            covers: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let unique_covers = covers
+            .iter()
+            .filter(|cover| !cover.appid.trim().is_empty() && is_cacheable_cover_url(&cover.url))
+            .map(|cover| (cover.appid.trim().to_string(), cover.url.trim().to_string()))
+            .collect::<BTreeMap<_, _>>();
+
+        for (appid, url) in unique_covers {
+            match self.cache_cover(client, settings, &appid, &url).await {
+                Ok(Some(item)) => output.covers.push(item),
+                Ok(None) => {}
+                Err(error) => output.warnings.push(error),
+            }
+        }
+
+        if let Err(error) = self.prune_cover_cache() {
+            output.warnings.push(error);
+        }
+        output
+    }
+
     pub fn clear_all(&self) -> Result<(), String> {
         self.connection
             .execute_batch(
                 "
+                DELETE FROM cover_cache;
                 DELETE FROM price_cache;
                 DELETE FROM store_cache;
                 ",
             )
-            .map_err(|error| format!("清理缓存失败：{error}"))
+            .map_err(|error| format!("清理缓存失败：{error}"))?;
+        let cover_dir = self.cover_dir();
+        if cover_dir.exists() {
+            fs::remove_dir_all(&cover_dir).map_err(|error| format!("清理封面缓存失败：{error}"))?;
+        }
+        Ok(())
     }
 
     fn migrate(&self) -> Result<(), String> {
@@ -184,9 +283,227 @@ impl CacheStore {
                   updated_at INTEGER NOT NULL,
                   PRIMARY KEY (context, appid, mode)
                 );
+
+                CREATE TABLE IF NOT EXISTS cover_cache (
+                  url_hash TEXT PRIMARY KEY,
+                  url TEXT NOT NULL,
+                  file_path TEXT NOT NULL,
+                  byte_size INTEGER NOT NULL,
+                  last_used_at INTEGER NOT NULL,
+                  created_at INTEGER NOT NULL
+                );
                 ",
             )
-            .map_err(|error| format!("初始化缓存数据库失败：{error}"))
+            .map_err(|error| format!("初始化缓存数据库失败：{error}"))?;
+        ensure_column(
+            &self.connection,
+            "store_cache",
+            "store_item_json",
+            "ALTER TABLE store_cache ADD COLUMN store_item_json TEXT",
+        )?;
+        ensure_column(
+            &self.connection,
+            "store_cache",
+            "cover_verified",
+            "ALTER TABLE store_cache ADD COLUMN cover_verified INTEGER NOT NULL DEFAULT 0",
+        )?;
+        Ok(())
+    }
+
+    async fn cache_cover(
+        &mut self,
+        client: &reqwest::Client,
+        settings: &AppSettings,
+        appid: &str,
+        url: &str,
+    ) -> Result<Option<CoverCacheItem>, String> {
+        let mut errors = Vec::new();
+        let mut candidate_urls = cover_candidate_urls(appid, url);
+        for candidate_url in candidate_urls.clone() {
+            let url_hash = cover_url_hash(&candidate_url);
+            if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
+                return Ok(Some(CoverCacheItem {
+                    appid: appid.to_string(),
+                    url: candidate_url,
+                    file_path,
+                }));
+            }
+
+            match self
+                .download_and_store_cover(client, appid, &candidate_url, &url_hash)
+                .await
+            {
+                Ok(item) => return Ok(Some(item)),
+                Err(error) => errors.push(error),
+            }
+        }
+
+        if let Ok(fetched_urls) = steam::fetch_store_cover_candidates(client, appid, settings).await
+        {
+            for fetched_url in fetched_urls {
+                push_unique_cover_url(&mut candidate_urls, &fetched_url);
+            }
+        }
+        for candidate_url in candidate_urls.into_iter().skip(errors.len()) {
+            let url_hash = cover_url_hash(&candidate_url);
+            if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
+                return Ok(Some(CoverCacheItem {
+                    appid: appid.to_string(),
+                    url: candidate_url,
+                    file_path,
+                }));
+            }
+
+            match self
+                .download_and_store_cover(client, appid, &candidate_url, &url_hash)
+                .await
+            {
+                Ok(item) => return Ok(Some(item)),
+                Err(error) => errors.push(error),
+            }
+        }
+
+        Err(errors
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| format!("封面下载失败：{appid}：没有可用封面地址")))
+    }
+
+    async fn download_and_store_cover(
+        &mut self,
+        client: &reqwest::Client,
+        appid: &str,
+        url: &str,
+        url_hash: &str,
+    ) -> Result<CoverCacheItem, String> {
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| format!("封面下载失败：{appid}：{error}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("封面下载失败：{appid}：HTTP {status}"));
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| format!("封面读取失败：{appid}：{error}"))?;
+        if bytes.is_empty() {
+            return Err(format!("封面下载失败：{appid}：空响应"));
+        }
+
+        let cover_dir = self.cover_dir();
+        fs::create_dir_all(&cover_dir).map_err(|error| format!("创建封面缓存目录失败：{error}"))?;
+        let file_path = cover_dir.join(format!("{}{}", url_hash, cover_extension(url)));
+        fs::write(&file_path, bytes.as_ref())
+            .map_err(|error| format!("写入封面缓存失败：{error}"))?;
+        let file_path_text = file_path.to_string_lossy().to_string();
+        let now = now_seconds();
+        self.connection
+            .execute(
+                "INSERT INTO cover_cache (url_hash, url, file_path, byte_size, last_used_at, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(url_hash) DO UPDATE SET
+                   url = excluded.url,
+                   file_path = excluded.file_path,
+                   byte_size = excluded.byte_size,
+                   last_used_at = excluded.last_used_at",
+                params![
+                    url_hash,
+                    url,
+                    file_path_text,
+                    i64::try_from(bytes.len()).unwrap_or(i64::MAX),
+                    now,
+                    now
+                ],
+            )
+            .map_err(|error| format!("写入封面缓存索引失败：{error}"))?;
+
+        Ok(CoverCacheItem {
+            appid: appid.to_string(),
+            url: url.to_string(),
+            file_path: file_path.to_string_lossy().to_string(),
+        })
+    }
+
+    fn load_cover_path(&self, url_hash: &str, url: &str) -> Result<Option<String>, String> {
+        let cached = self
+            .connection
+            .query_row(
+                "SELECT file_path FROM cover_cache WHERE url_hash = ?1 AND url = ?2",
+                params![url_hash, url],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("读取封面缓存索引失败：{error}"))?;
+        let Some(file_path) = cached else {
+            return Ok(None);
+        };
+        if !PathBuf::from(&file_path).exists() {
+            self.connection
+                .execute(
+                    "DELETE FROM cover_cache WHERE url_hash = ?1",
+                    params![url_hash],
+                )
+                .map_err(|error| format!("清理失效封面缓存失败：{error}"))?;
+            return Ok(None);
+        }
+        self.connection
+            .execute(
+                "UPDATE cover_cache SET last_used_at = ?1 WHERE url_hash = ?2",
+                params![now_seconds(), url_hash],
+            )
+            .map_err(|error| format!("更新封面缓存时间失败：{error}"))?;
+        Ok(Some(file_path))
+    }
+
+    fn prune_cover_cache(&self) -> Result<(), String> {
+        let mut rows = self
+            .connection
+            .prepare(
+                "SELECT url_hash, file_path, byte_size
+                 FROM cover_cache
+                 ORDER BY last_used_at DESC, created_at DESC",
+            )
+            .map_err(|error| format!("读取封面缓存清理列表失败：{error}"))?;
+        let entries = rows
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|error| format!("读取封面缓存清理列表失败：{error}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("读取封面缓存清理列表失败：{error}"))?;
+
+        let mut total_bytes = 0_i64;
+        let mut kept_count = 0_i64;
+        let mut stale_hashes = Vec::new();
+        for (url_hash, file_path, byte_size) in entries {
+            kept_count += 1;
+            total_bytes = total_bytes.saturating_add(byte_size.max(0));
+            if kept_count > COVER_CACHE_MAX_COUNT || total_bytes > COVER_CACHE_MAX_BYTES {
+                let _ = fs::remove_file(file_path);
+                stale_hashes.push(url_hash);
+            }
+        }
+
+        for url_hash in stale_hashes {
+            self.connection
+                .execute(
+                    "DELETE FROM cover_cache WHERE url_hash = ?1",
+                    params![url_hash],
+                )
+                .map_err(|error| format!("清理封面缓存索引失败：{error}"))?;
+        }
+        Ok(())
+    }
+
+    fn cover_dir(&self) -> PathBuf {
+        self.cache_dir.join("covers")
     }
 
     fn load_price(
@@ -275,6 +592,98 @@ fn normalized_store_country(country: &str) -> String {
         normalized
     } else {
         "CN".to_string()
+    }
+}
+
+fn extract_cover_url_from_store_item_json(store_item_json: &str) -> String {
+    let Ok(item) = serde_json::from_str::<serde_json::Value>(store_item_json) else {
+        return String::new();
+    };
+    steam::extract_store_card_cover_url(&item)
+}
+
+fn ensure_column(
+    connection: &Connection,
+    table_name: &str,
+    column_name: &str,
+    alter_sql: &str,
+) -> Result<(), String> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table_name})"))
+        .map_err(|error| format!("检查缓存表结构失败：{error}"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("检查缓存表结构失败：{error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("检查缓存表结构失败：{error}"))?;
+    if columns.iter().any(|column| column == column_name) {
+        return Ok(());
+    }
+    connection
+        .execute(alter_sql, [])
+        .map_err(|error| format!("迁移缓存表结构失败：{error}"))?;
+    Ok(())
+}
+
+fn is_cacheable_cover_url(url: &str) -> bool {
+    let normalized = url.trim().to_lowercase();
+    normalized.starts_with("https://") || normalized.starts_with("http://")
+}
+
+fn cover_candidate_urls(appid: &str, primary_url: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    push_unique_cover_url(&mut urls, primary_url);
+    if appid.chars().all(|char| char.is_ascii_digit()) {
+        push_unique_cover_url(
+            &mut urls,
+            &format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg"),
+        );
+        push_unique_cover_url(
+            &mut urls,
+            &format!(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/capsule_616x353.jpg"
+            ),
+        );
+        push_unique_cover_url(
+            &mut urls,
+            &format!(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/capsule_231x87.jpg"
+            ),
+        );
+        push_unique_cover_url(
+            &mut urls,
+            &format!(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900_2x.jpg"
+            ),
+        );
+    }
+    urls
+}
+
+fn push_unique_cover_url(urls: &mut Vec<String>, url: &str) {
+    let normalized = url.trim();
+    if !is_cacheable_cover_url(normalized) || urls.iter().any(|item| item == normalized) {
+        return;
+    }
+    urls.push(normalized.to_string());
+}
+
+fn cover_url_hash(url: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(url.trim().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn cover_extension(url: &str) -> &'static str {
+    let path = url.split(['?', '#']).next().unwrap_or("").to_lowercase();
+    if path.ends_with(".png") {
+        ".png"
+    } else if path.ends_with(".webp") {
+        ".webp"
+    } else if path.ends_with(".gif") {
+        ".gif"
+    } else {
+        ".jpg"
     }
 }
 

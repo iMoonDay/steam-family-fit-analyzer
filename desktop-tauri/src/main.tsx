@@ -305,6 +305,7 @@ function App() {
                       warningText={warningText}
                       priceLabel={priceLabel}
                       tablePriceLabel={tablePriceLabel}
+                      settings={settings}
                       priceMode={settings.priceMode}
                       priceModeControlValue={priceModeControlValue}
                       hasHistoryLowApiKey={Boolean(settings.itadApiKey.trim())}

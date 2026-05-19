@@ -27,6 +27,7 @@ pub struct StoreItemEnrichment {
     pub family_sharing_supported: bool,
     pub cover_url: String,
     pub price: Option<PriceInfo>,
+    pub store_item_json: String,
 }
 
 pub fn build_client() -> Result<reqwest::Client, String> {
@@ -310,12 +311,50 @@ pub async fn fetch_store_item_enrichment(
                     family_sharing_supported,
                     cover_url,
                     price,
+                    store_item_json: item.to_string(),
                 },
             );
         }
     }
 
     Ok(enrichment)
+}
+
+pub async fn fetch_store_cover_candidates(
+    client: &reqwest::Client,
+    appid: &str,
+    settings: &AppSettings,
+) -> Result<Vec<String>, String> {
+    let data = request_json(
+        client,
+        "https://store.steampowered.com/api/appdetails",
+        &[
+            ("appids", appid),
+            ("filters", "basic"),
+            ("l", steam_store_language(settings.locale.as_str())),
+            (
+                "cc",
+                normalized_store_country(settings.store_country.as_str()).as_str(),
+            ),
+        ],
+    )
+    .await?;
+    let item = data.get(appid).unwrap_or(&serde_json::Value::Null);
+    if !item
+        .get("success")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(Vec::new());
+    }
+    let data = item.get("data").unwrap_or(&serde_json::Value::Null);
+    Ok(["header_image", "capsule_image", "capsule_imagev5"]
+        .into_iter()
+        .filter_map(|key| data.get(key).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 fn is_family_sharing_supported(item: &serde_json::Value) -> bool {
@@ -524,17 +563,8 @@ fn normalize_target_game(game: &serde_json::Value) -> Option<TargetGame> {
     })
 }
 
-fn extract_store_card_cover_url(item: &serde_json::Value) -> String {
-    extract_store_asset_url_from_item(
-        item,
-        &[
-            "library_capsule",
-            "library_capsule_2x",
-            "main_capsule",
-            "small_capsule",
-            "header",
-        ],
-    )
+pub(crate) fn extract_store_card_cover_url(item: &serde_json::Value) -> String {
+    extract_store_asset_url_from_item(item, &["header", "main_capsule", "small_capsule"])
 }
 
 fn normalize_store_item_original_price(
@@ -699,7 +729,7 @@ mod tests {
 
         assert_eq!(
             extract_store_card_cover_url(&item),
-            "https://shared.fastly.steamstatic.com/store_item_assets/apps/10/library.jpg"
+            "https://shared.fastly.steamstatic.com/store_item_assets/apps/10/header.jpg"
         );
     }
 

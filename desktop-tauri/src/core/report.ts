@@ -1,3 +1,4 @@
+import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import type { AnalysisReport, PriceInfo, PriceMode, ReportGame, ReportGameStatus } from "../types";
 import type {
   AnalysisHistoryAccount,
@@ -518,9 +519,16 @@ export function formatReportText(report: AnalysisReport, priceMode: PriceMode): 
   return lines.join("\n");
 }
 
-export function getSteamCoverUrl(game: ResultGameRow, reloadToken = 0): string {
-  const url = game.coverUrl || `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appid}/library_600x900_2x.jpg`;
+export function getSteamCoverUrl(game: ResultGameRow, reloadToken = 0, coverCachePath = ""): string {
+  const url = toAssetUrl(coverCachePath) || game.coverUrl || `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appid}/library_600x900_2x.jpg`;
   return reloadToken ? `${url}${url.includes("?") ? "&" : "?"}t=${reloadToken}` : url;
+}
+
+function toAssetUrl(filePath: string): string {
+  if (!filePath || !isTauri()) {
+    return "";
+  }
+  return convertFileSrc(filePath);
 }
 
 export function buildAnalysisHistoryKey(accounts: AnalysisHistoryAccount[], fallbackInput: string): string {

@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus, BrowserCallbackSession } from "../types";
+import type {
+  AnalysisPreview,
+  AnalysisReport,
+  AnalyzeInput,
+  AppSettings,
+  AppStatus,
+  BrowserCallbackSession,
+  CacheCoversOutput,
+  CoverCacheRequest
+} from "../types";
 import { normalizeTargetToken, splitTargetInput } from "../core/input";
 
 const fallbackStatus: AppStatus = {
@@ -58,6 +67,20 @@ export async function openCacheDirectory(settings: AppSettings): Promise<void> {
       throw new Error(String(error));
     }
     throw new Error("浏览器预览模式不能打开缓存目录，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function cacheCovers(settings: AppSettings, covers: CoverCacheRequest[]): Promise<CacheCoversOutput> {
+  if (!covers.length) {
+    return { covers: [], warnings: [] };
+  }
+  try {
+    return await invoke<CacheCoversOutput>("cache_covers", { input: { settings, covers } });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    return { covers: [], warnings: [] };
   }
 }
 

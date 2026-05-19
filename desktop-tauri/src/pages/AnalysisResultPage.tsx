@@ -12,7 +12,7 @@ import {
 } from "@mantine/core";
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { MouseEvent, SetStateAction } from "react";
-import type { AnalysisReport, PriceMode } from "../types";
+import type { AnalysisReport, AppSettings, PriceMode } from "../types";
 import type {
   GameContextMenuState,
   MoreMenuState,
@@ -29,6 +29,7 @@ import { GameTable } from "../components/result/GameTable";
 import { GameContextMenu, ResultMoreMenu } from "../components/result/ResultMenus";
 import { Metric } from "../components/result/ResultMetrics";
 import { TargetRow } from "../components/result/TargetRow";
+import { cacheCovers } from "../services/desktop";
 import { openExternalUrl, writeClipboard } from "../core/external";
 import {
   buildResultGameRows,
@@ -38,6 +39,7 @@ import {
   formatGameListText,
   formatGameNamesText,
   formatReportText,
+  getSteamCoverUrl,
   matchesResultGameSearch,
   normalizeTableSortState,
   parseTableSortSelectValue,
@@ -63,6 +65,7 @@ export function AnalysisResultPage({
   message,
   warningText,
   tablePriceLabel,
+  settings,
   priceMode,
   priceModeControlValue,
   hasHistoryLowApiKey,
@@ -79,6 +82,7 @@ export function AnalysisResultPage({
   warningText: string;
   priceLabel: string;
   tablePriceLabel: string;
+  settings: AppSettings;
   priceMode: PriceMode;
   priceModeControlValue: PriceMode;
   hasHistoryLowApiKey: boolean;
@@ -92,6 +96,7 @@ export function AnalysisResultPage({
 }) {
   const { searchQuery, activeGameList, viewMode, showAppId, tableSortByList } = viewState;
   const [coverReloadTokens, setCoverReloadTokens] = useState<Record<string, number>>({});
+  const [coverCachePaths, setCoverCachePaths] = useState<Record<string, string>>({});
   const [gameContextMenu, setGameContextMenu] = useState<GameContextMenuState | null>(null);
   const [moreMenu, setMoreMenu] = useState<MoreMenuState | null>(null);
   const includeTargetOwners = report.targets.length > 1;
@@ -108,6 +113,49 @@ export function AnalysisResultPage({
     return games.filter(game => matchesResultGameSearch(game, deferredSearchQuery));
   }, [deferredSearchQuery, games]);
   const visibleGames = useMemo(() => sortTableGameRows(filteredGames, activeTableSort), [activeTableSort, filteredGames]);
+
+  useEffect(() => {
+    setCoverCachePaths({});
+  }, [report, settings.cacheDirectory, settings.locale, settings.storeCountry]);
+
+  useEffect(() => {
+    const covers = visibleGames
+      .slice(0, 500)
+      .filter(game => !coverCachePaths[game.appid])
+      .map(game => ({ appid: game.appid, url: getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0) }));
+    if (!covers.length) {
+      return;
+    }
+
+    let disposed = false;
+    void cacheCovers(settings, covers)
+      .then(result => {
+        if (disposed) {
+          return;
+        }
+        if (result.covers.length) {
+          setCoverCachePaths(current => {
+            const next = { ...current };
+            for (const cover of result.covers) {
+              next[cover.appid] = cover.filePath;
+            }
+            return next;
+          });
+        }
+        if (result.warnings.length) {
+          onMessage(`部分封面缓存失败：${result.warnings[0]}`);
+        }
+      })
+      .catch(error => {
+        if (!disposed) {
+          onMessage(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [coverCachePaths, coverReloadTokens, onMessage, settings, visibleGames]);
 
   useEffect(() => {
     if (!gameContextMenu) {
@@ -160,6 +208,11 @@ export function AnalysisResultPage({
   }
 
   function handleRefreshCover(game: ResultGameRow) {
+    setCoverCachePaths(current => {
+      const next = { ...current };
+      delete next[game.appid];
+      return next;
+    });
     setCoverReloadTokens(tokens => ({
       ...tokens,
       [game.appid]: Date.now()
@@ -372,6 +425,7 @@ export function AnalysisResultPage({
                     listKey={activeGameList}
                     showAppId={showAppId}
                     coverReloadToken={coverReloadTokens[game.appid] || 0}
+                    coverCachePath={coverCachePaths[game.appid] || ""}
                     onContextMenu={handleGameContextMenu}
                   />
                 ))}
@@ -386,6 +440,7 @@ export function AnalysisResultPage({
               priceLabel={tablePriceLabel}
               sort={activeTableSort}
               coverReloadTokens={coverReloadTokens}
+              coverCachePaths={coverCachePaths}
               onSort={handleTableSort}
               onContextMenu={handleGameContextMenu}
             />

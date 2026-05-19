@@ -1,0 +1,74 @@
+import type { GameContextMenuState, MoreMenuState, ResultGameRow } from "../../appTypes";
+
+export function ResultMoreMenu({
+  state,
+  showAppId,
+  onToggleAppId,
+  onCopyList,
+  onCopyReport,
+  onClearCache
+}: {
+  state: MoreMenuState;
+  showAppId: boolean;
+  onToggleAppId: () => void;
+  onCopyList: () => void;
+  onCopyReport: () => void;
+  onClearCache: () => void;
+}) {
+  return (
+    <div
+      className="context-menu result-more-menu"
+      style={{ left: state.x, top: state.y }}
+      role="menu"
+      onPointerDown={event => event.stopPropagation()}
+    >
+      <button type="button" role="menuitem" onClick={onCopyList}>
+        复制列表
+      </button>
+      <button type="button" role="menuitem" onClick={onCopyReport}>
+        复制报告
+      </button>
+      <button type="button" role="menuitem" onClick={onClearCache}>
+        清除缓存
+      </button>
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={showAppId}
+        className="menu-switch-item"
+        onClick={onToggleAppId}
+      >
+        <span>显示 AppID</span>
+        <span className={`menu-switch ${showAppId ? "is-on" : ""}`} aria-hidden="true">
+          <span />
+        </span>
+      </button>
+    </div>
+  );
+}
+
+export function GameContextMenu({
+  state,
+  onOpenWebpage,
+  onRefreshCover
+}: {
+  state: GameContextMenuState;
+  onOpenWebpage: (game: ResultGameRow) => void;
+  onRefreshCover: (game: ResultGameRow) => void;
+}) {
+  return (
+    <div
+      className="context-menu"
+      style={{ left: state.x, top: state.y }}
+      role="menu"
+      onPointerDown={event => event.stopPropagation()}
+    >
+      <button type="button" role="menuitem" onClick={() => onOpenWebpage(state.game)}>
+        打开网页
+      </button>
+      <button type="button" role="menuitem" onClick={() => onRefreshCover(state.game)}>
+        刷新封面
+      </button>
+    </div>
+  );
+}

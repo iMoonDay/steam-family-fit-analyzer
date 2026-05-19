@@ -85,6 +85,7 @@ fn build_report_game_lists(
                     name: family_game
                         .map(|family_game| family_game.name.clone())
                         .unwrap_or_else(|| game.name.clone()),
+                    localized_name: String::new(),
                     store_link: game.store_link.clone(),
                     cover_url: String::new(),
                     target_owners: Vec::new(),
@@ -141,6 +142,7 @@ fn build_report_game_lists(
                 .map(|(appid, family_game)| ReportGame {
                     appid: appid.clone(),
                     name: family_game.name.clone(),
+                    localized_name: String::new(),
                     store_link: format!("https://store.steampowered.com/app/{appid}/"),
                     cover_url: String::new(),
                     target_owners: Vec::new(),
@@ -206,6 +208,9 @@ fn apply_store_enrichment_to_games(
 ) {
     for game in games {
         if let Some(item) = enrichment.get(&game.appid) {
+            if !item.localized_name.is_empty() {
+                game.localized_name = item.localized_name.clone();
+            }
             if !item.cover_url.is_empty() {
                 game.cover_url = item.cover_url.clone();
             }

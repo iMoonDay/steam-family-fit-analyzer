@@ -19,7 +19,10 @@ export async function getAppStatus(): Promise<AppStatus> {
 export async function saveSettings(settings: AppSettings): Promise<void> {
   try {
     await invoke("save_settings", { settings });
-  } catch {
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(`保存设置失败：${String(error)}`);
+    }
     localStorage.setItem("sffa.desktop.settings", JSON.stringify(settings));
   }
 }
@@ -27,7 +30,10 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 export async function loadSettings(defaults: AppSettings): Promise<AppSettings> {
   try {
     return await invoke<AppSettings>("load_settings", { defaults });
-  } catch {
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(`读取设置失败：${String(error)}`);
+    }
     const saved = localStorage.getItem("sffa.desktop.settings");
     return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
   }

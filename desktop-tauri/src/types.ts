@@ -74,6 +74,7 @@ export type ReportGamePrices = {
 };
 
 export type ReportGame = TargetGame & {
+  localizedName?: string;
   coverUrl: string;
   targetOwners: string[];
   targetOwnerNames: string[];

@@ -97,6 +97,8 @@ pub struct FamilyLibrary {
 pub struct ReportGame {
     pub appid: String,
     pub name: String,
+    #[serde(default)]
+    pub localized_name: String,
     pub store_link: String,
     pub cover_url: String,
     pub target_owners: Vec<String>,

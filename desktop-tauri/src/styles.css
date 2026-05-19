@@ -1311,6 +1311,20 @@ textarea {
   flex: 0 0 auto;
 }
 
+.target-avatar-link {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.target-avatar-link:disabled {
+  cursor: default;
+}
+
 .path-text {
   overflow-wrap: anywhere;
 }

@@ -22,6 +22,7 @@ struct PlayerSummary {
 
 #[derive(Debug, Clone)]
 pub struct StoreItemEnrichment {
+    pub localized_name: String,
     pub cover_url: String,
     pub price: Option<PriceInfo>,
 }
@@ -292,9 +293,21 @@ pub async fn fetch_store_item_enrichment(
             let Some(appid) = item.get("appid").and_then(value_to_appid) else {
                 continue;
             };
+            let localized_name = item
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let cover_url = extract_store_card_cover_url(item);
             let price = normalize_store_item_original_price(item, settings);
-            enrichment.insert(appid, StoreItemEnrichment { cover_url, price });
+            enrichment.insert(
+                appid,
+                StoreItemEnrichment {
+                    localized_name,
+                    cover_url,
+                    price,
+                },
+            );
         }
     }
 

@@ -39,12 +39,12 @@ impl CacheStore {
         let mut result = HashMap::new();
 
         for appid in appids {
-            let Some(cover_url) = self
+            let Some((localized_name, cover_url)) = self
                 .connection
                 .query_row(
-                    "SELECT cover_url FROM store_cache WHERE context = ?1 AND appid = ?2 AND updated_at >= ?3",
+                    "SELECT localized_name, cover_url FROM store_cache WHERE context = ?1 AND appid = ?2 AND updated_at >= ?3",
                     params![context, appid, fresh_after],
-                    |row| row.get::<_, String>(0),
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )
                 .optional()
                 .map_err(|error| format!("读取商店缓存失败：{error}"))?
@@ -52,7 +52,14 @@ impl CacheStore {
                 continue;
             };
             let price = self.load_price(appid, settings, "original")?;
-            result.insert(appid.clone(), StoreItemEnrichment { cover_url, price });
+            result.insert(
+                appid.clone(),
+                StoreItemEnrichment {
+                    localized_name,
+                    cover_url,
+                    price,
+                },
+            );
         }
 
         Ok(result)
@@ -72,12 +79,13 @@ impl CacheStore {
 
         for (appid, item) in enrichment {
             tx.execute(
-                "INSERT INTO store_cache (context, appid, cover_url, updated_at)
-                 VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO store_cache (context, appid, localized_name, cover_url, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(context, appid) DO UPDATE SET
+                   localized_name = excluded.localized_name,
                    cover_url = excluded.cover_url,
                    updated_at = excluded.updated_at",
-                params![context, appid, item.cover_url, updated_at],
+                params![context, appid, item.localized_name, item.cover_url, updated_at],
             )
             .map_err(|error| format!("写入商店缓存失败：{error}"))?;
             if let Some(price) = &item.price {

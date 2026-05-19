@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus } from "../types";
+import type { AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus, BrowserCallbackSession } from "../types";
 import { normalizeTargetToken, splitTargetInput } from "../core/input";
 
 const fallbackStatus: AppStatus = {
@@ -41,6 +41,17 @@ export async function clearCache(): Promise<void> {
       throw new Error(String(error));
     }
     localStorage.removeItem("sffa.desktop.cache");
+  }
+}
+
+export async function startBrowserConfigCallback(): Promise<BrowserCallbackSession> {
+  try {
+    return await invoke<BrowserCallbackSession>("start_browser_config_callback");
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能启动本地回调服务，请使用 Tauri 桌面窗口。");
   }
 }
 
@@ -89,6 +100,7 @@ export async function analyzeTarget(input: AnalyzeInput): Promise<AnalysisReport
       games: {
         all: [],
         new: [],
+        relativeNew: [],
         overlap: [],
         currentOwned: [],
         notCurrentOwned: []

@@ -77,6 +77,55 @@ pub async fn fetch_owned_appids(
         .unwrap_or_default())
 }
 
+pub async fn fetch_player_display_names(
+    client: &reqwest::Client,
+    api_key: &str,
+    steamids: &[String],
+) -> Result<HashMap<String, String>, String> {
+    let mut names = HashMap::new();
+    let unique_steamids = steamids
+        .iter()
+        .filter(|steamid| steamid.chars().all(|char| char.is_ascii_digit()))
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    for chunk in unique_steamids.chunks(100) {
+        let steamids_param = chunk.join(",");
+        let data = request_json(
+            client,
+            "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/",
+            &[
+                ("key", api_key),
+                ("steamids", steamids_param.as_str()),
+                ("format", "json"),
+            ],
+        )
+        .await?;
+        let players = data
+            .get("response")
+            .and_then(|response| response.get("players"))
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for player in players {
+            let Some(steamid) = player.get("steamid").and_then(value_to_appid) else {
+                continue;
+            };
+            let display_name = player
+                .get("personaname")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| steamid.clone());
+            names.insert(steamid, display_name);
+        }
+    }
+
+    Ok(names)
+}
+
 pub async fn fetch_family_group_id(
     client: &reqwest::Client,
     access_token: &str,
@@ -170,7 +219,10 @@ pub async fn fetch_family_library(
         );
     }
 
-    Ok(FamilyLibrary { games_by_id })
+    Ok(FamilyLibrary {
+        games_by_id,
+        owner_names_by_id: HashMap::new(),
+    })
 }
 
 pub async fn fetch_store_item_enrichment(

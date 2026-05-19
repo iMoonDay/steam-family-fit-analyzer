@@ -1,4 +1,5 @@
 mod analyzer;
+mod auto_config;
 mod cache;
 mod input;
 mod itad;
@@ -9,7 +10,10 @@ mod steam;
 use crate::{
     analyzer::{apply_prices_to_report, apply_store_enrichment_to_report, build_analysis_report},
     input::{normalize_target_token, split_target_input},
-    models::{AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus, PriceInfo},
+    models::{
+        AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus,
+        AutoSteamConfigResult, BrowserCallbackSession, PriceInfo,
+    },
     steam::StoreItemEnrichment,
 };
 use std::collections::HashMap;
@@ -33,6 +37,18 @@ fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
 #[tauri::command]
 fn clear_cache(app: AppHandle) -> Result<(), String> {
     cache::CacheStore::open(&app)?.clear_all()
+}
+
+#[tauri::command]
+async fn auto_detect_steam_config(
+    settings: AppSettings,
+) -> Result<AutoSteamConfigResult, String> {
+    auto_config::detect(&settings).await
+}
+
+#[tauri::command]
+fn start_browser_config_callback(app: AppHandle) -> Result<BrowserCallbackSession, String> {
+    auto_config::start_browser_callback(app)
 }
 
 #[tauri::command]
@@ -95,14 +111,22 @@ async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisR
         } else {
             input.settings.family_group_id.trim().to_string()
         };
-        Some(
-            steam::fetch_family_library(
-                &client,
-                input.settings.family_access_token.trim(),
-                family_group_id.as_str(),
-            )
-            .await?,
+        let mut library = steam::fetch_family_library(
+            &client,
+            input.settings.family_access_token.trim(),
+            family_group_id.as_str(),
         )
+        .await?;
+        let family_owner_ids = library
+            .games_by_id
+            .values()
+            .flat_map(|game| game.owners.iter().cloned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        library.owner_names_by_id =
+            steam::fetch_player_display_names(&client, &api_key, &family_owner_ids).await?;
+        Some(library)
     };
 
     let mut warnings = Vec::new();
@@ -126,7 +150,10 @@ async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisR
         .games
         .all
         .iter()
+        .chain(report.games.relative_new.iter())
         .map(|game| game.appid.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
     let mut cache_store = match cache::CacheStore::open(&app) {
         Ok(cache_store) => Some(cache_store),
@@ -243,6 +270,8 @@ pub fn run() {
             load_settings,
             save_settings,
             clear_cache,
+            auto_detect_steam_config,
+            start_browser_config_callback,
             analyze_preview,
             analyze_target
         ])

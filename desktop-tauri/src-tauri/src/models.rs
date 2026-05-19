@@ -23,6 +23,24 @@ pub struct AnalyzeInput {
     pub settings: AppSettings,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoSteamConfigResult {
+    pub family_access_token: String,
+    pub current_steam_id64: String,
+    pub family_group_id: String,
+    pub messages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserCallbackSession {
+    pub callback_url: String,
+    pub bookmarklet: String,
+    pub steam_store_url: String,
+    pub expires_in_seconds: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisPreview {
@@ -64,6 +82,7 @@ pub struct FamilyGame {
 #[derive(Debug, Clone)]
 pub struct FamilyLibrary {
     pub games_by_id: HashMap<String, FamilyGame>,
+    pub owner_names_by_id: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +95,7 @@ pub struct ReportGame {
     pub target_owners: Vec<String>,
     pub target_owner_names: Vec<String>,
     pub family_owners: Vec<String>,
+    pub family_owner_names: Vec<String>,
     pub family_acquired_at: i64,
     pub price: Option<PriceInfo>,
     pub status: String,
@@ -98,6 +118,7 @@ pub struct PriceInfo {
 pub struct ReportGameLists {
     pub all: Vec<ReportGame>,
     pub new: Vec<ReportGame>,
+    pub relative_new: Vec<ReportGame>,
     pub overlap: Vec<ReportGame>,
     pub current_owned: Vec<ReportGame>,
     pub not_current_owned: Vec<ReportGame>,

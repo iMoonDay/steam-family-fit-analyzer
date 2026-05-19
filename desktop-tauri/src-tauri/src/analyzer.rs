@@ -34,6 +34,7 @@ pub fn apply_store_enrichment_to_report(
 ) {
     apply_store_enrichment_to_games(&mut report.games.all, enrichment);
     apply_store_enrichment_to_games(&mut report.games.new, enrichment);
+    apply_store_enrichment_to_games(&mut report.games.relative_new, enrichment);
     apply_store_enrichment_to_games(&mut report.games.overlap, enrichment);
     apply_store_enrichment_to_games(&mut report.games.current_owned, enrichment);
     apply_store_enrichment_to_games(&mut report.games.not_current_owned, enrichment);
@@ -42,6 +43,7 @@ pub fn apply_store_enrichment_to_report(
 pub fn apply_prices_to_report(report: &mut AnalysisReport, prices: &HashMap<String, PriceInfo>) {
     apply_prices_to_games(&mut report.games.all, prices);
     apply_prices_to_games(&mut report.games.new, prices);
+    apply_prices_to_games(&mut report.games.relative_new, prices);
     apply_prices_to_games(&mut report.games.overlap, prices);
     apply_prices_to_games(&mut report.games.current_owned, prices);
     apply_prices_to_games(&mut report.games.not_current_owned, prices);
@@ -55,6 +57,10 @@ fn build_report_game_lists(
     let current_owned_set = current_owned_appids
         .iter()
         .map(|appid| appid.as_str())
+        .collect::<HashSet<_>>();
+    let target_owned_set = targets
+        .iter()
+        .flat_map(|target| target.games.iter().map(|game| game.appid.as_str()))
         .collect::<HashSet<_>>();
     let mut game_by_id = BTreeMap::<String, ReportGame>::new();
 
@@ -84,6 +90,9 @@ fn build_report_game_lists(
                     target_owner_names: Vec::new(),
                     family_owners: family_game
                         .map(|family_game| family_game.owners.clone())
+                        .unwrap_or_default(),
+                    family_owner_names: family_game
+                        .map(|family_game| resolve_family_owner_names(family_game, family_library))
                         .unwrap_or_default(),
                     family_acquired_at: family_game
                         .map(|family_game| family_game.acquired_at)
@@ -121,6 +130,29 @@ fn build_report_game_lists(
         .filter(|game| game.status == "overlap")
         .cloned()
         .collect::<Vec<_>>();
+    let mut relative_new = family_library
+        .map(|library| {
+            library
+                .games_by_id
+                .iter()
+                .filter(|(appid, _)| !target_owned_set.contains(appid.as_str()))
+                .map(|(appid, family_game)| ReportGame {
+                    appid: appid.clone(),
+                    name: family_game.name.clone(),
+                    store_link: format!("https://store.steampowered.com/app/{appid}/"),
+                    cover_url: String::new(),
+                    target_owners: Vec::new(),
+                    target_owner_names: Vec::new(),
+                    family_owners: family_game.owners.clone(),
+                    family_owner_names: resolve_family_owner_names(family_game, family_library),
+                    family_acquired_at: family_game.acquired_at,
+                    price: None,
+                    status: "relativeNew".to_string(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    relative_new.sort_by(compare_report_games);
     let current_owned = all
         .iter()
         .filter(|game| game.status == "currentOwned")
@@ -135,10 +167,27 @@ fn build_report_game_lists(
     ReportGameLists {
         all,
         new,
+        relative_new,
         overlap,
         current_owned,
         not_current_owned,
     }
+}
+
+fn resolve_family_owner_names(
+    family_game: &crate::models::FamilyGame,
+    family_library: Option<&FamilyLibrary>,
+) -> Vec<String> {
+    family_game
+        .owners
+        .iter()
+        .map(|steamid| {
+            family_library
+                .and_then(|library| library.owner_names_by_id.get(steamid))
+                .cloned()
+                .unwrap_or_else(|| steamid.clone())
+        })
+        .collect()
 }
 
 fn compare_report_games(left: &ReportGame, right: &ReportGame) -> std::cmp::Ordering {
@@ -230,6 +279,10 @@ mod tests {
                     acquired_at: 123,
                 },
             )]),
+            owner_names_by_id: HashMap::from([(
+                "76561190000000099".to_string(),
+                "Carol".to_string(),
+            )]),
         };
 
         let report = build_analysis_report(
@@ -252,6 +305,7 @@ mod tests {
         assert_eq!(overlap.status, "overlap");
         assert_eq!(overlap.name, "Beta Family");
         assert_eq!(overlap.family_owners, vec!["76561190000000099"]);
+        assert_eq!(overlap.family_owner_names, vec!["Carol"]);
     }
 
     fn test_target(steamid64: &str, display_name: &str, games: Vec<TargetGame>) -> TargetProfile {

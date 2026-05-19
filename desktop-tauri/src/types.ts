@@ -17,6 +17,20 @@ export type AnalyzeInput = {
   settings: AppSettings;
 };
 
+export type AutoSteamConfigResult = {
+  familyAccessToken: string;
+  currentSteamId64: string;
+  familyGroupId: string;
+  messages: string[];
+};
+
+export type BrowserCallbackSession = {
+  callbackUrl: string;
+  bookmarklet: string;
+  steamStoreUrl: string;
+  expiresInSeconds: number;
+};
+
 export type AnalysisPreview = {
   targetCount: number;
   normalizedTargets: string[];
@@ -42,7 +56,7 @@ export type TargetProfile = {
   sampleGames: TargetGame[];
 };
 
-export type ReportGameStatus = "new" | "overlap" | "currentOwned" | "notCurrentOwned";
+export type ReportGameStatus = "new" | "relativeNew" | "overlap" | "currentOwned" | "notCurrentOwned";
 
 export type PriceInfo = {
   initial: number | null;
@@ -59,6 +73,7 @@ export type ReportGame = TargetGame & {
   targetOwners: string[];
   targetOwnerNames: string[];
   familyOwners: string[];
+  familyOwnerNames: string[];
   familyAcquiredAt: number;
   price: PriceInfo | null;
   status: ReportGameStatus;
@@ -67,6 +82,7 @@ export type ReportGame = TargetGame & {
 export type ReportGameLists = {
   all: ReportGame[];
   new: ReportGame[];
+  relativeNew: ReportGame[];
   overlap: ReportGame[];
   currentOwned: ReportGame[];
   notCurrentOwned: ReportGame[];

@@ -1360,6 +1360,7 @@ textarea {
   min-width: 0;
   padding: 13px 14px;
   border-bottom: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   background: linear-gradient(180deg, #f8fafc 0%, #edf3f8 100%);
 }
 
@@ -1569,6 +1570,31 @@ textarea {
 .poster-dialog-actions {
   justify-content: flex-end;
   padding: 0 14px 14px;
+}
+
+.poster-dialog-reset {
+  margin-right: auto;
+  min-height: 32px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.poster-dialog-reset:hover,
+.poster-dialog-reset:focus-visible {
+  background: rgba(31, 41, 55, 0.07);
+  color: var(--color-text);
+  outline: none;
+}
+
+.poster-dialog-reset:disabled {
+  opacity: 0.42;
+  cursor: default;
 }
 
 .poster-dialog-secondary,

@@ -785,21 +785,28 @@ function ListPosterDialog({
   onConfirm: (settings: PosterSettings) => void;
 }) {
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [draftColumns, setDraftColumns] = useState<number | null>(null);
+  const [draftScalePercent, setDraftScalePercent] = useState<number | null>(null);
   const columnsTrackRef = useRef<HTMLDivElement | null>(null);
   const scaleTrackRef = useRef<HTMLDivElement | null>(null);
   const normalizedSettings = normalizePosterSettings(settings, sortModes);
 
-  function setColumns(columns: number) {
+  const columns = draftColumns ?? normalizedSettings.columns;
+  const scalePercent = draftScalePercent ?? normalizedSettings.scalePercent;
+
+  function commitColumns(value: number) {
+    setDraftColumns(null);
     onSettingsChange({
       ...normalizedSettings,
-      columns: normalizePosterColumns(columns)
+      columns: normalizePosterColumns(value)
     });
   }
 
-  function setScalePercent(scalePercent: number) {
+  function commitScalePercent(value: number) {
+    setDraftScalePercent(null);
     onSettingsChange({
       ...normalizedSettings,
-      scalePercent: normalizePosterScalePercent(scalePercent)
+      scalePercent: normalizePosterScalePercent(value)
     });
   }
 
@@ -816,14 +823,14 @@ function ListPosterDialog({
     clientX: number,
     min: number,
     max: number,
-    onValue: (value: number) => void
+    onDraft: (value: number) => void
   ) {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) {
       return;
     }
     const progress = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    onValue(min + progress * (max - min));
+    onDraft(Math.round(min + progress * (max - min)));
   }
 
   function handleSliderPointerDown(
@@ -831,17 +838,21 @@ function ListPosterDialog({
     ref: React.RefObject<HTMLDivElement | null>,
     min: number,
     max: number,
-    onValue: (value: number) => void
+    onDraft: (value: number) => void,
+    onCommit: (value: number) => void
   ) {
     event.preventDefault();
-    updateSliderFromPointer(ref, event.clientX, min, max, onValue);
+    (ref.current as HTMLElement | null)?.setPointerCapture(event.pointerId);
+    let lastValue = 0;
+    updateSliderFromPointer(ref, event.clientX, min, max, (v) => { lastValue = v; onDraft(v); });
     const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
-      updateSliderFromPointer(ref, moveEvent.clientX, min, max, onValue);
+      updateSliderFromPointer(ref, moveEvent.clientX, min, max, (v) => { lastValue = v; onDraft(v); });
     };
     const handlePointerUp = () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
+      onCommit(lastValue);
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
@@ -851,38 +862,39 @@ function ListPosterDialog({
   function handleColumnsKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
-      setColumns(normalizedSettings.columns - 1);
+      commitColumns(columns - 1);
     }
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
-      setColumns(normalizedSettings.columns + 1);
+      commitColumns(columns + 1);
     }
     if (event.key === "Home") {
       event.preventDefault();
-      setColumns(1);
+      commitColumns(1);
     }
     if (event.key === "End") {
       event.preventDefault();
-      setColumns(50);
+      commitColumns(50);
     }
   }
 
   function handleScaleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const current = draftScalePercent ?? normalizedSettings.scalePercent;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
-      setScalePercent(normalizedSettings.scalePercent - 5);
+      commitScalePercent(current - 5);
     }
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
-      setScalePercent(normalizedSettings.scalePercent + 5);
+      commitScalePercent(current + 5);
     }
     if (event.key === "Home") {
       event.preventDefault();
-      setScalePercent(40);
+      commitScalePercent(40);
     }
     if (event.key === "End") {
       event.preventDefault();
-      setScalePercent(100);
+      commitScalePercent(100);
     }
   }
 
@@ -912,21 +924,21 @@ function ListPosterDialog({
                 aria-label="每行列数"
                 aria-valuemin={1}
                 aria-valuemax={50}
-                aria-valuenow={normalizedSettings.columns}
-                aria-valuetext={`${normalizedSettings.columns} 列`}
-                onPointerDown={event => handleSliderPointerDown(event, columnsTrackRef, 1, 50, setColumns)}
+                aria-valuenow={columns}
+                aria-valuetext={`${columns} 列`}
+                onPointerDown={event => handleSliderPointerDown(event, columnsTrackRef, 1, 50, setDraftColumns, commitColumns)}
                 onKeyDown={handleColumnsKeyDown}
               >
                 <span
                   className="poster-slider-fill"
-                  style={{ width: `${((normalizedSettings.columns - 1) / 49) * 100}%` }}
+                  style={{ width: `${((columns - 1) / 49) * 100}%` }}
                 />
                 <span
                   className="poster-slider-thumb"
-                  style={{ left: `${((normalizedSettings.columns - 1) / 49) * 100}%` }}
+                  style={{ left: `${((columns - 1) / 49) * 100}%` }}
                 />
               </div>
-              <strong>{normalizedSettings.columns}</strong>
+              <strong>{columns}</strong>
             </div>
           </label>
 
@@ -972,26 +984,27 @@ function ListPosterDialog({
                 aria-label="尺寸缩放"
                 aria-valuemin={40}
                 aria-valuemax={100}
-                aria-valuenow={normalizedSettings.scalePercent}
-                aria-valuetext={`${normalizedSettings.scalePercent}%`}
-                onPointerDown={event => handleSliderPointerDown(event, scaleTrackRef, 40, 100, setScalePercent)}
+                aria-valuenow={scalePercent}
+                aria-valuetext={`${scalePercent}%`}
+                onPointerDown={event => handleSliderPointerDown(event, scaleTrackRef, 40, 100, setDraftScalePercent, commitScalePercent)}
                 onKeyDown={handleScaleKeyDown}
               >
                 <span
                   className="poster-slider-fill"
-                  style={{ width: `${((normalizedSettings.scalePercent - 40) / 60) * 100}%` }}
+                  style={{ width: `${((scalePercent - 40) / 60) * 100}%` }}
                 />
                 <span
                   className="poster-slider-thumb"
-                  style={{ left: `${((normalizedSettings.scalePercent - 40) / 60) * 100}%` }}
+                  style={{ left: `${((scalePercent - 40) / 60) * 100}%` }}
                 />
               </div>
-              <strong>{normalizedSettings.scalePercent}%</strong>
+              <strong>{scalePercent}%</strong>
             </div>
           </label>
         </div>
 
         <footer className="poster-dialog-actions">
+          <button className="poster-dialog-reset" type="button" disabled={busy} onClick={() => onSettingsChange(defaultPosterSettings)}>重置</button>
           <button className="poster-dialog-secondary" type="button" onClick={onClose}>取消</button>
           <button className="poster-dialog-primary" type="button" disabled={busy} onClick={() => onConfirm(normalizedSettings)}>
             生成图片

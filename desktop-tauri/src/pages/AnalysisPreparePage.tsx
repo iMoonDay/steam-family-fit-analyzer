@@ -119,9 +119,11 @@ export function AnalysisPreparePage({
           <Group justify="space-between" mb="xs" align="flex-start">
             <Stack gap={2}>
               <Text component="h1" className="title">账号分析</Text>
-              <Text className={`inline-status ${message.includes("失败") || message.includes("错误") ? "is-error" : ""}`} size="xs">
-                {message}
-              </Text>
+              {message ? (
+                <Text className={`inline-status ${message.includes("失败") || message.includes("错误") ? "is-error" : ""}`} size="xs">
+                  {message}
+                </Text>
+              ) : null}
             </Stack>
             <Button color="steamBlue" loading={busy} onClick={() => void onAnalyze()}>开始分析</Button>
           </Group>

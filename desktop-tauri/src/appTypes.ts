@@ -45,6 +45,7 @@ export type ResultViewState = {
   activeGameList: ResultGameListKey;
   viewMode: ResultGameViewMode;
   showAppId: boolean;
+  selectedTargetIds: string[];
   tableSortByList: Partial<Record<ResultGameListKey, TableSortState>>;
 };
 

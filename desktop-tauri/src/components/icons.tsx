@@ -178,3 +178,12 @@ export function CacheActionIcon({ type }: { type: "open" | "change" | "reset" | 
     </svg>
   );
 }
+
+export function ValidateCredentialIcon() {
+  return (
+    <svg className="credential-action-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M8 2.75l4.75 1.8v3.2c0 2.9-1.78 4.8-4.75 5.95-2.97-1.15-4.75-3.05-4.75-5.95v-3.2z" />
+      <path d="M5.85 8.05l1.35 1.35 2.95-3.05" />
+    </svg>
+  );
+}

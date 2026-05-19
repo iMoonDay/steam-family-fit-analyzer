@@ -161,6 +161,80 @@ export function reportHasPriceModeData(report: AnalysisReport, priceMode: PriceM
     .some(game => Boolean(getReportGamePrice(game, priceMode)));
 }
 
+export function filterReportBySelectedTargets(report: AnalysisReport, selectedTargetIds: string[]): AnalysisReport {
+  const selectedIdSet = new Set(selectedTargetIds.filter(Boolean));
+  if (!selectedIdSet.size || selectedIdSet.size === report.targets.length) {
+    return report;
+  }
+
+  const targets = report.targets.filter(target => selectedIdSet.has(target.steamid64));
+  const all = report.games.all
+    .filter(game => hasSelectedTargetOwner(game, selectedIdSet))
+    .map(game => filterGameTargetOwners(game, selectedIdSet));
+  const relativeNewByAppid = new Map<string, ReportGame>();
+
+  for (const game of report.games.relativeNew) {
+    relativeNewByAppid.set(game.appid, { ...game });
+  }
+  for (const game of report.games.overlap) {
+    if (!hasSelectedTargetOwner(game, selectedIdSet)) {
+      relativeNewByAppid.set(game.appid, {
+        ...game,
+        targetOwners: [],
+        targetOwnerNames: [],
+        status: "relativeNew"
+      });
+    }
+  }
+
+  const newGames = all.filter(game => game.status === "new");
+  const overlap = all.filter(game => game.status === "overlap");
+  const currentOwned = all.filter(game => game.status === "currentOwned");
+
+  return {
+    ...report,
+    targetCount: targets.length,
+    totalPublicGames: targets.reduce((sum, target) => sum + target.gameCount, 0),
+    newGameCount: newGames.length,
+    overlapCount: overlap.length,
+    currentOwnedOverlapCount: currentOwned.length,
+    targets,
+    games: {
+      all,
+      new: newGames,
+      relativeNew: Array.from(relativeNewByAppid.values()).sort(compareReportGameNames),
+      overlap,
+      currentOwned,
+      notCurrentOwned: all.filter(game => game.status !== "currentOwned")
+    }
+  };
+}
+
+function hasSelectedTargetOwner(game: ReportGame, selectedIdSet: Set<string>): boolean {
+  return game.targetOwners.some(steamid64 => selectedIdSet.has(steamid64));
+}
+
+function filterGameTargetOwners(game: ReportGame, selectedIdSet: Set<string>): ReportGame {
+  const targetOwners: string[] = [];
+  const targetOwnerNames: string[] = [];
+  game.targetOwners.forEach((steamid64, index) => {
+    if (!selectedIdSet.has(steamid64)) {
+      return;
+    }
+    targetOwners.push(steamid64);
+    targetOwnerNames.push(game.targetOwnerNames[index] || steamid64);
+  });
+  return { ...game, targetOwners, targetOwnerNames };
+}
+
+function compareReportGameNames(left: ReportGame, right: ReportGame): number {
+  return (left.localizedName || left.name || left.appid).localeCompare(
+    right.localizedName || right.name || right.appid,
+    "zh-CN",
+    { numeric: true, sensitivity: "base" }
+  ) || left.appid.localeCompare(right.appid, "zh-CN", { numeric: true });
+}
+
 export function buildResultMetrics(report: AnalysisReport, priceMode: PriceMode): ResultMetric[] {
   const targets = report.targets;
   const familyCount = report.familyGameCount;

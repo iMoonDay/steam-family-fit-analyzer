@@ -10,7 +10,7 @@ mod steam;
 
 use crate::{
     analyzer::{apply_prices_to_report, apply_store_enrichment_to_report, build_analysis_report},
-    input::{normalize_target_token, split_target_input},
+    input::{is_steamid64, normalize_target_token, split_target_input},
     models::{
         AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus,
         AutoSteamConfigResult, BrowserCallbackSession, CacheCoversInput, CacheCoversOutput,
@@ -119,6 +119,46 @@ fn analyze_preview(input: AnalyzeInput) -> Result<AnalysisPreview, String> {
         store_context: format!("{}:{}", input.settings.store_country, input.settings.locale),
         warnings,
     })
+}
+
+#[tauri::command]
+async fn validate_steam_api_key(settings: AppSettings) -> Result<String, String> {
+    let api_key = settings.steam_api_key.trim();
+    if api_key.is_empty() {
+        return Err(crate::error::AppError::InputValidation("Steam Web API Key 未填写".to_string()).user_message());
+    }
+
+    let client = steam::build_client()?;
+    let probe_steamid = if is_steamid64(settings.current_steam_id64.trim()) {
+        settings.current_steam_id64.trim()
+    } else {
+        "76561197960435530"
+    };
+    steam::fetch_player_display_names(&client, api_key, &[probe_steamid.to_string()]).await?;
+    Ok("Steam Web API Key 有效".to_string())
+}
+
+#[tauri::command]
+async fn validate_itad_api_key(settings: AppSettings) -> Result<String, String> {
+    if settings.itad_api_key.trim().is_empty() {
+        return Err(crate::error::AppError::InputValidation("IsThereAnyDeal API Key 未填写".to_string()).user_message());
+    }
+
+    let client = steam::build_client()?;
+    itad::fetch_history_low_prices(&client, &["10".to_string()], &settings).await?;
+    Ok("IsThereAnyDeal API Key 有效".to_string())
+}
+
+#[tauri::command]
+async fn validate_family_access_token(settings: AppSettings) -> Result<String, String> {
+    let access_token = settings.family_access_token.trim();
+    if access_token.is_empty() {
+        return Err(crate::error::AppError::InputValidation("家庭库 Access Token 未填写".to_string()).user_message());
+    }
+
+    let client = steam::build_client()?;
+    let family_group_id = steam::fetch_family_group_id(&client, access_token).await?;
+    Ok(format!("家庭库 Access Token 有效，家庭组 ID：{family_group_id}"))
 }
 
 #[tauri::command]
@@ -400,6 +440,9 @@ pub fn run() {
             auto_detect_steam_config,
             start_browser_config_callback,
             analyze_preview,
+            validate_steam_api_key,
+            validate_itad_api_key,
+            validate_family_access_token,
             analyze_target,
             refresh_report_prices
         ])

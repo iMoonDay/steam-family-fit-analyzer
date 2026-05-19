@@ -3,20 +3,33 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { ActionIcon, Button, Divider, Group, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import type { AppSettings, AppStatus, LocaleMode, AutoSteamConfigResult } from "../types";
-import { clearCache, openCacheDirectory, startBrowserConfigCallback, exportSettings, importSettings } from "../services/desktop";
+import {
+  clearCache,
+  openCacheDirectory,
+  startBrowserConfigCallback,
+  exportSettings,
+  importSettings,
+  validateFamilyAccessToken,
+  validateItadApiKey,
+  validateSteamApiKey
+} from "../services/desktop";
 import { FieldLabel, HelpSteps } from "../components/fields";
-import { CacheActionIcon } from "../components/icons";
+import { CacheActionIcon, ValidateCredentialIcon } from "../components/icons";
 import { openExternalUrl, writeClipboard } from "../core/external";
 import { browserConfigHelpSteps } from "../core/help";
+
+type CredentialKind = "steamApiKey" | "itadApiKey" | "familyAccessToken";
 
 export function SettingsPage({
   settings,
   status,
+  message,
   onSettingsChange,
   onMessage
 }: {
   settings: AppSettings;
   status: AppStatus | null;
+  message: string;
   onSettingsChange: (settings: AppSettings) => void;
   onMessage: (message: string) => void;
 }) {
@@ -25,7 +38,11 @@ export function SettingsPage({
       <div className="main-heading settings-heading">
         <Stack gap={1}>
           <Text component="h1" className="title">配置</Text>
-          <Text size="sm" c="dimmed">管理 Steam Web API、IsThereAnyDeal、地区和语言。</Text>
+          {message ? (
+            <Text className={`inline-status ${message.includes("失败") || message.includes("错误") ? "is-error" : ""}`} size="xs">
+              {message}
+            </Text>
+          ) : null}
         </Stack>
       </div>
 
@@ -53,6 +70,7 @@ function SettingsPanel({
   onMessage: (message: string) => void;
 }) {
   const [autoDetectBusy, setAutoDetectBusy] = useState(false);
+  const [validatingCredential, setValidatingCredential] = useState<CredentialKind | null>(null);
   const [autoDetectMessage, setAutoDetectMessage] = useState("");
   const latestSettingsRef = useRef(settings);
   const displayedCacheDirectory = settings.cacheDirectory.trim() || status?.cacheDirectory || "-";
@@ -195,6 +213,22 @@ function SettingsPanel({
     onMessage("已恢复默认缓存目录");
   }
 
+  async function handleValidateCredential(kind: CredentialKind) {
+    setValidatingCredential(kind);
+    try {
+      const message = await ({
+        steamApiKey: validateSteamApiKey,
+        itadApiKey: validateItadApiKey,
+        familyAccessToken: validateFamilyAccessToken
+      }[kind])(latestSettingsRef.current);
+      onMessage(message);
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setValidatingCredential(null);
+    }
+  }
+
   return (
     <div className="settings-pane">
       <Stack gap="md">
@@ -219,29 +253,53 @@ function SettingsPanel({
         {autoDetectMessage ? (
           <Text size="xs" className="settings-auto-status">{autoDetectMessage}</Text>
         ) : null}
-        <PasswordInput
-          label={<FieldLabel label="Steam Web API Key" helpKey="steamApiKey" onOpenHelp={url => void openExternalUrl(url)} />}
-          value={settings.steamApiKey}
-          onChange={event => updateSettings("steamApiKey", event.currentTarget.value)}
-          autoComplete="off"
-        />
-        <PasswordInput
-          label={<FieldLabel label="IsThereAnyDeal API Key" helpKey="itadApiKey" onOpenHelp={url => void openExternalUrl(url)} />}
-          value={settings.itadApiKey}
-          onChange={event => updateSettings("itadApiKey", event.currentTarget.value)}
-          autoComplete="off"
-        />
+        <div className="settings-credential-row">
+          <PasswordInput
+            label={<FieldLabel label="Steam Web API Key" helpKey="steamApiKey" onOpenHelp={url => void openExternalUrl(url)} />}
+            value={settings.steamApiKey}
+            onChange={event => updateSettings("steamApiKey", event.currentTarget.value)}
+            autoComplete="off"
+          />
+          <CredentialValidateButton
+            label="校验 Steam Web API Key"
+            loading={validatingCredential === "steamApiKey"}
+            disabled={Boolean(validatingCredential)}
+            onClick={() => void handleValidateCredential("steamApiKey")}
+          />
+        </div>
+        <div className="settings-credential-row">
+          <PasswordInput
+            label={<FieldLabel label="IsThereAnyDeal API Key" helpKey="itadApiKey" onOpenHelp={url => void openExternalUrl(url)} />}
+            value={settings.itadApiKey}
+            onChange={event => updateSettings("itadApiKey", event.currentTarget.value)}
+            autoComplete="off"
+          />
+          <CredentialValidateButton
+            label="校验 IsThereAnyDeal API Key"
+            loading={validatingCredential === "itadApiKey"}
+            disabled={Boolean(validatingCredential)}
+            onClick={() => void handleValidateCredential("itadApiKey")}
+          />
+        </div>
         <TextInput
           label={<FieldLabel label="当前 SteamID64" helpKey="currentSteamId64" onOpenHelp={url => void openExternalUrl(url)} />}
           value={settings.currentSteamId64}
           onChange={event => updateSettings("currentSteamId64", event.currentTarget.value.trim())}
         />
-        <PasswordInput
-          label={<FieldLabel label="家庭库 Access Token" helpKey="familyAccessToken" onOpenHelp={url => void openExternalUrl(url)} />}
-          value={settings.familyAccessToken}
-          onChange={event => updateSettings("familyAccessToken", event.currentTarget.value.trim())}
-          autoComplete="off"
-        />
+        <div className="settings-credential-row">
+          <PasswordInput
+            label={<FieldLabel label="家庭库 Access Token" helpKey="familyAccessToken" onOpenHelp={url => void openExternalUrl(url)} />}
+            value={settings.familyAccessToken}
+            onChange={event => updateSettings("familyAccessToken", event.currentTarget.value.trim())}
+            autoComplete="off"
+          />
+          <CredentialValidateButton
+            label="校验家庭库 Access Token"
+            loading={validatingCredential === "familyAccessToken"}
+            disabled={Boolean(validatingCredential)}
+            onClick={() => void handleValidateCredential("familyAccessToken")}
+          />
+        </div>
         <TextInput
           label="家庭组 ID（可留空自动获取）"
           value={settings.familyGroupId}
@@ -340,6 +398,38 @@ function CacheActionButton({
           onClick={onClick}
         >
           <CacheActionIcon type={icon} />
+        </ActionIcon>
+      </span>
+    </Tooltip>
+  );
+}
+
+function CredentialValidateButton({
+  label,
+  loading,
+  disabled,
+  onClick
+}: {
+  label: string;
+  loading: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip label={label} withArrow openDelay={250}>
+      <span className="settings-credential-action-wrap">
+        <ActionIcon
+          className="settings-credential-action"
+          size={28}
+          radius="md"
+          variant="light"
+          color="steamBlue"
+          aria-label={label}
+          loading={loading}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          <ValidateCredentialIcon />
         </ActionIcon>
       </span>
     </Tooltip>

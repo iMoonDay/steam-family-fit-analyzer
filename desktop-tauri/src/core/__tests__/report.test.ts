@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatPrice, formatPercent, getReportGameStatusLabel, matchesResultGameSearch } from "../report";
-import type { PriceInfo } from "../../types";
+import { filterReportBySelectedTargets, formatPrice, formatPercent, getReportGameStatusLabel, matchesResultGameSearch } from "../report";
+import type { AnalysisReport, PriceInfo, ReportGame } from "../../types";
 import type { ResultGameRow } from "../../appTypes";
 
 function makePrice(overrides: Partial<PriceInfo> = {}): PriceInfo {
@@ -20,15 +20,14 @@ function makeGameRow(overrides: Partial<ResultGameRow> = {}): ResultGameRow {
   return {
     appid: "730",
     name: "Counter-Strike 2",
+    originalName: "Counter-Strike 2",
     localizedName: "",
     storeLink: "https://store.steampowered.com/app/730/",
     coverUrl: "",
-    targetOwners: ["76561198012345678"],
-    targetOwnerNames: ["Player"],
+    ownerIds: ["76561198012345678"],
+    ownerNames: ["Player"],
     familyOwners: [],
     familyOwnerNames: [],
-    familyAcquiredAt: 0,
-    prices: { original: null, historyLow: null },
     price: null,
     status: "new",
     searchText: "730\ncounter-strike 2\n730\ncounterstrike2",
@@ -138,3 +137,80 @@ describe("matchesResultGameSearch", () => {
     expect(matchesResultGameSearch(gameWithLocal, "精英")).toBe(true);
   });
 });
+
+describe("filterReportBySelectedTargets", () => {
+  it("filters metrics lists to selected target owners", () => {
+    const report = makeAnalysisReport();
+
+    const filtered = filterReportBySelectedTargets(report, ["76561198000000001"]);
+
+    expect(filtered.targets.map(target => target.steamid64)).toEqual(["76561198000000001"]);
+    expect(filtered.games.all.map(game => game.appid)).toEqual(["10", "20"]);
+    expect(filtered.games.new.map(game => game.appid)).toEqual(["10"]);
+    expect(filtered.games.overlap.map(game => game.appid)).toEqual(["20"]);
+    expect(filtered.games.all.find(game => game.appid === "20")?.targetOwners).toEqual(["76561198000000001"]);
+    expect(filtered.newGameCount).toBe(1);
+    expect(filtered.overlapCount).toBe(1);
+  });
+
+  it("turns overlaps owned only by excluded targets into relative new rows", () => {
+    const report = makeAnalysisReport();
+
+    const filtered = filterReportBySelectedTargets(report, ["76561198000000001"]);
+
+    const relativeNewAppids = filtered.games.relativeNew.map(game => game.appid);
+    expect(relativeNewAppids).toContain("30");
+    expect(relativeNewAppids).toContain("40");
+    expect(filtered.games.relativeNew.find(game => game.appid === "30")?.status).toBe("relativeNew");
+  });
+});
+
+function makeAnalysisReport(): AnalysisReport {
+  const alice = "76561198000000001";
+  const bob = "76561198000000002";
+  const newGame = makeReportGame({ appid: "10", name: "Alpha", status: "new", targetOwners: [alice], targetOwnerNames: ["Alice"] });
+  const sharedOverlap = makeReportGame({ appid: "20", name: "Beta", status: "overlap", targetOwners: [alice, bob], targetOwnerNames: ["Alice", "Bob"] });
+  const bobOverlap = makeReportGame({ appid: "30", name: "Gamma", status: "overlap", targetOwners: [bob], targetOwnerNames: ["Bob"] });
+  const familyOnly = makeReportGame({ appid: "40", name: "Delta", status: "relativeNew", targetOwners: [], targetOwnerNames: [] });
+
+  return {
+    targetCount: 2,
+    totalPublicGames: 4,
+    familyGameCount: 3,
+    newGameCount: 1,
+    overlapCount: 2,
+    currentOwnedOverlapCount: 0,
+    targets: [
+      { steamid64: alice, displayName: "Alice", profileUrl: "", avatar: "", gameCount: 2, rawGameCount: 2, games: [], sampleGames: [] },
+      { steamid64: bob, displayName: "Bob", profileUrl: "", avatar: "", gameCount: 2, rawGameCount: 2, games: [], sampleGames: [] }
+    ],
+    games: {
+      all: [newGame, sharedOverlap, bobOverlap],
+      new: [newGame],
+      relativeNew: [familyOnly],
+      overlap: [sharedOverlap, bobOverlap],
+      currentOwned: [],
+      notCurrentOwned: [newGame, sharedOverlap, bobOverlap]
+    },
+    warnings: []
+  };
+}
+
+function makeReportGame(overrides: Partial<ReportGame>): ReportGame {
+  return {
+    appid: "0",
+    name: "Game",
+    localizedName: "",
+    storeLink: "",
+    coverUrl: "",
+    targetOwners: [],
+    targetOwnerNames: [],
+    familyOwners: ["76561198000000099"],
+    familyOwnerNames: ["Family"],
+    familyAcquiredAt: 0,
+    prices: { original: null, historyLow: null },
+    price: null,
+    status: "new",
+    ...overrides
+  };
+}

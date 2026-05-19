@@ -128,6 +128,39 @@ export async function startBrowserConfigCallback(): Promise<BrowserCallbackSessi
   }
 }
 
+export async function validateSteamApiKey(settings: AppSettings): Promise<string> {
+  try {
+    return await invoke<string>("validate_steam_api_key", { settings });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能校验 Steam Web API Key，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function validateItadApiKey(settings: AppSettings): Promise<string> {
+  try {
+    return await invoke<string>("validate_itad_api_key", { settings });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能校验 IsThereAnyDeal API Key，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function validateFamilyAccessToken(settings: AppSettings): Promise<string> {
+  try {
+    return await invoke<string>("validate_family_access_token", { settings });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能校验家庭库 Access Token，请使用 Tauri 桌面窗口。");
+  }
+}
+
 export async function analyzePreview(input: AnalyzeInput): Promise<AnalysisPreview> {
   try {
     return await invoke<AnalysisPreview>("analyze_preview", { input });

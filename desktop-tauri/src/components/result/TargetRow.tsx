@@ -2,11 +2,36 @@ import { Avatar, Group, Stack, Text } from "@mantine/core";
 import type { TargetProfile } from "../../types";
 import { openExternalUrl } from "../../core/external";
 
-export function TargetRow({ target }: { target: TargetProfile }) {
+export function TargetRow({
+  target,
+  selectable = false,
+  checked = true,
+  disabled = false,
+  onCheckedChange
+}: {
+  target: TargetProfile;
+  selectable?: boolean;
+  checked?: boolean;
+  disabled?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+}) {
   const profileUrl = target.profileUrl || (target.steamid64 ? `https://steamcommunity.com/profiles/${target.steamid64}` : "");
   return (
-    <div className="target-row">
+    <div className={`target-row ${selectable ? "is-selectable" : ""} ${selectable && !checked ? "is-muted" : ""}`}>
       <Group wrap="nowrap" align="center">
+        {selectable ? (
+          <button
+            className="target-select"
+            type="button"
+            role="checkbox"
+            aria-label={`计入 ${target.displayName || target.steamid64 || "目标账号"}`}
+            aria-checked={checked}
+            disabled={disabled}
+            onClick={() => onCheckedChange?.(!checked)}
+          >
+            <span aria-hidden="true" />
+          </button>
+        ) : null}
         <button
           type="button"
           className="target-avatar-link"

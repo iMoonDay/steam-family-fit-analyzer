@@ -48,8 +48,11 @@ const defaultResultViewState: ResultViewState = {
   activeGameList: "all",
   viewMode: "cover",
   showAppId: false,
+  selectedTargetIds: [],
   tableSortByList: {}
 };
+
+type PageMessageState = Record<AppPage, string>;
 
 const theme = createTheme({
   primaryColor: "steamBlue",
@@ -97,17 +100,28 @@ function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(restoredReport);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("准备就绪");
+  const [globalMessage, setGlobalMessage] = useState("");
+  const [pageMessages, setPageMessages] = useState<PageMessageState>({
+    analysis: "",
+    result: restoredReport ? "已恢复上次分析结果" : "暂无分析结果",
+    settings: ""
+  });
   const [activePage, setActivePage] = useState<AppPage>(restoredReport ? "result" : "analysis");
   const [priceModeControlValue, setPriceModeControlValue] = useState<PriceMode>(defaultSettings.priceMode);
   const [resultViewState, setResultViewState] = useState<ResultViewState>(defaultResultViewState);
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryEntry[]>(() => loadAnalysisHistory());
   const [settingsReady, setSettingsReady] = useState(false);
   const priceModeRevertTimerRef = useRef<number | null>(null);
+  const activePageRef = useRef<AppPage>(activePage);
+  const settingsSaveMessagePageRef = useRef<AppPage>("settings");
 
   useEffect(() => {
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    activePageRef.current = activePage;
+  }, [activePage]);
 
   useEffect(() => {
     const handleContextMenu = (event: Event) => {
@@ -124,7 +138,7 @@ function App() {
 
     const timer = window.setTimeout(() => {
       void saveSettings(settings).catch(error => {
-        setMessage(error instanceof Error ? error.message : String(error));
+        updatePageMessage(settingsSaveMessagePageRef.current, error instanceof Error ? error.message : String(error));
       });
     }, 500);
 
@@ -134,6 +148,25 @@ function App() {
   const priceLabel = settings.priceMode === "historyLow" ? "Steam 史低" : "Steam 原价";
   const tablePriceLabel = settings.priceMode === "historyLow" ? "史低" : "原价";
   const warningText = useMemo(() => report?.warnings.join("；") || "", [report]);
+
+  function updatePageMessage(page: AppPage, nextMessage: string) {
+    setPageMessages(current => ({
+      ...current,
+      [page]: nextMessage
+    }));
+    setGlobalMessage(nextMessage);
+  }
+
+  function updatePagesMessage(pages: AppPage[], nextMessage: string) {
+    setPageMessages(current => {
+      const nextMessages = { ...current };
+      for (const page of pages) {
+        nextMessages[page] = nextMessage;
+      }
+      return nextMessages;
+    });
+    setGlobalMessage(nextMessage);
+  }
 
   async function bootstrap() {
     try {
@@ -145,27 +178,28 @@ function App() {
       setSettings(savedSettings);
       setPriceModeControlValue(savedSettings.priceMode);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      updatePageMessage(activePageRef.current, error instanceof Error ? error.message : String(error));
     } finally {
       setSettingsReady(true);
     }
   }
 
   function handleSettingsChange(nextSettings: AppSettings) {
+    settingsSaveMessagePageRef.current = "settings";
     setSettings(nextSettings);
     if (!settingsReady) {
       return;
     }
     void saveSettings(nextSettings).catch(error => {
-      setMessage(error instanceof Error ? error.message : String(error));
+      updatePageMessage("settings", error instanceof Error ? error.message : String(error));
     });
   }
 
-  async function handleAnalyze(inputOverride?: string, settingsOverride?: AppSettings) {
+  async function handleAnalyze(inputOverride?: string, settingsOverride?: AppSettings, sourcePage: AppPage = "analysis") {
     const analysisInput = inputOverride ?? targetInput;
     const analysisSettings = settingsOverride || settings;
     setBusy(true);
-    setMessage("正在请求 Steam Web API");
+    updatePageMessage(sourcePage, "正在请求 Steam Web API");
     try {
       await saveSettings(analysisSettings);
       const nextReport = await analyzeTarget({ targetInput: analysisInput, settings: analysisSettings });
@@ -175,9 +209,13 @@ function App() {
         setAnalysisHistory(previousHistory => saveAnalysisHistory(upsertAnalysisHistory(previousHistory, analysisInput, nextReport)));
         setActivePage("result");
       }
-      setMessage(nextReport.targetCount ? "目标公开游戏库读取完成" : "请输入至少一个目标账号");
+      if (nextReport.targetCount) {
+        updatePagesMessage(sourcePage === "analysis" ? ["analysis", "result"] : ["result"], "目标公开游戏库读取完成");
+      } else {
+        updatePageMessage(sourcePage, "请输入至少一个目标账号");
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      updatePageMessage(sourcePage, error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -193,7 +231,7 @@ function App() {
         window.clearTimeout(priceModeRevertTimerRef.current);
       }
       setPriceModeControlValue("historyLow");
-      setMessage("史低需要先在配置中填写 IsThereAnyDeal API Key");
+      updatePageMessage("result", "史低需要先在配置中填写 IsThereAnyDeal API Key");
       priceModeRevertTimerRef.current = window.setTimeout(() => {
         priceModeRevertTimerRef.current = null;
         setPriceModeControlValue("original");
@@ -207,6 +245,7 @@ function App() {
     }
     setPriceModeControlValue(priceMode);
     const nextSettings = { ...settings, priceMode };
+    settingsSaveMessagePageRef.current = "result";
     setSettings(nextSettings);
     void saveSettings(nextSettings);
     if (report && !reportHasPriceModeData(report, priceMode)) {
@@ -216,14 +255,14 @@ function App() {
 
   async function handleRefreshReportPrices(currentReport: AnalysisReport, nextSettings: AppSettings) {
     setBusy(true);
-    setMessage("正在更新价格");
+    updatePageMessage("result", "正在更新价格");
     try {
       const nextReport = await refreshReportPrices(currentReport, nextSettings);
       setReport(nextReport);
       saveLastAnalysisReport(nextReport);
-      setMessage("价格已更新");
+      updatePageMessage("result", "价格已更新");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      updatePageMessage("result", error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -289,19 +328,19 @@ function App() {
                   <AnalysisPreparePage
                     targetInput={targetInput}
                     history={analysisHistory}
-                    message={message}
+                    message={pageMessages.analysis}
                     busy={busy}
                     onTargetInputChange={setTargetInput}
-                    onAnalyze={handleAnalyze}
+                    onAnalyze={(inputOverride) => handleAnalyze(inputOverride, undefined, "analysis")}
                     onDeleteHistoryEntry={handleDeleteHistoryEntry}
-                    onMessage={setMessage}
+                    onMessage={nextMessage => updatePageMessage("analysis", nextMessage)}
                   />
                 </div>
                 <div className={`page-slot ${activePage === "result" ? "is-active" : ""}`}>
                   {report ? (
                     <AnalysisResultPage
                       report={report}
-                      message={message}
+                      message={pageMessages.result}
                       warningText={warningText}
                       priceLabel={priceLabel}
                       tablePriceLabel={tablePriceLabel}
@@ -314,8 +353,8 @@ function App() {
                       onPriceModeChange={handlePriceModeChange}
                       onViewStateChange={setResultViewState}
                       onBack={() => handleNavigatePage("analysis")}
-                      onAnalyze={handleAnalyze}
-                      onMessage={setMessage}
+                      onAnalyze={(inputOverride) => handleAnalyze(inputOverride, undefined, "result")}
+                      onMessage={nextMessage => updatePageMessage("result", nextMessage)}
                     />
                   ) : (
                     <EmptyResultPage onGoAnalysis={() => handleNavigatePage("analysis")} />
@@ -325,15 +364,16 @@ function App() {
                   <SettingsPage
                     settings={settings}
                     status={status}
+                    message={pageMessages.settings}
                     onSettingsChange={handleSettingsChange}
-                    onMessage={setMessage}
+                    onMessage={nextMessage => updatePageMessage("settings", nextMessage)}
                   />
                 </div>
               </div>
             </ScrollArea>
 
             <footer className="status-bar">
-              <span>{message}</span>
+              {globalMessage ? <span>{globalMessage}</span> : null}
               <span>{settings.storeCountry}:{settings.locale}</span>
               <span>{priceLabel}</span>
             </footer>

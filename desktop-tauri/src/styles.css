@@ -241,6 +241,31 @@ textarea {
   flex: 0 0 auto;
 }
 
+.settings-credential-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 8px;
+  align-items: end;
+}
+
+.settings-credential-row .mantine-PasswordInput-root {
+  min-width: 0;
+}
+
+.settings-credential-action-wrap {
+  display: inline-flex;
+  align-self: end;
+  margin-bottom: 1px;
+}
+
+.settings-credential-action {
+  color: var(--color-muted);
+}
+
+.settings-credential-action:not(:disabled):hover {
+  color: var(--color-accent);
+}
+
 .settings-cache-action-wrap {
   display: inline-flex;
 }
@@ -757,20 +782,45 @@ textarea {
   flex: 0 0 142px;
 }
 
-.game-view-toggle {
-  flex: 0 0 auto;
-  background: var(--color-control);
-}
-
-.result-price-mode-control {
-  flex: 0 0 auto;
-  background: var(--color-control);
-}
-
-.segmented-label-content {
+.inline-segmented {
   display: inline-flex;
   align-items: center;
-  height: 100%;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-control);
+}
+
+.inline-segmented button {
+  min-width: 58px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.inline-segmented button.is-active {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.inline-segmented button:not(.is-active):not(:disabled):hover,
+.inline-segmented button:not(.is-active):not(:disabled):focus-visible {
+  background: var(--color-control-hover);
+  outline: none;
+}
+
+.inline-segmented button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .game-search {
@@ -786,14 +836,13 @@ textarea {
   border-radius: var(--radius-md);
 }
 
-.game-list-tabs .mantine-SegmentedControl-control {
+.game-list-tabs button {
   width: 124px;
 }
 
-.game-list-tabs .mantine-SegmentedControl-label {
-  font-weight: 700;
-  overflow: visible;
-  white-space: nowrap;
+.game-view-toggle,
+.result-price-mode-control {
+  flex: 0 0 auto;
 }
 
 .game-scroll {
@@ -1647,6 +1696,10 @@ textarea {
   background: rgba(31, 41, 55, 0.045);
 }
 
+.target-row.is-muted {
+  opacity: 0.55;
+}
+
 .target-row:last-child {
   border-bottom: 0;
 }
@@ -1661,6 +1714,49 @@ textarea {
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 10px;
   min-width: 0;
+}
+
+.target-row.is-selectable .mantine-Group-root {
+  grid-template-columns: 18px 42px minmax(0, 1fr);
+}
+
+.target-select {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #9fb0c2;
+  border-radius: 5px;
+  background: var(--color-control);
+  cursor: pointer;
+}
+
+.target-select[aria-checked="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.target-select span {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.target-select[aria-checked="true"] span {
+  background: #ffffff;
+}
+
+.target-select:not(:disabled):hover,
+.target-select:focus-visible {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.target-select:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .target-row .mantine-Avatar-root {
@@ -1686,6 +1782,16 @@ textarea {
 }
 
 .cache-action-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
+}
+
+.credential-action-icon {
   width: 15px;
   height: 15px;
   fill: none;

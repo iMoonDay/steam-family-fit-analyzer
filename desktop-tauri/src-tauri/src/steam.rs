@@ -606,6 +606,7 @@ async fn request_json(
     url: &str,
     query: &[(&str, &str)],
 ) -> Result<serde_json::Value, String> {
+    let context = describe_request_context(url, query);
     let request_url = build_request_url(url, query)?;
     let response = client
         .get(request_url)
@@ -616,19 +617,44 @@ async fn request_json(
         .send()
         .await
         .map_err(|error| {
-            crate::error::AppError::from_reqwest(error, "Steam API")
+            crate::error::AppError::from_reqwest(error, &context)
         })?;
     let status = response.status();
     if !status.is_success() {
-        return Err(crate::error::AppError::from_http_status(status, "Steam API").user_message());
+        return Err(crate::error::AppError::from_http_status(status, &context).user_message());
     }
     response.json::<serde_json::Value>().await.map_err(|error| {
         crate::error::AppError::DataFormat(format!(
-            "Steam API 响应无法解析：{}",
+            "{context} 响应无法解析：{}",
             redact_secret(&format_error_chain(&error), query)
         ))
         .user_message()
     })
+}
+
+fn describe_request_context(url: &str, query: &[(&str, &str)]) -> String {
+    let endpoint = url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .take(2)
+        .collect::<Vec<_>>();
+    let endpoint = endpoint
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("/");
+    let endpoint = if endpoint.is_empty() {
+        "Steam API".to_string()
+    } else {
+        format!("Steam API {endpoint}")
+    };
+    if query.iter().any(|(key, value)| *key == "access_token" && !value.trim().is_empty()) {
+        format!("{endpoint}（家庭库 Access Token）")
+    } else if query.iter().any(|(key, value)| *key == "key" && !value.trim().is_empty()) {
+        format!("{endpoint}（Steam Web API Key）")
+    } else {
+        endpoint
+    }
 }
 
 fn normalize_target_game(game: &serde_json::Value) -> Option<TargetGame> {
@@ -876,5 +902,22 @@ mod tests {
         });
 
         assert!(is_family_sharing_supported(&item));
+    }
+
+    #[test]
+    fn request_context_identifies_credential_kind() {
+        let web_api_context = describe_request_context(
+            "https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/",
+            &[("key", "secret"), ("steamid", "76561198000000001")],
+        );
+        let family_context = describe_request_context(
+            "https://api.steampowered.com/IFamilyGroupsService/GetSharedLibraryApps/v1/",
+            &[("access_token", "secret"), ("family_groupid", "123")],
+        );
+
+        assert!(web_api_context.contains("Steam Web API Key"));
+        assert!(web_api_context.contains("GetOwnedGames"));
+        assert!(family_context.contains("家庭库 Access Token"));
+        assert!(family_context.contains("GetSharedLibraryApps"));
     }
 }

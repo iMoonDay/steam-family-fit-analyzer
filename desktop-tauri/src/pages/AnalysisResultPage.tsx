@@ -3,12 +3,10 @@ import {
   Button,
   Group,
   ScrollArea,
-  SegmentedControl,
   Select,
   Stack,
   Text,
-  TextInput,
-  Tooltip
+  TextInput
 } from "@mantine/core";
 import { save as selectSavePath } from "@tauri-apps/plugin-dialog";
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -54,6 +52,7 @@ import {
   buildResultMetrics,
   buildReportTargetInput,
   buildTableSortSelectOptions,
+  filterReportBySelectedTargets,
   formatGameListText,
   formatGameNamesText,
   formatReportText,
@@ -74,6 +73,37 @@ export function EmptyResultPage({ onGoAnalysis }: { onGoAnalysis: () => void }) 
           前往分析
         </Button>
       </Stack>
+    </div>
+  );
+}
+
+function SegmentedControl({
+  className,
+  value,
+  options,
+  disabled = false,
+  onChange
+}: {
+  className: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className={`inline-segmented ${className}`} role="group">
+      {options.map(option => (
+        <button
+          key={option.value}
+          type="button"
+          className={option.value === value ? "is-active" : ""}
+          aria-pressed={option.value === value}
+          disabled={disabled}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -112,7 +142,7 @@ export function AnalysisResultPage({
   onAnalyze: (inputOverride?: string) => Promise<void>;
   onMessage: (message: string) => void;
 }) {
-  const { searchQuery, activeGameList, viewMode, showAppId, tableSortByList } = viewState;
+  const { searchQuery, activeGameList, viewMode, showAppId, selectedTargetIds, tableSortByList } = viewState;
   const coverScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const [coverReloadTokens, setCoverReloadTokens] = useState<Record<string, number>>({});
   const [coverCachePaths, setCoverCachePaths] = useState<Record<string, string>>({});
@@ -122,9 +152,19 @@ export function AnalysisResultPage({
   const [moreMenu, setMoreMenu] = useState<MoreMenuState | null>(null);
   const [posterDialogOpen, setPosterDialogOpen] = useState(false);
   const [posterSettings, setPosterSettings] = useState<PosterSettings>(defaultPosterSettings);
-  const includeTargetOwners = report.targets.length > 1;
-  const resultMetrics = useMemo(() => buildResultMetrics(report, priceMode), [priceMode, report]);
-  const games = useMemo(() => buildResultGameRows(report.games[activeGameList], priceMode), [activeGameList, priceMode, report]);
+  const targetIds = useMemo(() => report.targets.map(target => target.steamid64).filter(Boolean), [report]);
+  const activeSelectedTargetIds = useMemo(() => {
+    const validSelectedIds = selectedTargetIds.filter(steamid64 => targetIds.includes(steamid64));
+    return validSelectedIds.length ? validSelectedIds : targetIds;
+  }, [selectedTargetIds, targetIds]);
+  const selectedTargetIdSet = useMemo(() => new Set(activeSelectedTargetIds), [activeSelectedTargetIds]);
+  const effectiveReport = useMemo(
+    () => filterReportBySelectedTargets(report, activeSelectedTargetIds),
+    [activeSelectedTargetIds, report]
+  );
+  const includeTargetOwners = effectiveReport.targets.length > 1;
+  const resultMetrics = useMemo(() => buildResultMetrics(effectiveReport, priceMode), [effectiveReport, priceMode]);
+  const games = useMemo(() => buildResultGameRows(effectiveReport.games[activeGameList], priceMode), [activeGameList, effectiveReport, priceMode]);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const tableSortOptions = useMemo(
     () => buildTableSortSelectOptions(activeGameList, includeTargetOwners, showAppId, tablePriceLabel, viewMode),
@@ -134,8 +174,14 @@ export function AnalysisResultPage({
     () => buildListPosterSortModes(activeGameList, includeTargetOwners),
     [activeGameList, includeTargetOwners]
   );
-  const activeTableSort = normalizeTableSortState(tableSortByList[activeGameList], tableSortOptions);
-  const sortSelectValue = serializeTableSortState(activeTableSort);
+  const targetSelectionSummary = report.targets.length > 1
+    ? `已计入 ${activeSelectedTargetIds.length} / ${report.targets.length}`
+    : "";
+  const activeTableSort = useMemo(
+    () => normalizeTableSortState(tableSortByList[activeGameList], tableSortOptions),
+    [activeGameList, tableSortByList, tableSortOptions]
+  );
+  const sortSelectValue = useMemo(() => serializeTableSortState(activeTableSort), [activeTableSort]);
   const filteredGames = useMemo(() => {
     return games.filter(game => matchesResultGameSearch(game, deferredSearchQuery));
   }, [deferredSearchQuery, games]);
@@ -504,8 +550,27 @@ export function AnalysisResultPage({
   }
 
   async function handleCopyReport() {
-    await writeClipboard(formatReportText(report, priceMode));
+    await writeClipboard(formatReportText(effectiveReport, priceMode));
     onMessage("已复制分析报告");
+  }
+
+  function handleTargetCheckedChange(steamid64: string, checked: boolean) {
+    if (!steamid64) {
+      return;
+    }
+    if (!checked && activeSelectedTargetIds.length <= 1) {
+      onMessage("至少保留一个目标账号参与统计");
+      return;
+    }
+    const nextSelectedTargetIds = checked
+      ? Array.from(new Set([...activeSelectedTargetIds, steamid64]))
+      : activeSelectedTargetIds.filter(targetId => targetId !== steamid64);
+    startTransition(() => {
+      onViewStateChange(current => ({
+        ...current,
+        selectedTargetIds: nextSelectedTargetIds
+      }));
+    });
   }
 
   function handleOpenListPosterDialog() {
@@ -572,9 +637,11 @@ export function AnalysisResultPage({
         <div className="result-data-head">
           <Stack gap={2}>
             <Text component="h1" className="title">分析结果</Text>
-            <Text className={`inline-status ${message.includes("失败") || message.includes("错误") ? "is-error" : ""}`} size="xs">
-              {message}
-            </Text>
+            {message ? (
+              <Text className={`inline-status ${message.includes("失败") || message.includes("错误") ? "is-error" : ""}`} size="xs">
+                {message}
+              </Text>
+            ) : null}
           </Stack>
           <div className="result-actions">
             <Button size="xs" variant="subtle" color="steamBlue" onClick={onBack}>返回</Button>
@@ -598,11 +665,21 @@ export function AnalysisResultPage({
         <section className="result-targets">
           <Group justify="space-between" className="result-head">
             <Text fw={700}>目标账号</Text>
+            {targetSelectionSummary ? <Text size="xs" c="dimmed">{targetSelectionSummary}</Text> : null}
             {warningText ? <Text size="xs" c="orange">{warningText}</Text> : null}
           </Group>
           <ScrollArea.Autosize mah={360}>
             <Stack gap={0}>
-              {report.targets.map(target => <TargetRow key={target.steamid64 || target.displayName} target={target} />)}
+              {report.targets.map(target => (
+                <TargetRow
+                  key={target.steamid64 || target.displayName}
+                  target={target}
+                  selectable={report.targets.length > 1}
+                  checked={selectedTargetIdSet.has(target.steamid64)}
+                  disabled={selectedTargetIdSet.has(target.steamid64) && activeSelectedTargetIds.length <= 1}
+                  onCheckedChange={checked => handleTargetCheckedChange(target.steamid64, checked)}
+                />
+              ))}
             </Stack>
           </ScrollArea.Autosize>
         </section>
@@ -613,36 +690,21 @@ export function AnalysisResultPage({
           <div className="game-list-tab-row">
             <SegmentedControl
               className="game-list-tabs"
-              size="xs"
-              color="steamBlue"
               value={activeGameList}
-              data={[
-                { value: "all", label: `全部 ${report.games.all.length}` },
-                { value: "new", label: `新增 ${report.games.new.length}` },
-                { value: "relativeNew", label: `相对新增 ${report.games.relativeNew.length}` },
-                { value: "overlap", label: `重复 ${report.games.overlap.length}` }
+              options={[
+                { value: "all", label: `全部 ${effectiveReport.games.all.length}` },
+                { value: "new", label: `新增 ${effectiveReport.games.new.length}` },
+                { value: "relativeNew", label: `相对新增 ${effectiveReport.games.relativeNew.length}` },
+                { value: "overlap", label: `重复 ${effectiveReport.games.overlap.length}` }
               ]}
               onChange={value => startTransition(() => onViewStateChange(current => ({ ...current, activeGameList: value as ResultGameListKey })))}
             />
             <SegmentedControl
               className="result-price-mode-control"
-              size="xs"
-              color="steamBlue"
               value={priceModeControlValue}
-              data={[
+              options={[
                 { value: "original", label: "原价" },
-                {
-                  value: "historyLow",
-                  label: (
-                    <Tooltip
-                      label={hasHistoryLowApiKey ? "使用 IsThereAnyDeal 史低价格" : "史低需要先在配置中填写 IsThereAnyDeal API Key"}
-                      withArrow
-                      openDelay={250}
-                    >
-                      <span className="segmented-label-content">史低</span>
-                    </Tooltip>
-                  )
-                }
+                { value: "historyLow", label: "史低" }
               ]}
               disabled={busy}
               onChange={value => onPriceModeChange(value as PriceMode)}
@@ -651,10 +713,8 @@ export function AnalysisResultPage({
           <div className="game-list-tools">
             <SegmentedControl
               className="game-view-toggle"
-              size="xs"
-              color="steamBlue"
               value={viewMode}
-              data={[
+              options={[
                 { value: "cover", label: "封面" },
                 { value: "table", label: "表格" }
               ]}

@@ -87,7 +87,7 @@ async fn request_post_json<T: serde::Serialize>(
     body: &T,
 ) -> Result<serde_json::Value, String> {
     let request_url = reqwest::Url::parse_with_params(url, query)
-        .map_err(|error| format!("ITAD 请求 URL 无效：{error}"))?;
+        .map_err(|error| crate::error::AppError::DataFormat(format!("ITAD 请求 URL 无效：{error}")).user_message())?;
     let response = client
         .post(request_url)
         .header(
@@ -98,20 +98,18 @@ async fn request_post_json<T: serde::Serialize>(
         .send()
         .await
         .map_err(|error| {
-            format!(
-                "ITAD 请求失败：{}",
-                redact_secret(&format_error_chain(&error), query)
-            )
+            crate::error::AppError::from_reqwest(error, "ITAD API")
         })?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("ITAD API 返回 HTTP {status}"));
+        return Err(crate::error::AppError::from_http_status(status, "ITAD API").user_message());
     }
     response.json::<serde_json::Value>().await.map_err(|error| {
-        format!(
+        crate::error::AppError::DataFormat(format!(
             "ITAD 响应无法解析：{}",
             redact_secret(&format_error_chain(&error), query)
-        )
+        ))
+        .user_message()
     })
 }
 

@@ -295,15 +295,15 @@ async fn request_text(client: &reqwest::Client, url: &str) -> Result<String, Str
         )
         .send()
         .await
-        .map_err(|error| format!("Steam 页面请求失败：{error}"))?;
+        .map_err(|error| crate::error::AppError::from_reqwest(error, "Steam 页面"))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("Steam 页面返回 HTTP {status}"));
+        return Err(crate::error::AppError::from_http_status(status, "Steam 页面").user_message());
     }
     response
         .text()
         .await
-        .map_err(|error| format!("Steam 页面无法读取：{error}"))
+        .map_err(|error| crate::error::AppError::DataFormat(format!("Steam 页面无法读取：{error}"))        .user_message())
 }
 
 fn detect_recent_steamid64() -> Option<String> {

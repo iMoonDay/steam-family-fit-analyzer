@@ -1,6 +1,7 @@
 mod analyzer;
 mod auto_config;
 mod cache;
+mod error;
 mod input;
 mod itad;
 mod models;
@@ -35,6 +36,16 @@ fn load_settings(app: AppHandle, defaults: AppSettings) -> Result<AppSettings, S
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     settings::save(app, settings)
+}
+
+#[tauri::command]
+fn export_settings(path: String, settings: AppSettings) -> Result<(), String> {
+    settings::export_to_path(path, settings)
+}
+
+#[tauri::command]
+fn import_settings(path: String) -> Result<AppSettings, String> {
+    settings::import_from_path(path)
 }
 
 #[tauri::command]
@@ -114,15 +125,15 @@ fn analyze_preview(input: AnalyzeInput) -> Result<AnalysisPreview, String> {
 async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisReport, String> {
     let api_key = input.settings.steam_api_key.trim().to_string();
     if api_key.is_empty() {
-        return Err("Steam Web API Key 未填写".to_string());
+        return Err(crate::error::AppError::InputValidation("Steam Web API Key 未填写".to_string()).user_message());
     }
     if input.settings.price_mode == "historyLow" && input.settings.itad_api_key.trim().is_empty() {
-        return Err("史低模式需要 IsThereAnyDeal API Key".to_string());
+        return Err(crate::error::AppError::InputValidation("史低模式需要 IsThereAnyDeal API Key".to_string()).user_message());
     }
 
     let tokens = split_target_input(&input.target_input);
     if tokens.is_empty() {
-        return Err("请输入至少一个目标账号".to_string());
+        return Err(crate::error::AppError::InputValidation("请输入至少一个目标账号".to_string()).user_message());
     }
 
     let client = steam::build_client()?;
@@ -380,6 +391,8 @@ pub fn run() {
             get_app_status,
             load_settings,
             save_settings,
+            export_settings,
+            import_settings,
             clear_cache,
             open_cache_directory,
             save_png_file,

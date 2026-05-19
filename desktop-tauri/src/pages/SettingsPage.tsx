@@ -1,9 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { ActionIcon, Button, Divider, Group, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import type { AppSettings, AppStatus, LocaleMode, AutoSteamConfigResult } from "../types";
-import { clearCache, openCacheDirectory, startBrowserConfigCallback } from "../services/desktop";
+import { clearCache, openCacheDirectory, startBrowserConfigCallback, exportSettings, importSettings } from "../services/desktop";
 import { FieldLabel, HelpSteps } from "../components/fields";
 import { CacheActionIcon } from "../components/icons";
 import { openExternalUrl, writeClipboard } from "../core/external";
@@ -152,6 +152,41 @@ function SettingsPanel({
     }
   }
 
+  async function handleExportSettings() {
+    try {
+      const path = await save({
+        title: "导出设置",
+        defaultPath: "steam-family-fit-analyzer-settings.json",
+        filters: [{ name: "JSON 文件", extensions: ["json"] }]
+      });
+      if (!path) {
+        return;
+      }
+      await exportSettings(path, latestSettingsRef.current);
+      onMessage("设置已导出");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleImportSettings() {
+    try {
+      const selected = await open({
+        title: "导入设置",
+        multiple: false,
+        filters: [{ name: "JSON 文件", extensions: ["json"] }]
+      });
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+      const imported = await importSettings(selected);
+      onSettingsChange(imported);
+      onMessage("设置已导入");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   function handleUseDefaultCacheDirectory() {
     if (!settings.cacheDirectory.trim()) {
       return;
@@ -232,6 +267,18 @@ function SettingsPanel({
           />
         </SimpleGrid>
 
+        <Divider />
+        <Group justify="space-between" align="center">
+          <Text size="xs" c="dimmed" fw={700}>配置备份</Text>
+          <Group gap="xs">
+            <Button size="xs" variant="light" color="steamBlue" onClick={() => void handleImportSettings()}>
+              导入设置
+            </Button>
+            <Button size="xs" variant="light" color="steamBlue" onClick={() => void handleExportSettings()}>
+              导出设置
+            </Button>
+          </Group>
+        </Group>
         <Divider />
         <Stack gap={4}>
           <Text size="xs" c="dimmed" fw={700}>缓存目录</Text>

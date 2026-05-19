@@ -37,6 +37,16 @@ pub fn save(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     fs::write(path, text).map_err(|error| error.to_string())
 }
 
+pub fn export_to_path(path: String, settings: AppSettings) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
+    fs::write(&path, text).map_err(|error| error.to_string())
+}
+
+pub fn import_from_path(path: String) -> Result<AppSettings, String> {
+    let text = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    serde_json::from_str(&text).map_err(|error| format!("配置文件格式不正确：{}", error))
+}
+
 pub fn open_cache_directory(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     let cache_dir = cache_directory(&app, &settings)?;
     fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;

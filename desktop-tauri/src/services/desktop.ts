@@ -36,6 +36,28 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   }
 }
 
+export async function exportSettings(path: string, settings: AppSettings): Promise<void> {
+  try {
+    await invoke("export_settings", { path, settings });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(`导出设置失败：${String(error)}`);
+    }
+    throw new Error("浏览器预览模式不支持导出设置，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function importSettings(path: string): Promise<AppSettings> {
+  try {
+    return await invoke<AppSettings>("import_settings", { path });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(`导入设置失败：${String(error)}`);
+    }
+    throw new Error("浏览器预览模式不支持导入设置，请使用 Tauri 桌面窗口。");
+  }
+}
+
 export async function loadSettings(defaults: AppSettings): Promise<AppSettings> {
   try {
     return await invoke<AppSettings>("load_settings", { defaults });

@@ -616,20 +616,18 @@ async fn request_json(
         .send()
         .await
         .map_err(|error| {
-            format!(
-                "网络请求失败：{}",
-                redact_secret(&format_error_chain(&error), query)
-            )
+            crate::error::AppError::from_reqwest(error, "Steam API")
         })?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("Steam API 返回 HTTP {status}"));
+        return Err(crate::error::AppError::from_http_status(status, "Steam API").user_message());
     }
     response.json::<serde_json::Value>().await.map_err(|error| {
-        format!(
+        crate::error::AppError::DataFormat(format!(
             "Steam API 响应无法解析：{}",
             redact_secret(&format_error_chain(&error), query)
-        )
+        ))
+        .user_message()
     })
 }
 

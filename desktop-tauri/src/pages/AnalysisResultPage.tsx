@@ -10,12 +10,20 @@ import {
   TextInput,
   Tooltip
 } from "@mantine/core";
+import { save as selectSavePath } from "@tauri-apps/plugin-dialog";
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent, SetStateAction } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  SetStateAction
+} from "react";
 import type { AnalysisReport, AppSettings, PriceMode } from "../types";
 import type {
   GameContextMenuState,
   MoreMenuState,
+  PosterSettings,
+  PosterSortMode,
   ResultGameListKey,
   ResultGameRow,
   ResultGameViewMode,
@@ -23,13 +31,23 @@ import type {
   TableSortDirection,
   TableSortState
 } from "../appTypes";
-import { MoreIcon } from "../components/icons";
+import { MoreIcon, PosterControlIcon } from "../components/icons";
 import { GameCard } from "../components/result/GameCard";
 import { GameTable } from "../components/result/GameTable";
 import { GameContextMenu, ResultMoreMenu } from "../components/result/ResultMenus";
 import { Metric } from "../components/result/ResultMetrics";
 import { TargetRow } from "../components/result/TargetRow";
-import { cacheCovers } from "../services/desktop";
+import {
+  buildGameCoverPosterFilename,
+  buildListPosterSortModes,
+  defaultPosterSettings,
+  getPosterSortModeLabel,
+  normalizePosterColumns,
+  normalizePosterScalePercent,
+  normalizePosterSettings,
+  renderGameCoverPoster
+} from "../core/poster";
+import { cacheCovers, savePngFile } from "../services/desktop";
 import { openExternalUrl, writeClipboard } from "../core/external";
 import {
   buildResultGameRows,
@@ -98,9 +116,12 @@ export function AnalysisResultPage({
   const coverScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const [coverReloadTokens, setCoverReloadTokens] = useState<Record<string, number>>({});
   const [coverCachePaths, setCoverCachePaths] = useState<Record<string, string>>({});
+  const [coverCacheFailedAppids, setCoverCacheFailedAppids] = useState<Record<string, number>>({});
   const [viewportCoverAppids, setViewportCoverAppids] = useState<string[]>([]);
   const [gameContextMenu, setGameContextMenu] = useState<GameContextMenuState | null>(null);
   const [moreMenu, setMoreMenu] = useState<MoreMenuState | null>(null);
+  const [posterDialogOpen, setPosterDialogOpen] = useState(false);
+  const [posterSettings, setPosterSettings] = useState<PosterSettings>(defaultPosterSettings);
   const includeTargetOwners = report.targets.length > 1;
   const resultMetrics = useMemo(() => buildResultMetrics(report, priceMode), [priceMode, report]);
   const games = useMemo(() => buildResultGameRows(report.games[activeGameList], priceMode), [activeGameList, priceMode, report]);
@@ -108,6 +129,10 @@ export function AnalysisResultPage({
   const tableSortOptions = useMemo(
     () => buildTableSortSelectOptions(activeGameList, includeTargetOwners, showAppId, tablePriceLabel, viewMode),
     [activeGameList, includeTargetOwners, showAppId, tablePriceLabel, viewMode]
+  );
+  const posterSortModes = useMemo(
+    () => buildListPosterSortModes(activeGameList, includeTargetOwners),
+    [activeGameList, includeTargetOwners]
   );
   const activeTableSort = normalizeTableSortState(tableSortByList[activeGameList], tableSortOptions);
   const sortSelectValue = serializeTableSortState(activeTableSort);
@@ -118,6 +143,7 @@ export function AnalysisResultPage({
 
   useEffect(() => {
     setCoverCachePaths({});
+    setCoverCacheFailedAppids({});
   }, [report, settings.cacheDirectory, settings.locale, settings.storeCountry]);
 
   useEffect(() => {
@@ -182,7 +208,7 @@ export function AnalysisResultPage({
   useEffect(() => {
     const coverRequests = new Map<string, { appid: string; url: string }>();
     const queueCover = (game: ResultGameRow) => {
-      if (coverCachePaths[game.appid]) {
+      if (coverCachePaths[game.appid] || coverCacheFailedAppids[game.appid]) {
         return;
       }
       coverRequests.set(game.appid, {
@@ -215,20 +241,39 @@ export function AnalysisResultPage({
             return next;
           });
         }
-        if (result.warnings.length) {
-          onMessage(`部分封面缓存失败：${result.warnings[0]}`);
+        const cachedAppids = new Set(result.covers.map(cover => cover.appid));
+        const failedAppids = covers
+          .map(cover => cover.appid)
+          .filter(appid => !cachedAppids.has(appid));
+        if (failedAppids.length) {
+          setCoverCacheFailedAppids(current => {
+            const now = Date.now();
+            const next = { ...current };
+            for (const appid of failedAppids) {
+              next[appid] = now;
+            }
+            return next;
+          });
         }
       })
       .catch(error => {
         if (!disposed) {
-          onMessage(error instanceof Error ? error.message : String(error));
+          const now = Date.now();
+          setCoverCacheFailedAppids(current => {
+            const next = { ...current };
+            for (const cover of covers) {
+              next[cover.appid] = now;
+            }
+            return next;
+          });
+          console.warn("封面后台缓存失败", error);
         }
       });
 
     return () => {
       disposed = true;
     };
-  }, [coverCachePaths, coverReloadTokens, onMessage, settings, viewMode, viewportCoverAppids, visibleGames]);
+  }, [coverCacheFailedAppids, coverCachePaths, coverReloadTokens, settings, viewMode, viewportCoverAppids, visibleGames]);
 
   useEffect(() => {
     if (!gameContextMenu) {
@@ -270,6 +315,20 @@ export function AnalysisResultPage({
     };
   }, [moreMenu]);
 
+  useEffect(() => {
+    if (!posterDialogOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPosterDialogOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [posterDialogOpen]);
+
   function handleGameContextMenu(event: MouseEvent<HTMLElement>, game: ResultGameRow) {
     event.preventDefault();
     event.stopPropagation();
@@ -287,6 +346,11 @@ export function AnalysisResultPage({
       delete next[game.appid];
       return next;
     });
+    setCoverCacheFailedAppids(current => {
+      const next = { ...current };
+      delete next[game.appid];
+      return next;
+    });
     setCoverReloadTokens(tokens => ({
       ...tokens,
       [game.appid]: reloadToken
@@ -294,7 +358,8 @@ export function AnalysisResultPage({
     setGameContextMenu(null);
     void cacheCovers(settings, [{
       appid: game.appid,
-      url: getSteamCoverUrl(game, reloadToken)
+      url: getSteamCoverUrl(game, reloadToken),
+      force: true
     }])
       .then(result => {
         const cover = result.covers.find(item => item.appid === game.appid);
@@ -314,13 +379,71 @@ export function AnalysisResultPage({
       });
   }
 
+  function handleReloadCurrentListCovers() {
+    if (!visibleGames.length) {
+      onMessage("当前列表没有可重载的封面");
+      setMoreMenu(null);
+      return;
+    }
+
+    const reloadToken = Date.now();
+    const appids = new Set(visibleGames.map(game => game.appid));
+    setMoreMenu(null);
+    setCoverCachePaths(current => {
+      const next = { ...current };
+      for (const appid of appids) {
+        delete next[appid];
+      }
+      return next;
+    });
+    setCoverCacheFailedAppids(current => {
+      const next = { ...current };
+      for (const appid of appids) {
+        delete next[appid];
+      }
+      return next;
+    });
+    setCoverReloadTokens(current => {
+      const next = { ...current };
+      for (const appid of appids) {
+        next[appid] = reloadToken;
+      }
+      return next;
+    });
+
+    void cacheCovers(settings, visibleGames.map(game => ({
+      appid: game.appid,
+      url: game.coverUrl ? getSteamCoverUrl(game, reloadToken) : "",
+      force: true
+    })))
+      .then(result => {
+        if (result.covers.length) {
+          setCoverCachePaths(current => {
+            const next = { ...current };
+            for (const cover of result.covers) {
+              next[cover.appid] = cover.filePath;
+            }
+            return next;
+          });
+        }
+        if (result.warnings.length) {
+          onMessage(`部分封面重载失败：${result.warnings[0]}`);
+          return;
+        }
+        onMessage(`已重载封面：${result.covers.length} / ${visibleGames.length}`);
+      })
+      .catch(error => {
+        onMessage(error instanceof Error ? error.message : String(error));
+      });
+  }
+
   function handleMoreMenu(event: MouseEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     setMoreMenu(current => current ? null : {
       x: Math.max(12, Math.min(rect.right - 190, window.innerWidth - 206)),
-      y: Math.min(rect.bottom + 8, window.innerHeight - 184)
+      y: Math.min(rect.bottom + 8, window.innerHeight - 220)
     });
   }
 
@@ -383,6 +506,64 @@ export function AnalysisResultPage({
   async function handleCopyReport() {
     await writeClipboard(formatReportText(report, priceMode));
     onMessage("已复制分析报告");
+  }
+
+  function handleOpenListPosterDialog() {
+    if (!visibleGames.length) {
+      onMessage("当前列表没有可保存的封面图");
+      setMoreMenu(null);
+      return;
+    }
+    setMoreMenu(null);
+    setPosterSettings(current => normalizePosterSettings(current, posterSortModes));
+    setPosterDialogOpen(true);
+  }
+
+  function handlePosterSettingsChange(settings: PosterSettings) {
+    setPosterSettings(normalizePosterSettings(settings, posterSortModes));
+  }
+
+  async function handleSaveListPoster(nextPosterSettings: PosterSettings) {
+    const normalizedSettings = normalizePosterSettings(nextPosterSettings, posterSortModes);
+    setPosterSettings(normalizedSettings);
+    setPosterDialogOpen(false);
+    const listLabel = getResultGameListLabel(activeGameList);
+    const outputPath = await selectSavePath({
+      defaultPath: buildGameCoverPosterFilename(listLabel, normalizedSettings),
+      filters: [{ name: "PNG 图片", extensions: ["png"] }]
+    });
+    if (!outputPath) {
+      return;
+    }
+
+    onMessage("正在整理封面图...");
+    const result = await cacheCovers(settings, visibleGames.map(game => ({
+      appid: game.appid,
+      url: game.coverUrl ? getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0) : ""
+    })));
+    const nextCoverPaths = { ...coverCachePaths };
+    for (const cover of result.covers) {
+      nextCoverPaths[cover.appid] = cover.filePath;
+    }
+    if (result.covers.length) {
+      setCoverCachePaths(nextCoverPaths);
+    }
+
+    onMessage("正在生成封面图...");
+    const coverUrlsByAppid = Object.fromEntries(visibleGames.map(game => [
+      game.appid,
+      nextCoverPaths[game.appid] ? getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0, nextCoverPaths[game.appid]) : ""
+    ]));
+    const dataUrl = await renderGameCoverPoster({
+      games: visibleGames,
+      listLabel,
+      coverUrlsByAppid,
+      settings: normalizedSettings
+    });
+    await savePngFile(ensurePngFilePath(outputPath), dataUrl);
+    onMessage(result.warnings.length
+      ? `已保存封面图：${visibleGames.length} 个游戏，部分封面使用占位图`
+      : `已保存封面图：${visibleGames.length} 个游戏`);
   }
 
   return (
@@ -561,12 +742,280 @@ export function AnalysisResultPage({
           state={moreMenu}
           showAppId={showAppId}
           onToggleAppId={handleToggleAppId}
+          onReloadCovers={handleReloadCurrentListCovers}
+          onSaveListPoster={handleOpenListPosterDialog}
           onCopyList={() => void handleCopyCurrentList().catch(error => onMessage(String(error))).finally(() => setMoreMenu(null))}
           onCopyNames={() => void handleCopyGameNames().catch(error => onMessage(String(error))).finally(() => setMoreMenu(null))}
           onCopyReport={() => void handleCopyReport().catch(error => onMessage(String(error))).finally(() => setMoreMenu(null))}
         />
       ) : null}
+      {posterDialogOpen ? (
+        <ListPosterDialog
+          settings={normalizePosterSettings(posterSettings, posterSortModes)}
+          sortModes={posterSortModes}
+          listLabel={getResultGameListLabel(activeGameList)}
+          gameCount={visibleGames.length}
+          busy={busy}
+          onSettingsChange={handlePosterSettingsChange}
+          onClose={() => setPosterDialogOpen(false)}
+          onConfirm={settings => void handleSaveListPoster(settings).catch(error => onMessage(error instanceof Error ? error.message : String(error)))}
+        />
+      ) : null}
     </div>
   );
+}
+
+function ListPosterDialog({
+  settings,
+  sortModes,
+  listLabel,
+  gameCount,
+  busy,
+  onSettingsChange,
+  onClose,
+  onConfirm
+}: {
+  settings: PosterSettings;
+  sortModes: PosterSortMode[];
+  listLabel: string;
+  gameCount: number;
+  busy: boolean;
+  onSettingsChange: (settings: PosterSettings) => void;
+  onClose: () => void;
+  onConfirm: (settings: PosterSettings) => void;
+}) {
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const columnsTrackRef = useRef<HTMLDivElement | null>(null);
+  const scaleTrackRef = useRef<HTMLDivElement | null>(null);
+  const normalizedSettings = normalizePosterSettings(settings, sortModes);
+
+  function setColumns(columns: number) {
+    onSettingsChange({
+      ...normalizedSettings,
+      columns: normalizePosterColumns(columns)
+    });
+  }
+
+  function setScalePercent(scalePercent: number) {
+    onSettingsChange({
+      ...normalizedSettings,
+      scalePercent: normalizePosterScalePercent(scalePercent)
+    });
+  }
+
+  function changeSortMode(sortMode: PosterSortMode) {
+    onSettingsChange({
+      ...normalizedSettings,
+      sortMode
+    });
+    setSortMenuOpen(false);
+  }
+
+  function updateSliderFromPointer(
+    ref: React.RefObject<HTMLDivElement | null>,
+    clientX: number,
+    min: number,
+    max: number,
+    onValue: (value: number) => void
+  ) {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) {
+      return;
+    }
+    const progress = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onValue(min + progress * (max - min));
+  }
+
+  function handleSliderPointerDown(
+    event: ReactPointerEvent<HTMLDivElement>,
+    ref: React.RefObject<HTMLDivElement | null>,
+    min: number,
+    max: number,
+    onValue: (value: number) => void
+  ) {
+    event.preventDefault();
+    updateSliderFromPointer(ref, event.clientX, min, max, onValue);
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+      updateSliderFromPointer(ref, moveEvent.clientX, min, max, onValue);
+    };
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  }
+
+  function handleColumnsKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setColumns(normalizedSettings.columns - 1);
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setColumns(normalizedSettings.columns + 1);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setColumns(1);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setColumns(50);
+    }
+  }
+
+  function handleScaleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setScalePercent(normalizedSettings.scalePercent - 5);
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setScalePercent(normalizedSettings.scalePercent + 5);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setScalePercent(40);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setScalePercent(100);
+    }
+  }
+
+  return (
+    <div className="poster-dialog-overlay" role="presentation">
+      <button className="poster-dialog-backdrop" type="button" aria-label="关闭封面图设置" onClick={onClose} />
+      <section className="poster-dialog" role="dialog" aria-modal="true" aria-label="游戏封面图设置">
+        <header className="poster-dialog-head">
+          <div>
+            <strong>游戏封面图设置</strong>
+            <span>{listLabel} / {gameCount} 款游戏</span>
+          </div>
+          <button className="poster-dialog-close" type="button" aria-label="关闭" onClick={onClose}>
+            <PosterControlIcon type="close" />
+          </button>
+        </header>
+
+        <div className="poster-dialog-body">
+          <label className="poster-field">
+            <span>每行列数</span>
+            <div className="poster-slider-row">
+              <div
+                ref={columnsTrackRef}
+                className="poster-slider"
+                role="slider"
+                tabIndex={0}
+                aria-label="每行列数"
+                aria-valuemin={1}
+                aria-valuemax={50}
+                aria-valuenow={normalizedSettings.columns}
+                aria-valuetext={`${normalizedSettings.columns} 列`}
+                onPointerDown={event => handleSliderPointerDown(event, columnsTrackRef, 1, 50, setColumns)}
+                onKeyDown={handleColumnsKeyDown}
+              >
+                <span
+                  className="poster-slider-fill"
+                  style={{ width: `${((normalizedSettings.columns - 1) / 49) * 100}%` }}
+                />
+                <span
+                  className="poster-slider-thumb"
+                  style={{ left: `${((normalizedSettings.columns - 1) / 49) * 100}%` }}
+                />
+              </div>
+              <strong>{normalizedSettings.columns}</strong>
+            </div>
+          </label>
+
+          <label className="poster-field">
+            <span>排序方式</span>
+            <div className={`poster-sort-wrap ${sortMenuOpen ? "is-open" : ""}`}>
+              <button
+                className="poster-sort-select"
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={sortMenuOpen}
+                onClick={() => setSortMenuOpen(open => !open)}
+              >
+                {getPosterSortModeLabel(normalizedSettings.sortMode)}
+              </button>
+              {sortMenuOpen ? (
+                <div className="poster-sort-menu" role="listbox">
+                  {sortModes.map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="option"
+                      aria-selected={mode === normalizedSettings.sortMode}
+                      className={mode === normalizedSettings.sortMode ? "is-active" : ""}
+                      onClick={() => changeSortMode(mode)}
+                    >
+                      {getPosterSortModeLabel(mode)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </label>
+
+          <label className="poster-field">
+            <span>尺寸缩放</span>
+            <div className="poster-slider-row">
+              <div
+                ref={scaleTrackRef}
+                className="poster-slider"
+                role="slider"
+                tabIndex={0}
+                aria-label="尺寸缩放"
+                aria-valuemin={40}
+                aria-valuemax={100}
+                aria-valuenow={normalizedSettings.scalePercent}
+                aria-valuetext={`${normalizedSettings.scalePercent}%`}
+                onPointerDown={event => handleSliderPointerDown(event, scaleTrackRef, 40, 100, setScalePercent)}
+                onKeyDown={handleScaleKeyDown}
+              >
+                <span
+                  className="poster-slider-fill"
+                  style={{ width: `${((normalizedSettings.scalePercent - 40) / 60) * 100}%` }}
+                />
+                <span
+                  className="poster-slider-thumb"
+                  style={{ left: `${((normalizedSettings.scalePercent - 40) / 60) * 100}%` }}
+                />
+              </div>
+              <strong>{normalizedSettings.scalePercent}%</strong>
+            </div>
+          </label>
+        </div>
+
+        <footer className="poster-dialog-actions">
+          <button className="poster-dialog-secondary" type="button" onClick={onClose}>取消</button>
+          <button className="poster-dialog-primary" type="button" disabled={busy} onClick={() => onConfirm(normalizedSettings)}>
+            生成图片
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function getResultGameListLabel(listKey: ResultGameListKey): string {
+  if (listKey === "new") {
+    return "新增";
+  }
+  if (listKey === "relativeNew") {
+    return "相对新增";
+  }
+  if (listKey === "overlap") {
+    return "重复";
+  }
+  return "全部";
+}
+
+function ensurePngFilePath(path: string): string {
+  return /\.png$/i.test(path) ? path : `${path}.png`;
 }
 

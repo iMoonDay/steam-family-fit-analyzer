@@ -48,6 +48,32 @@ export type ResultViewState = {
   tableSortByList: Partial<Record<ResultGameListKey, TableSortState>>;
 };
 
+export type PosterSortMode =
+  | "current"
+  | "titleAsc"
+  | "titleDesc"
+  | "appidAsc"
+  | "appidDesc"
+  | "priceDesc"
+  | "priceAsc"
+  | "ownersAsc"
+  | "ownersDesc"
+  | "targetOwnersAsc"
+  | "targetOwnersDesc"
+  | "statusAsc"
+  | "statusDesc";
+
+export type PosterSettings = {
+  columns: number;
+  sortMode: PosterSortMode;
+  scalePercent: number;
+};
+
+export type PosterSortOption = {
+  value: PosterSortMode;
+  label: string;
+};
+
 export type SortSelectOption = {
   value: string;
   label: string;

@@ -17,7 +17,9 @@ use crate::{
     },
     steam::StoreItemEnrichment,
 };
+use base64::{engine::general_purpose, Engine as _};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
@@ -43,6 +45,21 @@ fn clear_cache(app: AppHandle, settings: AppSettings) -> Result<(), String> {
 #[tauri::command]
 fn open_cache_directory(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     settings::open_cache_directory(app, settings)
+}
+
+#[tauri::command]
+fn save_png_file(path: String, data_url: String) -> Result<(), String> {
+    let encoded = data_url
+        .strip_prefix("data:image/png;base64,")
+        .ok_or_else(|| "导出图片数据格式错误".to_string())?;
+    let bytes = general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| format!("导出图片解码失败：{error}"))?;
+    let output_path = PathBuf::from(path);
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| format!("创建导出目录失败：{error}"))?;
+    }
+    std::fs::write(output_path, bytes).map_err(|error| format!("保存封面图失败：{error}"))
 }
 
 #[tauri::command]
@@ -365,6 +382,7 @@ pub fn run() {
             save_settings,
             clear_cache,
             open_cache_directory,
+            save_png_file,
             cache_covers,
             auto_detect_steam_config,
             start_browser_config_callback,

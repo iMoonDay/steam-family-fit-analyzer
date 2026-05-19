@@ -44,6 +44,8 @@ pub struct CacheCoversInput {
 pub struct CoverCacheRequest {
     pub appid: String,
     pub url: String,
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

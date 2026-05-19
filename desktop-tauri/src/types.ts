@@ -21,6 +21,7 @@ export type AnalyzeInput = {
 export type CoverCacheRequest = {
   appid: string;
   url: string;
+  force?: boolean;
 };
 
 export type CoverCacheItem = CoverCacheRequest & {

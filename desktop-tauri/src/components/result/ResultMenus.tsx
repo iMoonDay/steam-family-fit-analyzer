@@ -4,6 +4,8 @@ export function ResultMoreMenu({
   state,
   showAppId,
   onToggleAppId,
+  onReloadCovers,
+  onSaveListPoster,
   onCopyList,
   onCopyNames,
   onCopyReport
@@ -11,6 +13,8 @@ export function ResultMoreMenu({
   state: MoreMenuState;
   showAppId: boolean;
   onToggleAppId: () => void;
+  onReloadCovers: () => void;
+  onSaveListPoster: () => void;
   onCopyList: () => void;
   onCopyNames: () => void;
   onCopyReport: () => void;
@@ -30,6 +34,12 @@ export function ResultMoreMenu({
       </button>
       <button type="button" role="menuitem" onClick={onCopyReport}>
         复制报告
+      </button>
+      <button type="button" role="menuitem" onClick={onSaveListPoster}>
+        保存封面图
+      </button>
+      <button type="button" role="menuitem" onClick={onReloadCovers}>
+        重载封面
       </button>
       <button
         type="button"

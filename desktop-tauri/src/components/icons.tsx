@@ -98,6 +98,32 @@ export function MoreIcon() {
   );
 }
 
+export function PosterControlIcon({ type }: { type: "minus" | "plus" | "close" }) {
+  if (type === "minus") {
+    return (
+      <svg className="poster-control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M4 8h8" />
+      </svg>
+    );
+  }
+
+  if (type === "plus") {
+    return (
+      <svg className="poster-control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 4v8" />
+        <path d="M4 8h8" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="poster-control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M4.5 4.5l7 7" />
+      <path d="M11.5 4.5l-7 7" />
+    </svg>
+  );
+}
+
 export function TrashIcon() {
   return (
     <svg className="history-delete-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">

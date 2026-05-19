@@ -70,6 +70,17 @@ export async function openCacheDirectory(settings: AppSettings): Promise<void> {
   }
 }
 
+export async function savePngFile(path: string, dataUrl: string): Promise<void> {
+  try {
+    await invoke("save_png_file", { path, dataUrl });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能保存封面图，请使用 Tauri 桌面窗口。");
+  }
+}
+
 export async function cacheCovers(settings: AppSettings, covers: CoverCacheRequest[]): Promise<CacheCoversOutput> {
   if (!covers.length) {
     return { covers: [], warnings: [] };

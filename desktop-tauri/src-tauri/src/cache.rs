@@ -220,14 +220,21 @@ impl CacheStore {
             covers: Vec::new(),
             warnings: Vec::new(),
         };
-        let unique_covers = covers
-            .iter()
-            .filter(|cover| {
-                !cover.appid.trim().is_empty()
-                    && (cover.url.trim().is_empty() || is_cacheable_cover_url(&cover.url))
-            })
-            .map(|cover| (cover.appid.trim().to_string(), cover.url.trim().to_string()))
-            .collect::<BTreeMap<_, _>>();
+        let mut unique_covers = BTreeMap::<String, (String, bool)>::new();
+        for cover in covers {
+            if cover.appid.trim().is_empty()
+                || (!cover.url.trim().is_empty() && !is_cacheable_cover_url(&cover.url))
+            {
+                continue;
+            }
+            let entry = unique_covers
+                .entry(cover.appid.trim().to_string())
+                .or_insert_with(|| (cover.url.trim().to_string(), false));
+            if entry.0.is_empty() && !cover.url.trim().is_empty() {
+                entry.0 = cover.url.trim().to_string();
+            }
+            entry.1 = entry.1 || cover.force;
+        }
         let appids = unique_covers.keys().cloned().collect::<Vec<_>>();
         let batch_candidates =
             match steam::fetch_store_cover_candidates_batch(client, &appids, settings).await {
@@ -240,10 +247,10 @@ impl CacheStore {
                 }
             };
 
-        for (appid, url) in unique_covers {
+        for (appid, (url, force)) in unique_covers {
             let fetched_urls = batch_candidates.get(&appid).cloned().unwrap_or_default();
             match self
-                .cache_cover(client, settings, &appid, &url, &fetched_urls)
+                .cache_cover(client, settings, &appid, &url, &fetched_urls, force)
                 .await
             {
                 Ok(Some(item)) => output.covers.push(item),
@@ -339,6 +346,7 @@ impl CacheStore {
         appid: &str,
         url: &str,
         fetched_urls: &[String],
+        force: bool,
     ) -> Result<Option<CoverCacheItem>, String> {
         let mut errors = Vec::new();
         let mut candidate_urls = cover_candidate_urls(appid, url);
@@ -348,12 +356,14 @@ impl CacheStore {
         let initial_candidate_count = candidate_urls.len();
         for candidate_url in candidate_urls.clone() {
             let url_hash = cover_url_hash(&candidate_url);
-            if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
-                return Ok(Some(CoverCacheItem {
-                    appid: appid.to_string(),
-                    url: candidate_url,
-                    file_path,
-                }));
+            if !force {
+                if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
+                    return Ok(Some(CoverCacheItem {
+                        appid: appid.to_string(),
+                        url: candidate_url,
+                        file_path,
+                    }));
+                }
             }
 
             match self
@@ -377,12 +387,14 @@ impl CacheStore {
         }
         for candidate_url in candidate_urls.into_iter().skip(initial_candidate_count) {
             let url_hash = cover_url_hash(&candidate_url);
-            if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
-                return Ok(Some(CoverCacheItem {
-                    appid: appid.to_string(),
-                    url: candidate_url,
-                    file_path,
-                }));
+            if !force {
+                if let Some(file_path) = self.load_cover_path(&url_hash, &candidate_url)? {
+                    return Ok(Some(CoverCacheItem {
+                        appid: appid.to_string(),
+                        url: candidate_url,
+                        file_path,
+                    }));
+                }
             }
 
             match self
@@ -488,7 +500,6 @@ impl CacheStore {
             .map_err(|error| format!("更新封面缓存时间失败：{error}"))?;
         Ok(Some(file_path))
     }
-
     fn prune_cover_cache(&self) -> Result<(), String> {
         let mut rows = self
             .connection

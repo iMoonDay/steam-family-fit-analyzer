@@ -25,7 +25,7 @@ import {
 } from "@mantine/core";
 import { createRoot } from "react-dom/client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode, SetStateAction } from "react";
 import type { AnalysisReport, AppSettings, AppStatus, LocaleMode, PriceInfo, PriceMode, ReportGame, ReportGameStatus, TargetProfile } from "./types";
 import { analyzeTarget, clearCache, getAppStatus, loadSettings, saveSettings, startBrowserConfigCallback } from "./services/desktop";
 import type { AutoSteamConfigResult } from "./types";
@@ -43,6 +43,14 @@ const defaultSettings: AppSettings = {
   storeCountry: "CN",
   locale: "auto",
   priceMode: "original"
+};
+
+const defaultResultViewState: ResultViewState = {
+  searchQuery: "",
+  activeGameList: "all",
+  viewMode: "cover",
+  showAppId: false,
+  tableSortByList: {}
 };
 
 type AppPage = "analysis" | "result" | "settings";
@@ -73,12 +81,24 @@ type ResultGameRow = {
 };
 
 type ResultGameListKey = "all" | "new" | "relativeNew" | "overlap";
-type ResultGameSortKey = "nameAsc" | "priceDesc" | "priceAsc" | "ownersDesc" | "ownersAsc";
 type ResultGameViewMode = "cover" | "table";
 type TableSortDirection = "asc" | "desc";
 type TableSortState = {
   key: string;
   direction: TableSortDirection;
+};
+
+type ResultViewState = {
+  searchQuery: string;
+  activeGameList: ResultGameListKey;
+  viewMode: ResultGameViewMode;
+  showAppId: boolean;
+  tableSortByList: Partial<Record<ResultGameListKey, TableSortState>>;
+};
+
+type SortSelectOption = {
+  value: string;
+  label: string;
 };
 
 type GameContextMenuState = {
@@ -211,6 +231,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("准备就绪");
   const [activePage, setActivePage] = useState<AppPage>(restoredReport ? "result" : "analysis");
+  const [resultViewState, setResultViewState] = useState<ResultViewState>(defaultResultViewState);
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryEntry[]>(() => loadAnalysisHistory());
   const [settingsReady, setSettingsReady] = useState(false);
 
@@ -347,7 +368,9 @@ function App() {
                     warningText={warningText}
                     priceLabel={priceLabel}
                     tablePriceLabel={tablePriceLabel}
+                    viewState={resultViewState}
                     busy={busy}
+                    onViewStateChange={setResultViewState}
                     onBack={() => setActivePage("analysis")}
                     onAnalyze={handleAnalyze}
                     onMessage={setMessage}
@@ -909,7 +932,9 @@ function AnalysisResultPage({
   warningText,
   priceLabel,
   tablePriceLabel,
+  viewState,
   busy,
+  onViewStateChange,
   onBack,
   onAnalyze,
   onMessage
@@ -919,22 +944,27 @@ function AnalysisResultPage({
   warningText: string;
   priceLabel: string;
   tablePriceLabel: string;
+  viewState: ResultViewState;
   busy: boolean;
+  onViewStateChange: (value: SetStateAction<ResultViewState>) => void;
   onBack: () => void;
   onAnalyze: (inputOverride?: string) => Promise<void>;
   onMessage: (message: string) => void;
 }) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeGameList, setActiveGameList] = useState<ResultGameListKey>("all");
-  const [sortKey, setSortKey] = useState<ResultGameSortKey>("nameAsc");
-  const [viewMode, setViewMode] = useState<ResultGameViewMode>("cover");
-  const [showAppId, setShowAppId] = useState(false);
-  const [tableSortByList, setTableSortByList] = useState<Partial<Record<ResultGameListKey, TableSortState>>>({});
+  const { searchQuery, activeGameList, viewMode, showAppId, tableSortByList } = viewState;
   const [coverReloadTokens, setCoverReloadTokens] = useState<Record<string, number>>({});
   const [gameContextMenu, setGameContextMenu] = useState<GameContextMenuState | null>(null);
   const [moreMenu, setMoreMenu] = useState<MoreMenuState | null>(null);
+  const includeTargetOwners = report.targets.length > 1;
   const resultMetrics = useMemo(() => buildResultMetrics(report), [report]);
   const games = useMemo(() => buildResultGameRows(report.games[activeGameList]), [activeGameList, report]);
+  const tableSortOptions = useMemo(
+    () => buildTableSortSelectOptions(activeGameList, includeTargetOwners, showAppId, tablePriceLabel),
+    [activeGameList, includeTargetOwners, showAppId, tablePriceLabel]
+  );
+  const activeTableSort = normalizeTableSortState(tableSortByList[activeGameList], tableSortOptions);
+  const sortSelectData = tableSortOptions;
+  const sortSelectValue = serializeTableSortState(activeTableSort);
   const filteredGames = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
@@ -942,12 +972,7 @@ function AnalysisResultPage({
     }
     return games.filter(game => game.name.toLowerCase().includes(query) || game.appid.includes(query));
   }, [games, searchQuery]);
-  const visibleGames = useMemo(() => {
-    if (viewMode === "table") {
-      return sortTableGameRows(filteredGames, tableSortByList[activeGameList]);
-    }
-    return sortResultGameRows(filteredGames, sortKey);
-  }, [activeGameList, filteredGames, sortKey, tableSortByList, viewMode]);
+  const visibleGames = useMemo(() => sortTableGameRows(filteredGames, activeTableSort), [activeTableSort, filteredGames]);
 
   useEffect(() => {
     if (!gameContextMenu) {
@@ -1019,25 +1044,42 @@ function AnalysisResultPage({
 
   function handleToggleAppId() {
     const nextShowAppId = !showAppId;
-    setShowAppId(nextShowAppId);
-    if (!nextShowAppId && tableSortByList[activeGameList]?.key === "appid") {
-      setTableSortByList(current => {
-        const next = { ...current };
-        delete next[activeGameList];
-        return next;
-      });
-    }
+    onViewStateChange(current => {
+      const nextTableSortByList = { ...current.tableSortByList };
+      if (!nextShowAppId && nextTableSortByList[activeGameList]?.key === "appid") {
+        delete nextTableSortByList[activeGameList];
+      }
+      return {
+        ...current,
+        showAppId: nextShowAppId,
+        tableSortByList: nextTableSortByList
+      };
+    });
   }
 
   function handleTableSort(columnKey: string) {
-    setTableSortByList(current => {
-      const previous = current[activeGameList];
+    onViewStateChange(current => {
+      const previous = normalizeTableSortState(current.tableSortByList[activeGameList], tableSortOptions);
       const direction: TableSortDirection = previous?.key === columnKey && previous.direction === "asc" ? "desc" : "asc";
       return {
         ...current,
-        [activeGameList]: { key: columnKey, direction }
+        tableSortByList: {
+          ...current.tableSortByList,
+          [activeGameList]: { key: columnKey, direction }
+        }
       };
     });
+  }
+
+  function handleSortSelectChange(value: string | null) {
+    const nextSort = parseTableSortSelectValue(value);
+    onViewStateChange(current => ({
+      ...current,
+      tableSortByList: {
+        ...current.tableSortByList,
+        [activeGameList]: nextSort
+      }
+    }));
   }
 
   async function handleCopyCurrentList() {
@@ -1111,7 +1153,7 @@ function AnalysisResultPage({
                 { value: "relativeNew", label: `相对新增 ${report.games.relativeNew.length}` },
                 { value: "overlap", label: `重复 ${report.games.overlap.length}` }
               ]}
-              onChange={value => setActiveGameList(value as ResultGameListKey)}
+              onChange={value => onViewStateChange(current => ({ ...current, activeGameList: value as ResultGameListKey }))}
             />
           </Stack>
           <div className="game-list-tools">
@@ -1124,27 +1166,21 @@ function AnalysisResultPage({
                 { value: "cover", label: "封面" },
                 { value: "table", label: "表格" }
               ]}
-              onChange={value => setViewMode(value as ResultGameViewMode)}
+              onChange={value => onViewStateChange(current => ({ ...current, viewMode: value as ResultGameViewMode }))}
             />
             <Select
               className="game-sort"
               size="xs"
-              value={sortKey}
-              data={[
-                { value: "nameAsc", label: "名称 A-Z" },
-                { value: "priceDesc", label: "价格从高到低" },
-                { value: "priceAsc", label: "价格从低到高" },
-                { value: "ownersDesc", label: "拥有者多到少" },
-                { value: "ownersAsc", label: "拥有者少到多" }
-              ]}
-              onChange={value => setSortKey((value || "nameAsc") as ResultGameSortKey)}
+              value={sortSelectValue}
+              data={sortSelectData}
+              onChange={handleSortSelectChange}
               allowDeselect={false}
             />
             <TextInput
               className="game-search"
               size="xs"
               value={searchQuery}
-              onChange={event => setSearchQuery(event.currentTarget.value)}
+              onChange={event => onViewStateChange(current => ({ ...current, searchQuery: event.currentTarget.value }))}
               placeholder="搜索游戏名或 AppID"
             />
             <ActionIcon
@@ -1169,6 +1205,7 @@ function AnalysisResultPage({
                   <GameCard
                     key={game.appid}
                     game={game}
+                    listKey={activeGameList}
                     showAppId={showAppId}
                     coverReloadToken={coverReloadTokens[game.appid] || 0}
                     onContextMenu={handleGameContextMenu}
@@ -1180,10 +1217,10 @@ function AnalysisResultPage({
               <GameTable
                 games={visibleGames}
                 listKey={activeGameList}
-                includeTargetOwners={report.targets.length > 1}
+                includeTargetOwners={includeTargetOwners}
                 showAppId={showAppId}
                 priceLabel={tablePriceLabel}
-                sort={tableSortByList[activeGameList]}
+                sort={activeTableSort}
                 coverReloadTokens={coverReloadTokens}
                 onSort={handleTableSort}
                 onContextMenu={handleGameContextMenu}
@@ -1320,15 +1357,19 @@ function TargetRow({ target }: { target: TargetProfile }) {
 
 function GameCard({
   game,
+  listKey,
   showAppId,
   coverReloadToken,
   onContextMenu
 }: {
   game: ResultGameRow;
+  listKey: ResultGameListKey;
   showAppId: boolean;
   coverReloadToken: number;
   onContextMenu: (event: MouseEvent<HTMLElement>, game: ResultGameRow) => void;
 }) {
+  const shouldShowStatusTag = listKey === "all" && getReportGameStatusLabel(game.status) !== "-";
+  const priceText = formatPrice(game.price);
   return (
     <a
       className="game-card"
@@ -1343,16 +1384,15 @@ function GameCard({
       title={game.name}
     >
       <span className="game-card-media">
-        <span className="game-card-title">{game.name}</span>
-        {showAppId ? <span className="game-card-chip">AppID {game.appid}</span> : null}
-      </span>
-      <span className="game-card-body">
-        <span className="game-card-line">
-          <span>{getReportGameStatusLabel(game.status)}</span>
-          <span className="game-card-price">{formatPrice(game.price)}</span>
+        <span className="game-card-top-tags">
+          {shouldShowStatusTag ? <StatusTag status={game.status} /> : null}
+          {priceText !== "-" ? <span className="game-card-price-tag">{priceText}</span> : null}
         </span>
-        <span>{getGameOwnerSummary(game)}</span>
-        <span>{game.ownerIds.join("、") || "-"}</span>
+        {showAppId ? <span className="game-card-chip">ID {game.appid}</span> : null}
+        <span className="game-card-overlay">
+          <span className="game-card-title">{game.name}</span>
+          <OwnerTagList owners={getGameCardOwnerTags(game, listKey)} className="game-card-owner-tags" />
+        </span>
       </span>
     </a>
   );
@@ -1522,13 +1562,78 @@ function getGameTableColumnsTemplate(listKey: ResultGameListKey, includeTargetOw
     : "minmax(0, 5fr) minmax(0, 3fr)";
 }
 
-function OwnerTagList({ owners }: { owners: OwnerTagItem[] }) {
+function buildTableSortSelectOptions(
+  listKey: ResultGameListKey,
+  includeTargetOwners: boolean,
+  showAppId: boolean,
+  priceLabel: string
+): SortSelectOption[] {
+  const columns: Array<{ key: string; label: string }> = [{ key: "name", label: "游戏" }];
+
+  if ((listKey === "all" || listKey === "new") && includeTargetOwners) {
+    columns.push({ key: "targetOwners", label: "拥有者" });
+  }
+  if (listKey === "relativeNew" || listKey === "overlap") {
+    columns.push({ key: "owners", label: "贡献者" });
+  }
+  if (listKey === "all") {
+    columns.push({ key: "status", label: "状态" });
+  }
+  if (listKey === "new" || listKey === "relativeNew") {
+    columns.push({ key: "price", label: priceLabel });
+  }
+  if (showAppId) {
+    columns.push({ key: "appid", label: "AppID" });
+  }
+
+  return columns.flatMap(column => [
+    {
+      value: serializeTableSortState({ key: column.key, direction: "asc" }),
+      label: getTableSortOptionLabel(column.label, column.key, "asc")
+    },
+    {
+      value: serializeTableSortState({ key: column.key, direction: "desc" }),
+      label: getTableSortOptionLabel(column.label, column.key, "desc")
+    }
+  ]);
+}
+
+function getTableSortOptionLabel(label: string, key: string, direction: TableSortDirection): string {
+  if (key === "name") {
+    return direction === "asc" ? `${label} A-Z` : `${label} Z-A`;
+  }
+  if (key === "price") {
+    return direction === "asc" ? `${label}从低到高` : `${label}从高到低`;
+  }
+  return `${label}${direction === "asc" ? "升序" : "降序"}`;
+}
+
+function normalizeTableSortState(sort: TableSortState | undefined, options: SortSelectOption[]): TableSortState {
+  if (sort && options.some(option => option.value === serializeTableSortState(sort))) {
+    return sort;
+  }
+  return parseTableSortSelectValue(options[0]?.value);
+}
+
+function serializeTableSortState(sort: TableSortState): string {
+  return `table:${sort.key}:${sort.direction}`;
+}
+
+function parseTableSortSelectValue(value: string | null | undefined): TableSortState {
+  const [, key, direction] = String(value || "").split(":");
+  return {
+    key: key || "name",
+    direction: direction === "desc" ? "desc" : "asc"
+  };
+}
+
+function OwnerTagList({ owners, className = "" }: { owners: OwnerTagItem[]; className?: string }) {
   if (!owners.length) {
     return "-";
   }
 
   return (
-    <span className="owner-tag-list">
+    <span className={`owner-tag-list ${className}`}>
       {owners.map(owner => (
         <span
           key={`${owner.id}-${owner.label}`}
@@ -1888,24 +1993,6 @@ function getReportCurrency(games: ReportGame[]): string {
   return games.find(game => isCountablePrice(game.price))?.price?.currency || "CNY";
 }
 
-function sortResultGameRows(games: ResultGameRow[], sortKey: ResultGameSortKey): ResultGameRow[] {
-  return games.slice().sort((left, right) => {
-    if (sortKey === "priceDesc") {
-      return comparePriceDesc(left, right) || compareGameName(left, right);
-    }
-    if (sortKey === "priceAsc") {
-      return comparePriceAsc(left, right) || compareGameName(left, right);
-    }
-    if (sortKey === "ownersDesc") {
-      return getOwnerSortValue(right) - getOwnerSortValue(left) || compareGameName(left, right);
-    }
-    if (sortKey === "ownersAsc") {
-      return getOwnerSortValue(left) - getOwnerSortValue(right) || compareGameName(left, right);
-    }
-    return compareGameName(left, right);
-  });
-}
-
 function sortTableGameRows(games: ResultGameRow[], sort?: TableSortState): ResultGameRow[] {
   if (!sort?.key) {
     return games;
@@ -1963,52 +2050,11 @@ function getTablePriceSortValue(price: PriceInfo | null): number {
   return Number(price.initial || 0);
 }
 
-function comparePriceDesc(left: ResultGameRow, right: ResultGameRow): number {
-  const leftPrice = getPriceSortValue(left);
-  const rightPrice = getPriceSortValue(right);
-  if (leftPrice == null && rightPrice == null) {
-    return 0;
-  }
-  if (leftPrice == null) {
-    return 1;
-  }
-  if (rightPrice == null) {
-    return -1;
-  }
-  return rightPrice - leftPrice;
-}
-
-function comparePriceAsc(left: ResultGameRow, right: ResultGameRow): number {
-  const leftPrice = getPriceSortValue(left);
-  const rightPrice = getPriceSortValue(right);
-  if (leftPrice == null && rightPrice == null) {
-    return 0;
-  }
-  if (leftPrice == null) {
-    return 1;
-  }
-  if (rightPrice == null) {
-    return -1;
-  }
-  return leftPrice - rightPrice;
-}
-
 function compareGameName(left: ResultGameRow, right: ResultGameRow): number {
   return left.name.localeCompare(right.name, "zh-CN", {
     numeric: true,
     sensitivity: "base"
   }) || left.appid.localeCompare(right.appid, "zh-CN", { numeric: true });
-}
-
-function getPriceSortValue(game: ResultGameRow): number | null {
-  if (!game.price || game.price.unavailable || game.price.initial == null) {
-    return null;
-  }
-  return Number(game.price.initial || 0);
-}
-
-function getOwnerSortValue(game: ResultGameRow): number {
-  return game.status === "overlap" ? game.familyOwners.length : game.ownerIds.length;
 }
 
 function getReportGameStatusLabel(status: ReportGameStatus): string {
@@ -2036,6 +2082,20 @@ function getGameOwnerDetail(game: ResultGameRow): string {
     return getFamilyOwnerText(game);
   }
   return game.ownerNames.length ? game.ownerNames.join("、") : game.ownerIds.join("、");
+}
+
+function getGameCardOwnerText(game: ResultGameRow, listKey: ResultGameListKey): string {
+  if (listKey === "all" || listKey === "new") {
+    return getTargetOwnerText(game);
+  }
+  return getFamilyOwnerText(game);
+}
+
+function getGameCardOwnerTags(game: ResultGameRow, listKey: ResultGameListKey): OwnerTagItem[] {
+  if (listKey === "all" || listKey === "new") {
+    return getTargetOwnerTags(game);
+  }
+  return getFamilyOwnerTags(game);
 }
 
 function getTargetOwnerText(game: ResultGameRow): string {

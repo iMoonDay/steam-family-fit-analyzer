@@ -495,7 +495,9 @@ export function buildTableSortSelectOptions(
   if (listKey === "all") {
     columns.push({ key: "status", label: "状态" });
   }
-  if (viewMode === "cover" || listKey === "new" || listKey === "relativeNew") {
+  if (listKey === "all" || listKey === "overlap") {
+    columns.push({ key: "price", label: priceLabel });
+  } else if (viewMode === "cover" || listKey === "new" || listKey === "relativeNew") {
     columns.push({ key: "price", label: priceLabel });
   }
   if (showAppId) {

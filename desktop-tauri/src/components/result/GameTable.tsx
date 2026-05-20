@@ -157,8 +157,8 @@ function buildGameTableColumns(
 
   if (listKey === "all") {
     const columns = includeTargetOwners
-      ? [nameColumn, targetOwnersColumn, statusColumn]
-      : [nameColumn, statusColumn];
+      ? [nameColumn, targetOwnersColumn, statusColumn, priceColumn]
+      : [nameColumn, statusColumn, priceColumn];
     return showAppId ? [...columns, appidColumn] : columns;
   }
   if (listKey === "new") {
@@ -171,12 +171,22 @@ function buildGameTableColumns(
     const columns = [nameColumn, familyOwnersColumn, acquiredAtColumn, priceColumn];
     return showAppId ? [...columns, appidColumn] : columns;
   }
-  const columns = [nameColumn, familyOwnersColumn];
+  const columns = [nameColumn, familyOwnersColumn, priceColumn];
   return showAppId ? [...columns, appidColumn] : columns;
 }
 
 function getGameTableColumnsTemplate(listKey: ResultGameListKey, includeTargetOwners: boolean, showAppId: boolean): string {
-  if (listKey === "all" || listKey === "new") {
+  if (listKey === "all") {
+    if (includeTargetOwners) {
+      return showAppId
+        ? "minmax(0, 4.2fr) minmax(0, 1.8fr) minmax(0, 1.5fr) minmax(0, 1.2fr) minmax(0, 1.1fr)"
+        : "minmax(0, 4.2fr) minmax(0, 1.8fr) minmax(0, 1.5fr) minmax(0, 1.2fr)";
+    }
+    return showAppId
+      ? "minmax(0, 5.4fr) minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 1.1fr)"
+      : "minmax(0, 5.4fr) minmax(0, 1.4fr) minmax(0, 1.2fr)";
+  }
+  if (listKey === "new") {
     if (includeTargetOwners) {
       return showAppId
         ? "minmax(0, 5fr) minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.2fr)"
@@ -192,6 +202,6 @@ function getGameTableColumnsTemplate(listKey: ResultGameListKey, includeTargetOw
       : "minmax(0, 4.4fr) minmax(0, 1.8fr) minmax(0, 1.3fr) minmax(0, 1.2fr)";
   }
   return showAppId
-    ? "minmax(0, 5fr) minmax(0, 3fr) minmax(0, 1.2fr)"
-    : "minmax(0, 5fr) minmax(0, 3fr)";
+    ? "minmax(0, 5fr) minmax(0, 2.5fr) minmax(0, 1.2fr) minmax(0, 1.1fr)"
+    : "minmax(0, 5fr) minmax(0, 2.5fr) minmax(0, 1.2fr)";
 }

@@ -16,6 +16,7 @@ type PosterItem = {
   coverUrl: string;
   dataIndex: number;
   priceValue: number;
+  acquiredAt: number;
   ownersText: string;
   targetOwnersText: string;
   statusText: string;
@@ -45,6 +46,7 @@ export async function renderGameCoverPoster({
     coverUrl: coverUrlsByAppid[game.appid] || "",
     dataIndex: index,
     priceValue: getPosterPriceSortValue(game),
+    acquiredAt: game.familyAcquiredAt || 0,
     ownersText: getFamilyOwnerText(game),
     targetOwnersText: getTargetOwnerText(game),
     statusText: getReportGameStatusLabel(game.status)
@@ -97,7 +99,7 @@ export function buildListPosterSortModes(listKey: ResultGameListKey, includeTarg
     }
     modes.push("priceDesc", "priceAsc");
   } else if (listKey === "relativeNew") {
-    modes.push("ownersAsc", "ownersDesc", "priceDesc", "priceAsc");
+    modes.push("ownersAsc", "ownersDesc", "acquiredAtDesc", "acquiredAtAsc", "priceDesc", "priceAsc");
   } else if (listKey === "overlap") {
     modes.push("ownersAsc", "ownersDesc");
   }
@@ -115,6 +117,8 @@ export function getPosterSortModeLabel(mode: PosterSortMode): string {
     priceAsc: "价格升序",
     ownersAsc: "贡献者升序",
     ownersDesc: "贡献者降序",
+    acquiredAtDesc: "入库时间降序",
+    acquiredAtAsc: "入库时间升序",
     targetOwnersAsc: "目标拥有者升序",
     targetOwnersDesc: "目标拥有者降序",
     statusAsc: "状态升序",
@@ -245,6 +249,10 @@ function sortPosterItems(items: Array<Omit<PosterItem, "image">>, sortMode: Post
         return compareText(left, right, "ownersText") || left.dataIndex - right.dataIndex;
       case "ownersDesc":
         return compareText(left, right, "ownersText", "desc") || left.dataIndex - right.dataIndex;
+      case "acquiredAtAsc":
+        return left.acquiredAt - right.acquiredAt || left.dataIndex - right.dataIndex;
+      case "acquiredAtDesc":
+        return right.acquiredAt - left.acquiredAt || left.dataIndex - right.dataIndex;
       case "targetOwnersAsc":
         return compareText(left, right, "targetOwnersText") || left.dataIndex - right.dataIndex;
       case "targetOwnersDesc":

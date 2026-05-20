@@ -379,6 +379,34 @@ export async function analyzeTarget(input: AnalyzeInput): Promise<AnalysisReport
   }
 }
 
+export async function fetchFamilyLibraryReport(settings: AppSettings): Promise<AnalysisReport> {
+  try {
+    return await invoke<AnalysisReport>("fetch_family_library_report", { settings });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    return {
+      targetCount: 0,
+      totalPublicGames: 0,
+      familyGameCount: 0,
+      newGameCount: 0,
+      overlapCount: 0,
+      currentOwnedOverlapCount: 0,
+      targets: [],
+      games: {
+        all: [],
+        new: [],
+        relativeNew: [],
+        overlap: [],
+        currentOwned: [],
+        notCurrentOwned: []
+      },
+      warnings: ["浏览器预览模式不会请求 Steam API，请使用 Tauri 桌面窗口运行真实家庭库。"]
+    };
+  }
+}
+
 export async function refreshReportPrices(report: AnalysisReport, settings: AppSettings): Promise<AnalysisReport> {
   try {
     return await invoke<AnalysisReport>("refresh_report_prices", { input: { report, settings } });

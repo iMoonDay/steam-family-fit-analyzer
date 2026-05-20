@@ -29,6 +29,7 @@ export function buildResultGameRows(games: ReportGame[], priceMode: PriceMode): 
       ownerIds: game.targetOwners,
       familyOwners: game.familyOwners,
       familyOwnerNames: game.familyOwnerNames || [],
+      familyAcquiredAt: game.familyAcquiredAt || 0,
       price: getReportGamePrice(game, priceMode),
       status: game.status
     };
@@ -346,6 +347,9 @@ function getTableSortValue(game: ResultGameRow, key: string): string | number {
   if (key === "owners") {
     return getFamilyOwnerText(game);
   }
+  if (key === "acquiredAt") {
+    return game.familyAcquiredAt || 0;
+  }
   if (key === "targetOwners") {
     return getTargetOwnerText(game);
   }
@@ -430,6 +434,17 @@ export function getFamilyOwnerText(game: ResultGameRow): string {
   return (game.familyOwnerNames.length ? game.familyOwnerNames : game.familyOwners).join("、") || "-";
 }
 
+export function formatFamilyAcquiredAt(value: number): string {
+  if (!value) {
+    return "-";
+  }
+  return new Date(value * 1000).toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+}
+
 export function getTargetOwnerTags(game: ResultGameRow): OwnerTagItem[] {
   return buildOwnerTags(game.ownerIds, game.ownerNames);
 }
@@ -474,6 +489,9 @@ export function buildTableSortSelectOptions(
   if (listKey === "relativeNew" || listKey === "overlap") {
     columns.push({ key: "owners", label: "贡献者" });
   }
+  if (listKey === "relativeNew") {
+    columns.push({ key: "acquiredAt", label: "入库时间" });
+  }
   if (listKey === "all") {
     columns.push({ key: "status", label: "状态" });
   }
@@ -502,6 +520,9 @@ function getTableSortOptionLabel(label: string, key: string, direction: TableSor
   }
   if (key === "price") {
     return direction === "asc" ? `${label}从低到高` : `${label}从高到低`;
+  }
+  if (key === "acquiredAt") {
+    return direction === "asc" ? `${label}从早到晚` : `${label}从晚到早`;
   }
   return `${label}${direction === "asc" ? "升序" : "降序"}`;
 }

@@ -3,7 +3,7 @@ import { memo } from "react";
 import type { CSSProperties, MouseEvent } from "react";
 import type { GameTableColumn, ResultGameListKey, ResultGameRow, TableSortState } from "../../appTypes";
 import { openSteamStorePage } from "../../core/external";
-import { formatPrice, getFamilyOwnerTags, getSteamCoverUrl, getTargetOwnerTags } from "../../core/report";
+import { formatFamilyAcquiredAt, formatPrice, getFamilyOwnerTags, getSteamCoverUrl, getTargetOwnerTags } from "../../core/report";
 import { OwnerTagList, StatusTag } from "./OwnerTags";
 
 export const GameTable = memo(function GameTable({
@@ -39,8 +39,19 @@ export const GameTable = memo(function GameTable({
       <div className="game-table-frame" role="table" aria-label="游戏列表" style={tableStyle}>
         <div className="game-table-head" role="row">
           {columns.map(column => (
-            <span key={column.key}>
-              {column.sortable === false ? column.label : (
+            <span key={column.key} className={column.className}>
+              {column.key === "name" ? (
+                <span className="game-table-name-head">
+                  <button
+                    type="button"
+                    className={`game-table-sort ${sort?.key === column.key ? "is-active" : ""} ${sort?.key === column.key && sort.direction === "desc" ? "is-desc" : ""}`}
+                    onClick={() => onSort(column.key)}
+                    >
+                      <span>{column.label}</span>
+                      <span className="game-table-sort-indicator" aria-hidden="true" />
+                    </button>
+                </span>
+              ) : column.sortable === false ? column.label : (
                 <button
                   type="button"
                   className={`game-table-sort ${sort?.key === column.key ? "is-active" : ""} ${sort?.key === column.key && sort.direction === "desc" ? "is-desc" : ""}`}
@@ -54,16 +65,11 @@ export const GameTable = memo(function GameTable({
           ))}
         </div>
         {games.map(game => (
-          <a
+          <div
             key={game.appid}
             className="game-table-row"
-            href={game.storeLink}
             role="row"
             title={game.name}
-            onClick={event => {
-              event.preventDefault();
-              void openSteamStorePage(game.appid, game.storeLink);
-            }}
             onContextMenu={event => onContextMenu(event, game)}
           >
             {columns.map(column => (
@@ -71,7 +77,7 @@ export const GameTable = memo(function GameTable({
                 {column.render(game)}
               </span>
             ))}
-          </a>
+          </div>
         ))}
       </div>
     </ScrollArea>
@@ -98,11 +104,22 @@ function buildGameTableColumns(
     className: "game-table-name",
     render: game => (
       <>
-        <span
-          className="game-table-cover"
-          style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0, coverCachePaths[game.appid] || "")}")` } as CSSProperties}
-          aria-hidden="true"
-        />
+        <button
+          type="button"
+          className="game-table-cover-button"
+          aria-label={`打开 ${game.name}`}
+          onClick={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            void openSteamStorePage(game.appid, game.storeLink);
+          }}
+        >
+          <span
+            className="game-table-cover"
+            style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadTokens[game.appid] || 0, coverCachePaths[game.appid] || "")}")` } as CSSProperties}
+            aria-hidden="true"
+          />
+        </button>
         <span className="game-table-title">{game.name}</span>
       </>
     )
@@ -131,6 +148,12 @@ function buildGameTableColumns(
     className: "game-table-price",
     render: game => formatPrice(game.price)
   };
+  const acquiredAtColumn: GameTableColumn = {
+    key: "acquiredAt",
+    label: "入库时间",
+    className: "game-table-date",
+    render: game => formatFamilyAcquiredAt(game.familyAcquiredAt)
+  };
 
   if (listKey === "all") {
     const columns = includeTargetOwners
@@ -145,7 +168,7 @@ function buildGameTableColumns(
     return showAppId ? [...columns, appidColumn] : columns;
   }
   if (listKey === "relativeNew") {
-    const columns = [nameColumn, familyOwnersColumn, priceColumn];
+    const columns = [nameColumn, familyOwnersColumn, acquiredAtColumn, priceColumn];
     return showAppId ? [...columns, appidColumn] : columns;
   }
   const columns = [nameColumn, familyOwnersColumn];
@@ -165,8 +188,8 @@ function getGameTableColumnsTemplate(listKey: ResultGameListKey, includeTargetOw
   }
   if (listKey === "relativeNew") {
     return showAppId
-      ? "minmax(0, 5fr) minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.2fr)"
-      : "minmax(0, 5fr) minmax(0, 2fr) minmax(0, 1.4fr)";
+      ? "minmax(0, 4.4fr) minmax(0, 1.8fr) minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1.1fr)"
+      : "minmax(0, 4.4fr) minmax(0, 1.8fr) minmax(0, 1.3fr) minmax(0, 1.2fr)";
   }
   return showAppId
     ? "minmax(0, 5fr) minmax(0, 3fr) minmax(0, 1.2fr)"

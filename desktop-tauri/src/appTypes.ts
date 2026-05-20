@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { PriceInfo, ReportGameStatus } from "./types";
 
-export type AppPage = "analysis" | "result" | "login" | "settings";
+export type AppPage = "analysis" | "result" | "family" | "login" | "settings";
 
 export type AnalysisHistoryEntry = {
   id: string;
@@ -27,6 +27,7 @@ export type ResultGameRow = {
   ownerIds: string[];
   familyOwners: string[];
   familyOwnerNames: string[];
+  familyAcquiredAt: number;
   price: PriceInfo | null;
   status: ReportGameStatus;
 };
@@ -61,6 +62,8 @@ export type PosterSortMode =
   | "ownersDesc"
   | "targetOwnersAsc"
   | "targetOwnersDesc"
+  | "acquiredAtAsc"
+  | "acquiredAtDesc"
   | "statusAsc"
   | "statusDesc";
 

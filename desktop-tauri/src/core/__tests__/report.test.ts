@@ -28,6 +28,7 @@ function makeGameRow(overrides: Partial<ResultGameRow> = {}): ResultGameRow {
     ownerNames: ["Player"],
     familyOwners: [],
     familyOwnerNames: [],
+    familyAcquiredAt: 0,
     price: null,
     status: "new",
     searchText: "730\ncounter-strike 2\n730\ncounterstrike2",

@@ -15,8 +15,9 @@ use crate::{
     models::{
         AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus,
         AutoSteamConfigResult, BrowserCallbackSession, CacheCoversInput, CacheCoversOutput,
-        PriceInfo, RefreshReportPricesInput, SteamLoginCache, SteamLoginProfile,
-        SteamLoginRefreshResult, SteamQrLoginPollResult, SteamQrLoginSession,
+        PriceInfo, RefreshReportPricesInput, ReportGame, ReportGameLists, ReportGamePrices,
+        SteamLoginCache, SteamLoginProfile, SteamLoginRefreshResult, SteamQrLoginPollResult,
+        SteamQrLoginSession,
     },
     steam::StoreItemEnrichment,
 };
@@ -383,6 +384,128 @@ async fn analyze_target(app: AppHandle, input: AnalyzeInput) -> Result<AnalysisR
 }
 
 #[tauri::command]
+async fn fetch_family_library_report(
+    app: AppHandle,
+    settings: AppSettings,
+) -> Result<AnalysisReport, String> {
+    let access_token = settings.family_access_token.trim();
+    if access_token.is_empty() {
+        return Err(crate::error::AppError::InputValidation(
+            "家庭库 Access Token 未填写".to_string(),
+        )
+        .user_message());
+    }
+    if settings.price_mode == "historyLow" && settings.itad_api_key.trim().is_empty() {
+        return Err(crate::error::AppError::InputValidation(
+            "史低模式需要 IsThereAnyDeal API Key".to_string(),
+        )
+        .user_message());
+    }
+
+    let client = steam::build_client()?;
+    let family_group_id = if settings.family_group_id.trim().is_empty() {
+        steam::fetch_family_group_id(&client, access_token).await?
+    } else {
+        settings.family_group_id.trim().to_string()
+    };
+    let mut library = steam::fetch_family_library(&client, access_token, family_group_id.as_str())
+        .await?;
+    let family_owner_ids = library
+        .games_by_id
+        .values()
+        .flat_map(|game| game.owners.iter().cloned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let api_key = settings.steam_api_key.trim();
+    if !api_key.is_empty() {
+        library.owner_names_by_id =
+            steam::fetch_player_display_names(&client, api_key, &family_owner_ids).await?;
+    }
+
+    let mut games = library
+        .games_by_id
+        .iter()
+        .map(|(appid, family_game)| ReportGame {
+            appid: appid.clone(),
+            name: family_game.name.clone(),
+            localized_name: String::new(),
+            store_link: format!("https://store.steampowered.com/app/{appid}/"),
+            cover_url: String::new(),
+            target_owners: Vec::new(),
+            target_owner_names: Vec::new(),
+            family_owners: family_game.owners.clone(),
+            family_owner_names: family_game
+                .owners
+                .iter()
+                .map(|steamid| {
+                    library
+                        .owner_names_by_id
+                        .get(steamid)
+                        .cloned()
+                        .unwrap_or_else(|| steamid.clone())
+                })
+                .collect(),
+            family_acquired_at: family_game.acquired_at,
+            prices: ReportGamePrices::default(),
+            price: None,
+            status: "relativeNew".to_string(),
+        })
+        .collect::<Vec<_>>();
+    games.sort_by(|left, right| left.name.cmp(&right.name).then_with(|| left.appid.cmp(&right.appid)));
+
+    let mut report = AnalysisReport {
+        target_count: 0,
+        total_public_games: 0,
+        family_game_count: games.len(),
+        new_game_count: 0,
+        overlap_count: 0,
+        current_owned_overlap_count: 0,
+        targets: Vec::new(),
+        games: ReportGameLists {
+            all: games.clone(),
+            new: Vec::new(),
+            relative_new: games,
+            overlap: Vec::new(),
+            current_owned: Vec::new(),
+            not_current_owned: Vec::new(),
+        },
+        warnings: Vec::new(),
+    };
+    let report_appids = collect_report_appids(&report);
+    let mut cache_store = match cache::CacheStore::open(&app, &settings) {
+        Ok(cache_store) => Some(cache_store),
+        Err(error) => {
+            report.warnings.push(format!("缓存不可用：{error}"));
+            None
+        }
+    };
+
+    apply_store_enrichment(
+        &client,
+        cache_store.as_mut(),
+        &report_appids,
+        &settings,
+        &mut report,
+    )
+    .await;
+    if settings.price_mode == "historyLow" {
+        apply_history_low_prices(
+            &client,
+            cache_store.as_mut(),
+            &report_appids,
+            &settings,
+            &mut report,
+        )
+        .await?;
+    } else {
+        apply_display_prices(&mut report, "original");
+    }
+
+    Ok(report)
+}
+
+#[tauri::command]
 async fn refresh_report_prices(
     app: AppHandle,
     input: RefreshReportPricesInput,
@@ -577,6 +700,7 @@ pub fn run() {
             validate_itad_api_key,
             validate_family_access_token,
             analyze_target,
+            fetch_family_library_report,
             refresh_report_prices
         ])
         .run(tauri::generate_context!())

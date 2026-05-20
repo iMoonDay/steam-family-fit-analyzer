@@ -22,7 +22,7 @@ export function WindowControlIcon({ type }: { type: "minimize" | "maximize" | "c
   );
 }
 
-export function ActivityIcon({ type }: { type: "logo" | "analysis" | "result" | "login" | "settings" | "help" }) {
+export function ActivityIcon({ type }: { type: "logo" | "analysis" | "result" | "family" | "login" | "settings" | "help" }) {
   if (type === "logo") {
     return (
       <svg className="activity-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
@@ -51,6 +51,17 @@ export function ActivityIcon({ type }: { type: "logo" | "analysis" | "result" | 
         <path d="M6.25 8.25h5.5" />
         <path d="M6.25 10.75h5.5" />
         <path d="M6.25 13.25h3.25" />
+      </svg>
+    );
+  }
+
+  if (type === "family") {
+    return (
+      <svg className="activity-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+        <path d="M3.25 14.25V5.75l5.75-3 5.75 3v8.5" />
+        <path d="M5.75 14.25V8.5h6.5v5.75" />
+        <path d="M7.5 10.25h3" />
+        <path d="M7.5 12.1h3" />
       </svg>
     );
   }

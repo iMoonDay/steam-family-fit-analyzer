@@ -17,7 +17,7 @@ export function ResultMoreMenu({
   onSaveListPoster: () => void;
   onCopyList: () => void;
   onCopyNames: () => void;
-  onCopyReport: () => void;
+  onCopyReport?: () => void;
 }) {
   return (
     <div
@@ -32,9 +32,11 @@ export function ResultMoreMenu({
       <button type="button" role="menuitem" onClick={onCopyNames}>
         复制游戏名
       </button>
-      <button type="button" role="menuitem" onClick={onCopyReport}>
-        复制报告
-      </button>
+      {onCopyReport ? (
+        <button type="button" role="menuitem" onClick={onCopyReport}>
+          复制报告
+        </button>
+      ) : null}
       <button type="button" role="menuitem" onClick={onSaveListPoster}>
         保存封面图
       </button>

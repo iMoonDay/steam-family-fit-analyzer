@@ -15,6 +15,7 @@ import type { AnalysisReport, AppSettings, AppStatus, PriceMode, SteamLoginRefre
 import {
   analyzeTarget,
   fetchFamilyConfigFromSteamLogin,
+  fetchFamilyLibraryReport,
   fetchSteamApiKeyFromSteamLogin,
   fetchSteamLoginProfile,
   getAppStatus,
@@ -49,6 +50,7 @@ import type { SteamLoginCache } from "./core/steamLoginCache";
 import { ActivityIcon, WindowControlIcon } from "./components/icons";
 import { AnalysisPreparePage } from "./pages/AnalysisPreparePage";
 import { AnalysisResultPage, EmptyResultPage } from "./pages/AnalysisResultPage";
+import { FamilyLibraryPage } from "./pages/FamilyLibraryPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -138,6 +140,7 @@ function App() {
   const [targetInput, setTargetInput] = useState("");
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(restoredReport);
+  const [familyReport, setFamilyReport] = useState<AnalysisReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [globalMessage, setGlobalMessage] = useState("");
   const [loginPersistentMessage, setLoginPersistentMessage] = useState("");
@@ -145,12 +148,17 @@ function App() {
   const [pageMessages, setPageMessages] = useState<PageMessageState>({
     analysis: "",
     result: restoredReport ? "已恢复上次分析结果" : "暂无分析结果",
+    family: "",
     login: "",
     settings: ""
   });
   const [activePage, setActivePage] = useState<AppPage>(restoredReport ? "result" : "analysis");
   const [priceModeControlValue, setPriceModeControlValue] = useState<PriceMode>(defaultSettings.priceMode);
   const [resultViewState, setResultViewState] = useState<ResultViewState>(defaultResultViewState);
+  const [familyViewState, setFamilyViewState] = useState<ResultViewState>({
+    ...defaultResultViewState,
+    activeGameList: "relativeNew"
+  });
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryEntry[]>(() => loadAnalysisHistory());
   const [settingsReady, setSettingsReady] = useState(false);
   const priceModeRevertTimerRef = useRef<number | null>(null);
@@ -322,6 +330,46 @@ function App() {
     }
   }
 
+  async function handleRefreshFamilyLibrary(settingsOverride?: AppSettings) {
+    const familySettings = stripLoginDerivedSettings(settingsOverride || settings);
+    setBusy(true);
+    updatePageMessage("family", "读取中");
+    try {
+      await saveSettings(familySettings);
+      const nextReport = await fetchFamilyLibraryWithLoginRetry(familySettings);
+      setFamilyReport(nextReport);
+      updatePageMessage("family", "完成");
+    } catch (error) {
+      updatePageMessage("family", error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fetchFamilyLibraryWithLoginRetry(familySettings: AppSettings): Promise<AnalysisReport> {
+    try {
+      return await fetchFamilyLibraryReport(await getRuntimeSettings(familySettings));
+    } catch (firstError) {
+      const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
+      const refreshNeed = getTokenRefreshNeed(firstMessage);
+      const cache = await readSteamLoginCache() || navLoginAccount;
+      if (!cache || !refreshNeed) {
+        throw firstError;
+      }
+
+      const authResult = await ensureSteamLoginFresh(familySettings, "family", {
+        forceRefresh: true,
+        statusMessage: "刷新登录",
+        required: { ...refreshNeed, accessToken: true }
+      });
+      if (!authResult.ok) {
+        setActivePage("login");
+        throw new Error(authResult.message || "登录失效");
+      }
+      return await fetchFamilyLibraryReport(await getRuntimeSettings(authResult.settings));
+    }
+  }
+
   function handleAnalyzeSuccess(nextReport: AnalysisReport, analysisInput: string, sourcePage: AppPage) {
     if (nextReport.targetCount > 0) {
       setReport(nextReport);
@@ -368,6 +416,34 @@ function App() {
     }
   }
 
+  function handleFamilyPriceModeChange(priceMode: PriceMode) {
+    if (priceMode === "historyLow" && !safeTrim(settings.itadApiKey)) {
+      if (priceModeRevertTimerRef.current !== null) {
+        window.clearTimeout(priceModeRevertTimerRef.current);
+      }
+      setPriceModeControlValue("historyLow");
+      updatePageMessage("family", "缺少 ITAD Key");
+      priceModeRevertTimerRef.current = window.setTimeout(() => {
+        priceModeRevertTimerRef.current = null;
+        setPriceModeControlValue("original");
+      }, 260);
+      return;
+    }
+
+    if (priceModeRevertTimerRef.current !== null) {
+      window.clearTimeout(priceModeRevertTimerRef.current);
+      priceModeRevertTimerRef.current = null;
+    }
+    setPriceModeControlValue(priceMode);
+    const nextSettings = { ...settings, priceMode };
+    settingsSaveMessagePageRef.current = "family";
+    setSettings(nextSettings);
+    void saveSettings(nextSettings);
+    if (familyReport && !reportHasPriceModeData(familyReport, priceMode)) {
+      void handleRefreshFamilyLibrary(nextSettings);
+    }
+  }
+
   async function handleRefreshReportPrices(currentReport: AnalysisReport, nextSettings: AppSettings) {
     setBusy(true);
     updatePageMessage("result", "更新价格");
@@ -385,6 +461,13 @@ function App() {
 
   function handleNavigatePage(page: AppPage) {
     startTransition(() => setActivePage(page));
+    if (
+      page === "family"
+      && !busy
+      && (!familyReport || !reportHasPriceModeData(familyReport, settings.priceMode))
+    ) {
+      void handleRefreshFamilyLibrary();
+    }
   }
 
   async function syncNavLoginProfile() {
@@ -561,6 +644,16 @@ function App() {
                 <ActivityIcon type="result" />
               </button>
             </Tooltip>
+            <Tooltip label="家庭库" position="right" withArrow openDelay={250}>
+              <button
+                type="button"
+                className={`activity-item ${activePage === "family" ? "is-active" : ""}`}
+                aria-label="家庭库"
+                onClick={() => handleNavigatePage("family")}
+              >
+                <ActivityIcon type="family" />
+              </button>
+            </Tooltip>
             <Tooltip label="配置" position="right" withArrow openDelay={250}>
               <button
                 type="button"
@@ -580,7 +673,7 @@ function App() {
           </aside>
 
           <main className="main-pane">
-            <ScrollArea className={`editor-body ${activePage === "result" && report ? "is-result-view" : ""} ${activePage === "settings" ? "is-settings-view" : ""} ${activePage === "login" ? "is-login-view" : ""}`} type="auto" scrollbarSize={10}>
+            <ScrollArea className={`editor-body ${activePage === "result" && report ? "is-result-view" : ""} ${activePage === "family" ? "is-family-view" : ""} ${activePage === "settings" ? "is-settings-view" : ""} ${activePage === "login" ? "is-login-view" : ""}`} type="auto" scrollbarSize={10}>
               <div className="page-stack">
                 <div className={`page-slot ${activePage === "analysis" ? "is-active" : ""}`}>
                   <AnalysisPreparePage
@@ -617,6 +710,22 @@ function App() {
                   ) : (
                     <EmptyResultPage onGoAnalysis={() => handleNavigatePage("analysis")} />
                   )}
+                </div>
+                <div className={`page-slot ${activePage === "family" ? "is-active" : ""}`}>
+                  <FamilyLibraryPage
+                    report={familyReport}
+                    message={pageMessages.family}
+                    tablePriceLabel={tablePriceLabel}
+                    settings={settings}
+                    priceMode={settings.priceMode}
+                    priceModeControlValue={priceModeControlValue}
+                    viewState={familyViewState}
+                    busy={busy}
+                    onPriceModeChange={handleFamilyPriceModeChange}
+                    onViewStateChange={setFamilyViewState}
+                    onRefresh={() => handleRefreshFamilyLibrary()}
+                    onMessage={nextMessage => updatePageMessage("family", nextMessage)}
+                  />
                 </div>
                 <div className={`page-slot ${activePage === "login" ? "is-active" : ""}`}>
                   <LoginPage

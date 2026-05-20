@@ -2,7 +2,7 @@ import { ScrollArea } from "@mantine/core";
 import { memo } from "react";
 import type { CSSProperties, MouseEvent } from "react";
 import type { GameTableColumn, ResultGameListKey, ResultGameRow, TableSortState } from "../../appTypes";
-import { openExternalUrl } from "../../core/external";
+import { openSteamStorePage } from "../../core/external";
 import { formatPrice, getFamilyOwnerTags, getSteamCoverUrl, getTargetOwnerTags } from "../../core/report";
 import { OwnerTagList, StatusTag } from "./OwnerTags";
 
@@ -62,7 +62,7 @@ export const GameTable = memo(function GameTable({
             title={game.name}
             onClick={event => {
               event.preventDefault();
-              void openExternalUrl(game.storeLink);
+              void openSteamStorePage(game.appid, game.storeLink);
             }}
             onContextMenu={event => onContextMenu(event, game)}
           >

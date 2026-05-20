@@ -12,6 +12,10 @@
     "dialog:allow-open",
     "dialog:allow-confirm",
     "dialog:allow-save",
-    "opener:default"
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "steam://*" }]
+    }
   ]
 }

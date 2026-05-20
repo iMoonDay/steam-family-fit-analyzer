@@ -74,7 +74,7 @@ export function GameContextMenu({
       onPointerDown={event => event.stopPropagation()}
     >
       <button type="button" role="menuitem" onClick={() => onOpenWebpage(state.game)}>
-        打开网页
+        打开 Steam
       </button>
       <button type="button" role="menuitem" onClick={() => onRefreshCover(state.game)}>
         刷新封面

@@ -1,7 +1,7 @@
 import { memo } from "react";
 import type { CSSProperties, MouseEvent } from "react";
 import type { ResultGameListKey, ResultGameRow } from "../../appTypes";
-import { openExternalUrl } from "../../core/external";
+import { openSteamStorePage } from "../../core/external";
 import {
   formatPrice,
   getGameCardOwnerTags,
@@ -34,7 +34,7 @@ export const GameCard = memo(function GameCard({
       href={game.storeLink}
       onClick={event => {
         event.preventDefault();
-        void openExternalUrl(game.storeLink);
+        void openSteamStorePage(game.appid, game.storeLink);
       }}
       onContextMenu={event => onContextMenu(event, game)}
       style={{ "--game-cover": `url("${getSteamCoverUrl(game, coverReloadToken, coverCachePath)}")` } as CSSProperties}

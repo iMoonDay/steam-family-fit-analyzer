@@ -36,3 +36,29 @@ export async function openExternalUrl(url: string): Promise<void> {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 }
+
+export async function openSteamStorePage(appid: string, fallbackUrl: string): Promise<void> {
+  const normalizedAppid = appid.trim();
+  if (!/^\d+$/.test(normalizedAppid)) {
+    await openExternalUrl(fallbackUrl);
+    return;
+  }
+  try {
+    await openUrl(`steam://store/${normalizedAppid}`);
+  } catch {
+    await openExternalUrl(fallbackUrl);
+  }
+}
+
+export async function openSteamProfilePage(steamid64: string, fallbackUrl: string): Promise<void> {
+  const normalizedSteamid64 = steamid64.trim();
+  if (!/^\d{17}$/.test(normalizedSteamid64)) {
+    await openExternalUrl(fallbackUrl);
+    return;
+  }
+  try {
+    await openUrl(`steam://url/SteamIDPage/${normalizedSteamid64}`);
+  } catch {
+    await openExternalUrl(fallbackUrl);
+  }
+}

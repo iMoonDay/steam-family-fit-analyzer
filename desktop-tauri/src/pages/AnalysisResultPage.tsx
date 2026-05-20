@@ -46,7 +46,7 @@ import {
   renderGameCoverPoster
 } from "../core/poster";
 import { cacheCovers, savePngFile } from "../services/desktop";
-import { openExternalUrl, writeClipboard } from "../core/external";
+import { openSteamStorePage, writeClipboard } from "../core/external";
 import {
   buildResultGameRows,
   buildResultMetrics,
@@ -792,7 +792,7 @@ export function AnalysisResultPage({
           state={gameContextMenu}
           onOpenWebpage={game => {
             setGameContextMenu(null);
-            void openExternalUrl(game.storeLink);
+            void openSteamStorePage(game.appid, game.storeLink);
           }}
           onRefreshCover={handleRefreshCover}
         />

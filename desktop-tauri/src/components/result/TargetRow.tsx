@@ -1,6 +1,6 @@
 import { Avatar, Group, Stack, Text } from "@mantine/core";
 import type { TargetProfile } from "../../types";
-import { openExternalUrl } from "../../core/external";
+import { openSteamProfilePage } from "../../core/external";
 
 export function TargetRow({
   target,
@@ -37,7 +37,7 @@ export function TargetRow({
           className="target-avatar-link"
           aria-label={`打开 ${target.displayName || target.steamid64 || "目标账号"} 主页`}
           disabled={!profileUrl}
-          onClick={() => void openExternalUrl(profileUrl)}
+          onClick={() => void openSteamProfilePage(target.steamid64, profileUrl)}
         >
           <Avatar src={target.avatar || null} radius="md" size={42}>
             {(target.displayName || target.steamid64 || "?").slice(0, 1)}

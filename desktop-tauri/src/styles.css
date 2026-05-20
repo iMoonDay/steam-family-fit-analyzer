@@ -68,10 +68,22 @@ textarea {
   display: flex;
   align-items: center;
   height: 34px;
+  position: relative;
   border-bottom: 1px solid var(--color-border-soft);
   background: var(--color-bg-deep);
   color: var(--color-muted);
   user-select: none;
+}
+
+.titlebar::after {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 48px;
+  height: 1px;
+  background: var(--color-bg-deep);
+  content: "";
+  pointer-events: none;
 }
 
 .titlebar-brand {
@@ -493,7 +505,7 @@ textarea {
 }
 
 .analysis-prepare-layout {
-  grid-template-columns: 292px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .analysis-result-layout {
@@ -514,8 +526,7 @@ textarea {
 
 .history-pane {
   grid-template-rows: auto minmax(0, 1fr);
-  padding-right: 18px;
-  border-right: 1px solid var(--color-border-soft);
+  padding: 18px 0 0;
 }
 
 .result-data-pane {
@@ -667,28 +678,16 @@ textarea {
   stroke-width: 1.45;
 }
 
-.analysis-draft-pane {
-  display: grid;
-  grid-template-rows: auto minmax(220px, 1fr);
-  min-width: 0;
-  gap: 18px;
-  padding-left: 24px;
-}
-
-.analysis-blank-pane {
-  min-height: 260px;
-  border-top: 1px solid var(--color-border-soft);
-  background: transparent;
-}
-
 .settings-workspace {
   display: grid;
   width: min(100%, 760px);
+  margin: 0 auto;
   gap: 16px;
   padding: 24px 28px 32px;
 }
 
 .settings-page-panel {
+  width: 100%;
   max-width: 760px;
 }
 
@@ -854,6 +853,34 @@ textarea {
 
 .input-pane {
   padding: 0;
+}
+
+.analysis-search-pane {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 18px;
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 10px 0 0;
+}
+
+.analysis-search-pane .input-pane {
+  width: min(100%, 720px);
+  padding-top: clamp(12px, 4vw, 46px);
+}
+
+.analysis-search-pane .history-pane {
+  position: static;
+  width: min(100%, 720px);
+  max-height: none;
+  padding-right: 0;
+  border-right: 0;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.analysis-search-pane .history-scroll {
+  max-height: min(46vh, 420px);
 }
 
 .metric-strip {
@@ -2079,7 +2106,6 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .history-pane,
   .result-data-pane {
     position: static;
     max-height: none;
@@ -2088,7 +2114,14 @@ textarea {
     border-bottom: 1px solid var(--color-border-soft);
   }
 
-  .analysis-draft-pane,
+  .analysis-search-pane .history-pane {
+    position: static;
+    max-height: none;
+    padding-right: 0;
+    border-right: 0;
+    border-top: 1px solid var(--color-border-soft);
+  }
+
   .result-games-pane {
     padding-left: 0;
   }

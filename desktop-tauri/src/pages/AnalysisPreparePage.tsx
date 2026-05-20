@@ -69,52 +69,7 @@ export function AnalysisPreparePage({
 
   return (
     <div className="analysis-prepare-layout">
-      <aside className="history-pane">
-        <Group justify="space-between" align="center" className="history-head">
-          <Text fw={700}>历史分析</Text>
-        </Group>
-        <ScrollArea className="history-scroll">
-          <Stack gap={4}>
-            {history.length ? history.map(entry => (
-              <div
-                key={entry.id}
-                className="history-item"
-                onContextMenu={event => handleHistoryContextMenu(event, entry)}
-              >
-                <button
-                  type="button"
-                  className="history-item-main"
-                  disabled={busy}
-                  onClick={() => void onAnalyze(entry.inputValue)}
-                >
-                  <span className="history-item-copy">
-                    <span className="history-item-name">{formatHistoryAccountNames(entry)}</span>
-                    <span className="history-item-id">{formatHistoryAccountIds(entry)}</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="history-delete"
-                  aria-label="删除历史分析"
-                  onClick={() => onDeleteHistoryEntry(entry.id)}
-                >
-                  <TrashIcon />
-                </button>
-              </div>
-            )) : (
-              <Text className="history-empty" c="dimmed" size="sm">暂无历史分析</Text>
-            )}
-          </Stack>
-        </ScrollArea>
-        {historyContextMenu ? (
-          <HistoryContextMenu
-            state={historyContextMenu}
-            onCopy={entry => void handleCopyHistoryEntry(entry).catch(error => onMessage(String(error)))}
-          />
-        ) : null}
-      </aside>
-
-      <section className="analysis-draft-pane">
+      <section className="analysis-search-pane">
         <section className="input-pane">
           <Group justify="space-between" mb="xs" align="flex-start">
             <Stack gap={2}>
@@ -136,7 +91,51 @@ export function AnalysisPreparePage({
           />
         </section>
 
-        <section className="analysis-blank-pane" aria-label="预留区域" />
+        <section className="history-pane">
+          <Group justify="space-between" align="center" className="history-head">
+            <Text fw={700}>历史分析</Text>
+          </Group>
+          <ScrollArea className="history-scroll">
+            <Stack gap={4}>
+              {history.length ? history.map(entry => (
+                <div
+                  key={entry.id}
+                  className="history-item"
+                  onContextMenu={event => handleHistoryContextMenu(event, entry)}
+                >
+                  <button
+                    type="button"
+                    className="history-item-main"
+                    disabled={busy}
+                    onClick={() => void onAnalyze(entry.inputValue)}
+                  >
+                    <span className="history-item-copy">
+                      <span className="history-item-name">{formatHistoryAccountNames(entry)}</span>
+                      <span className="history-item-id">{formatHistoryAccountIds(entry)}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="history-delete"
+                    aria-label="删除历史分析"
+                    onClick={() => onDeleteHistoryEntry(entry.id)}
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+              )) : (
+                <Text className="history-empty" c="dimmed" size="sm">暂无历史分析</Text>
+              )}
+            </Stack>
+          </ScrollArea>
+        </section>
+
+        {historyContextMenu ? (
+          <HistoryContextMenu
+            state={historyContextMenu}
+            onCopy={entry => void handleCopyHistoryEntry(entry).catch(error => onMessage(String(error)))}
+          />
+        ) : null}
       </section>
     </div>
   );

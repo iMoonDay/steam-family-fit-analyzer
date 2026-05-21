@@ -3230,6 +3230,36 @@
         color: #ffffff;
         box-shadow: inset 0 0 0 1px rgba(143, 209, 255, 0.24);
       }
+      .sffa-price-quick-toggle {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid rgba(102, 192, 244, 0.18);
+        border-radius: 999px;
+        background: #101820;
+      }
+      .sffa-price-quick-btn {
+        height: 24px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #9fb3c2;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .sffa-price-quick-btn:hover {
+        color: #dbe8f3;
+      }
+      .sffa-price-quick-btn.is-active {
+        background: #66c0f4;
+        color: #071018;
+        font-weight: 700;
+      }
       .sffa-search-input {
         display: block;
         width: 100%;
@@ -3953,6 +3983,11 @@
                   <button class="sffa-view-btn" type="button" data-sffa-view-mode="cover">${escapeHtml(t("viewCover"))}</button>
                   <button class="sffa-view-btn" type="button" data-sffa-view-mode="poster">${escapeHtml(t("viewPoster"))}</button>
                 </div>
+                <div class="sffa-price-quick-toggle" data-sffa-price-quick-toggle aria-label="${escapeAttr(t("priceMode"))}">
+                  <button class="sffa-price-quick-btn" type="button" data-sffa-price-quick-mode="${PRICE_MODE_ORIGINAL}">${escapeHtml(t("priceModeOriginal"))}</button>
+                  <button class="sffa-price-quick-btn" type="button" data-sffa-price-quick-mode="${PRICE_MODE_CURRENT}">${escapeHtml(t("priceModeCurrent"))}</button>
+                  <button class="sffa-price-quick-btn" type="button" data-sffa-price-quick-mode="${PRICE_MODE_HISTORY_LOW}">${escapeHtml(t("priceModeHistoryLow"))}</button>
+                </div>
                 <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
                 <div class="sffa-copy-list-wrap" data-sffa-copy-list-wrap>
                   <button class="sffa-tab sffa-copy-list-btn" type="button" data-sffa-copy-list-btn aria-expanded="false" aria-label="${escapeAttr(t("more"))}">⋯</button>
@@ -4146,7 +4181,9 @@
       searchInput: root.querySelector("[data-sffa-search]"),
       searchClearBtn: root.querySelector("[data-sffa-search-clear]"),
       viewSwitch: root.querySelector("[data-sffa-view-switch]"),
+      priceQuickToggle: root.querySelector("[data-sffa-price-quick-toggle]"),
       viewModeButtons: Array.from(root.querySelectorAll("[data-sffa-view-mode]")),
+      priceQuickButtons: Array.from(root.querySelectorAll("[data-sffa-price-quick-mode]")),
       copyListWrap: root.querySelector("[data-sffa-copy-list-wrap]"),
       copyListBtn: root.querySelector("[data-sffa-copy-list-btn]"),
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
@@ -4298,6 +4335,9 @@
     });
     elements.viewModeButtons.forEach(button => {
       button.addEventListener("click", () => setListViewMode(button.dataset.sffaViewMode));
+    });
+    elements.priceQuickButtons.forEach(button => {
+      button.addEventListener("click", () => setPriceModeFromQuickToggle(button.dataset.sffaPriceQuickMode));
     });
     elements.tabs.forEach(tab => {
       tab.addEventListener("click", () => {
@@ -5074,7 +5114,7 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
@@ -5089,6 +5129,7 @@
       button.textContent = t(key);
     });
     elements.priceModeButtons.forEach(button => { button.textContent = getPriceModeOptionLabel(button.dataset.sffaPriceModeOption); });
+    renderPriceQuickToggle();
     elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
     elements.localeOptions.forEach(option => { option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption); option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode); });
     renderPriceSettingsDialog();
@@ -5203,6 +5244,16 @@
     }
   }
 
+  function renderPriceQuickToggle() {
+    const mode = getPriceMode();
+    elements.priceQuickButtons?.forEach(button => {
+      const active = normalizePriceMode(button.dataset.sffaPriceQuickMode) === mode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+      button.textContent = getPriceModeOptionLabel(button.dataset.sffaPriceQuickMode);
+    });
+  }
+
   function getPriceModeOptionLabel(mode) {
     const normalizedMode = normalizePriceMode(mode);
     if (normalizedMode === PRICE_MODE_HISTORY_LOW) {
@@ -5235,7 +5286,34 @@
     setStatus(nextConfig.mode === PRICE_MODE_HISTORY_LOW && !nextConfig.itadApiKey ? t("historyLowNeedsApiKey") : t("priceSettingsSaved"), nextConfig.mode === PRICE_MODE_HISTORY_LOW && !nextConfig.itadApiKey ? "warn" : "ok");
     if (changed) {
       refreshPricesAfterPriceConfigChange();
+    } else {
+      renderPriceQuickToggle();
     }
+  }
+
+  function setPriceModeFromQuickToggle(mode) {
+    const nextMode = normalizePriceMode(mode);
+    const previousConfig = normalizePriceConfig(state.priceConfig || {});
+    if (previousConfig.mode === nextMode) {
+      if (nextMode === PRICE_MODE_HISTORY_LOW && !previousConfig.itadApiKey) {
+        setStatus(t("historyLowNeedsApiKey"), "warn");
+      }
+      return;
+    }
+
+    state.priceConfig = normalizePriceConfig({
+      ...previousConfig,
+      mode: nextMode
+    });
+    saveState();
+    renderPriceQuickToggle();
+    renderPriceSettingsDialog();
+    if (nextMode === PRICE_MODE_HISTORY_LOW && !state.priceConfig.itadApiKey) {
+      setStatus(t("historyLowNeedsApiKey"), "warn");
+    } else {
+      setStatus(t("priceSettingsSaved"), "ok");
+    }
+    refreshPricesAfterPriceConfigChange();
   }
 
   function openItadApiPage(event) {
@@ -5249,6 +5327,7 @@
 
   function refreshPricesAfterPriceConfigChange() {
     priceLoadState = createPriceLoadState();
+    renderPriceQuickToggle();
     if (lastReport?.games?.new) {
       prepareOriginalPrices(lastReport.games.new);
       refreshReportMetrics();
@@ -8226,9 +8305,10 @@
   function createTargetAccountSummaryMetric(report) {
     const targets = Array.isArray(report?.target?.targets) ? report.target.targets : [];
     if (targets.length > 1) {
+      const selectedTargets = targets.filter(target => target.selected !== false);
       return {
-        value: escapeHtml(t("targetAccountCount", { count: targets.length })),
-        title: targets.map(getTargetProfileDisplayName).join("\n")
+        value: escapeHtml(t("targetAccountCount", { count: selectedTargets.length })),
+        title: selectedTargets.map(getTargetProfileDisplayName).join("\n")
       };
     }
     return {
@@ -8601,6 +8681,7 @@
     const gameOwnersById = new Map();
     const gameById = new Map();
     const targetAccounts = getGlobalCompareTargetAccounts(report);
+    const targetAccountIds = new Set(targetAccounts.map(target => String(target?.steamid64 || "")).filter(Boolean));
     const familyNameById = state.familyInfo?.steamIdtoName || {};
 
     (state.familyInfo?.family_member || []).forEach(member => {
@@ -8650,7 +8731,9 @@
     (report?.games?.all || []).forEach(game => {
       const appid = String(game?.appid || "");
       registerGlobalCompareGame(gameById, game);
-      const owners = (game?.targetOwners || []).map(String).filter(Boolean);
+      const owners = (game?.targetOwners || [])
+        .map(String)
+        .filter(steamid64 => targetAccountIds.has(steamid64));
       if (owners.length) {
         owners.forEach(steamid64 => addGlobalGameOwner(gameOwnersById, appid, steamid64));
         return;
@@ -8743,7 +8826,7 @@
     const targets = Array.isArray(report?.target?.targets) && report.target.targets.length
       ? report.target.targets
       : [report?.target].filter(Boolean);
-    return targets.filter(target => String(target?.steamid64 || ""));
+    return targets.filter(target => target?.selected !== false && String(target?.steamid64 || ""));
   }
 
   function registerGlobalCompareGame(gameById, game) {
@@ -9534,6 +9617,7 @@
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    renderPriceQuickToggle();
     normalizeRuleFilterForCurrentTab();
     renderSortControl();
     renderRuleFilterControl();

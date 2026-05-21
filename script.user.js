@@ -321,16 +321,16 @@
       loading: "加载中",
       viewMode: "视图",
       viewTable: "表格",
-      viewCover: "封面",
-      reloadCovers: "重载封面",
-      coversReloaded: "已重载封面",
-      continueCovers: "继续加载封面...",
-      saveListPoster: "保存游戏封面图",
+      viewCover: "网格",
+      reloadCovers: "重载网格封面",
+      coversReloaded: "已重载网格封面",
+      continueCovers: "继续加载网格封面...",
+      saveListPoster: "保存游戏网格图",
       saveFamilyPoster: "保存家庭封面图",
       familyPosterTitle: "家庭封面图设置",
       familyPosterHint: "调整列数、排序和缩放后再生成导出图片。",
-      listPosterTitle: "游戏封面图设置",
-      listPosterHint: "导出当前「{tab}」列表的游戏封面；默认排序会沿用当前列表顺序。",
+      listPosterTitle: "游戏网格图设置",
+      listPosterHint: "导出当前「{tab}」列表的游戏网格；默认排序会沿用当前列表顺序。",
       familyPosterColumns: "每行列数",
       familyPosterSort: "排序方式",
       familyPosterScale: "尺寸缩放",
@@ -363,12 +363,12 @@
       familyPosterSaved: "家庭封面图已保存",
       familyPosterEmpty: "没有可导出的家庭封面",
       familyPosterTooLarge: "家庭封面图过高，当前尺寸超出浏览器导出上限",
-      preparingListPoster: "正在整理游戏封面...",
-      fetchingListPoster: "正在获取游戏封面 {current}/{total}...",
-      renderingListPoster: "正在生成游戏封面图...",
-      listPosterSaved: "游戏封面图已保存",
-      listPosterEmpty: "当前列表没有可导出的游戏封面",
-      listPosterTooLarge: "游戏封面图过高，当前尺寸超出浏览器导出上限"
+      preparingListPoster: "正在整理游戏网格...",
+      fetchingListPoster: "正在获取游戏网格封面 {current}/{total}...",
+      renderingListPoster: "正在生成游戏网格图...",
+      listPosterSaved: "游戏网格图已保存",
+      listPosterEmpty: "当前列表没有可导出的游戏网格",
+      listPosterTooLarge: "游戏网格图过高，当前尺寸超出浏览器导出上限"
     },
     en: {
       appName: "Steam Family Library Analyzer",
@@ -553,16 +553,16 @@
       loading: "Loading",
       viewMode: "View",
       viewTable: "Table",
-      viewCover: "Covers",
-      reloadCovers: "Reload covers",
-      coversReloaded: "Cover images reloaded",
-      continueCovers: "Continuing cover loading...",
-      saveListPoster: "Save game poster",
+      viewCover: "Grid",
+      reloadCovers: "Reload grid covers",
+      coversReloaded: "Grid cover images reloaded",
+      continueCovers: "Continuing grid cover loading...",
+      saveListPoster: "Save game grid",
       saveFamilyPoster: "Save family poster",
       familyPosterTitle: "Family Poster Settings",
       familyPosterHint: "Adjust columns, ordering, and scale before exporting.",
-      listPosterTitle: "Game Poster Settings",
-      listPosterHint: "Export covers from the current {tab} list. Default follows the current list order.",
+      listPosterTitle: "Game Grid Settings",
+      listPosterHint: "Export the current {tab} list as a game grid. Default follows the current list order.",
       familyPosterColumns: "Columns",
       familyPosterSort: "Sort",
       familyPosterScale: "Scale",
@@ -595,12 +595,12 @@
       familyPosterSaved: "Family cover poster saved",
       familyPosterEmpty: "No family covers available to export",
       familyPosterTooLarge: "Family cover poster is too tall to export in one image",
-      preparingListPoster: "Preparing game covers...",
-      fetchingListPoster: "Fetching game covers {current}/{total}...",
-      renderingListPoster: "Rendering game poster...",
-      listPosterSaved: "Game cover poster saved",
-      listPosterEmpty: "No game covers in the current list",
-      listPosterTooLarge: "Game cover poster is too tall to export in one image"
+      preparingListPoster: "Preparing game grid...",
+      fetchingListPoster: "Fetching game grid covers {current}/{total}...",
+      renderingListPoster: "Rendering game grid...",
+      listPosterSaved: "Game grid saved",
+      listPosterEmpty: "No games in the current grid",
+      listPosterTooLarge: "Game grid is too tall to export in one image"
     }
   });
 
@@ -2719,12 +2719,12 @@
       }
       .sffa-cover-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(198px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
         gap: 10px;
       }
       .sffa-cover-card {
         display: grid;
-        grid-template-rows: 156px auto;
+        grid-template-rows: auto auto;
         min-width: 0;
         border: 1px solid rgba(255, 255, 255, 0.06);
         border-radius: 4px;
@@ -2745,13 +2745,14 @@
         position: relative;
         display: flex;
         align-items: flex-end;
+        aspect-ratio: 460 / 215;
         min-width: 0;
         padding: 10px;
         background-color: #16202b;
         background-image: linear-gradient(180deg, rgba(9, 13, 19, 0.08) 0%, rgba(9, 13, 19, 0.74) 100%), var(--sffa-cover, none);
         background-position: center;
         background-repeat: no-repeat;
-        background-size: cover;
+        background-size: 100% 100%, contain;
         box-shadow: inset 0 -40px 64px rgba(0, 0, 0, 0.4);
       }
       .sffa-cover-card-title {
@@ -2813,10 +2814,26 @@
         padding: 10px;
         min-width: 0;
       }
+      .sffa-cover-card-id-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-width: 0;
+      }
       .sffa-cover-card-appid {
+        min-width: 0;
         color: #8fd1ff;
         font-size: 11px;
         line-height: 1.2;
+      }
+      .sffa-cover-card-price {
+        flex: 0 0 auto;
+        color: #d8e4ee;
+        font-size: 11px;
+        line-height: 1.2;
+        text-align: right;
+        white-space: nowrap;
       }
       .sffa-cover-card-meta {
         min-width: 0;
@@ -3017,7 +3034,7 @@
           gap: 8px;
         }
         .sffa-cover-card {
-          grid-template-rows: 136px auto;
+          grid-template-rows: auto auto;
         }
         .sffa-compare-shell {
           width: calc(100vw - 16px);
@@ -8138,18 +8155,23 @@
   }
 
   function renderDetailsCoverCard(tab, game) {
-    const title = getGameDisplayName(game);
+    const title = getGameLocalizedDisplayName(game);
+    const originalName = getGameOriginalName(game);
     const chip = getDetailsCoverChip(tab, game);
     const metaLines = getDetailsCoverMetaLines(tab, game).filter(Boolean);
+    const priceText = formatOriginalPriceText(resolveGamePrice(game) || {});
     const priceAttr = needsCoverPriceTracking(tab) ? ` data-price-appid="${escapeAttr(game.appid)}"` : "";
     return `
-      <a class="sffa-cover-card" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener"${priceAttr} aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(title)}">
+      <a class="sffa-cover-card" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener"${priceAttr} aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(originalName)}">
         <span class="sffa-cover-card-media" data-sffa-cover-appid="${escapeAttr(game.appid)}">
           ${chip ? `<span class="sffa-cover-card-chip ${escapeAttr(chip.className)}">${escapeHtml(chip.text)}</span>` : ""}
           <span class="sffa-cover-card-title">${escapeHtml(title)}</span>
         </span>
         <span class="sffa-cover-card-body">
-          <span class="sffa-cover-card-appid">AppID ${escapeHtml(String(game.appid || "-"))}</span>
+          <span class="sffa-cover-card-id-row">
+            <span class="sffa-cover-card-appid">ID ${escapeHtml(String(game.appid || "-"))}</span>
+            <span class="sffa-cover-card-price">${escapeHtml(priceText)}</span>
+          </span>
           ${metaLines.map(line => `<span class="sffa-cover-card-meta">${escapeHtml(line)}</span>`).join("")}
         </span>
       </a>
@@ -8166,30 +8188,26 @@
       return { text: getGameListLabel(game.appid), className: `is-${getCompareStatusClass(status)}` };
     }
     if (tab === "new" || tab === "relativeNew") {
-      const price = resolveGamePrice(game);
-      return { text: formatOriginalPriceText(price || {}), className: `is-${getComparePriceChipClass({ price, status: "new" })}` };
-    }
-    if (tab === "overlap") {
-      return { text: t("duplicatedGames"), className: "is-overlap" };
+      return null;
     }
     return null;
   }
 
   function getDetailsCoverMetaLines(tab, game) {
     if (tab === "all") {
-      return isMultiTargetReport() ? [`${t("targetOwners")} · ${formatTargetOwners(game.targetOwners || []) || "-"}`] : [];
+      return isMultiTargetReport() ? [formatTargetOwners(game.targetOwners || []) || "-"] : [];
     }
     if (tab === "new") {
-      return isMultiTargetReport() ? [`${t("targetOwners")} · ${formatTargetOwners(game.targetOwners || []) || "-"}`] : [];
+      return isMultiTargetReport() ? [formatTargetOwners(game.targetOwners || []) || "-"] : [];
     }
     if (tab === "relativeNew") {
-      return [`${t("owners")} · ${formatOwners(game.owners || []) || "-"}`];
+      return [formatOwners(game.owners || []) || "-"];
     }
     if (tab === "family") {
-      return [`${t("owners")} · ${formatOwners(game.owners || []) || "-"}`, `${t("acquiredAt")} · ${formatFamilyAcquireTime(game.time)}`];
+      return [formatOwners(game.owners || []) || "-", formatFamilyAcquireTime(game.time)];
     }
     if (tab === "overlap") {
-      return [`${t("owners")} · ${formatOwners(game.owners || []) || "-"}`];
+      return [formatOwners(game.owners || []) || "-"];
     }
     return [];
   }

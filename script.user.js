@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.1.11
+// @version      0.2.0
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -324,15 +324,20 @@
       viewTable: "表格",
       viewCover: "网格",
       viewPoster: "海报",
-      reloadCovers: "重载网格封面",
-      coversReloaded: "已重载网格封面",
-      continueCovers: "继续加载网格封面...",
-      saveListPoster: "保存游戏网格图",
+      sort: "排序",
+      sortName: "名称",
+      sortId: "ID",
+      sortAsc: "{label} ↑",
+      sortDesc: "{label} ↓",
+      reloadCovers: "重载封面",
+      coversReloaded: "已重载封面",
+      continueCovers: "继续加载封面...",
+      saveListPoster: "保存游戏海报",
       saveFamilyPoster: "保存家庭封面图",
       familyPosterTitle: "家庭封面图设置",
       familyPosterHint: "调整列数、排序和缩放后再生成导出图片。",
-      listPosterTitle: "游戏网格图设置",
-      listPosterHint: "导出当前「{tab}」列表的游戏网格；默认排序会沿用当前列表顺序。",
+      listPosterTitle: "游戏海报设置",
+      listPosterHint: "导出当前「{tab}」列表的游戏海报；默认排序会沿用当前列表顺序。",
       familyPosterColumns: "每行列数",
       familyPosterSort: "排序方式",
       familyPosterScale: "尺寸缩放",
@@ -365,12 +370,12 @@
       familyPosterSaved: "家庭封面图已保存",
       familyPosterEmpty: "没有可导出的家庭封面",
       familyPosterTooLarge: "家庭封面图过高，当前尺寸超出浏览器导出上限",
-      preparingListPoster: "正在整理游戏网格...",
-      fetchingListPoster: "正在获取游戏网格封面 {current}/{total}...",
-      renderingListPoster: "正在生成游戏网格图...",
-      listPosterSaved: "游戏网格图已保存",
-      listPosterEmpty: "当前列表没有可导出的游戏网格",
-      listPosterTooLarge: "游戏网格图过高，当前尺寸超出浏览器导出上限"
+      preparingListPoster: "正在整理游戏海报...",
+      fetchingListPoster: "正在获取游戏海报封面 {current}/{total}...",
+      renderingListPoster: "正在生成游戏海报...",
+      listPosterSaved: "游戏海报已保存",
+      listPosterEmpty: "当前列表没有可导出的游戏海报",
+      listPosterTooLarge: "游戏海报过高，当前尺寸超出浏览器导出上限"
     },
     en: {
       appName: "Steam Family Library Analyzer",
@@ -557,15 +562,20 @@
       viewTable: "Table",
       viewCover: "Grid",
       viewPoster: "Poster",
-      reloadCovers: "Reload grid covers",
-      coversReloaded: "Grid cover images reloaded",
-      continueCovers: "Continuing grid cover loading...",
-      saveListPoster: "Save game grid",
+      sort: "Sort",
+      sortName: "Name",
+      sortId: "ID",
+      sortAsc: "{label} ↑",
+      sortDesc: "{label} ↓",
+      reloadCovers: "Reload covers",
+      coversReloaded: "Cover images reloaded",
+      continueCovers: "Continuing cover loading...",
+      saveListPoster: "Save game poster",
       saveFamilyPoster: "Save family poster",
       familyPosterTitle: "Family Poster Settings",
       familyPosterHint: "Adjust columns, ordering, and scale before exporting.",
-      listPosterTitle: "Game Grid Settings",
-      listPosterHint: "Export the current {tab} list as a game grid. Default follows the current list order.",
+      listPosterTitle: "Game Poster Settings",
+      listPosterHint: "Export the current {tab} list as a game poster. Default follows the current list order.",
       familyPosterColumns: "Columns",
       familyPosterSort: "Sort",
       familyPosterScale: "Scale",
@@ -598,12 +608,12 @@
       familyPosterSaved: "Family cover poster saved",
       familyPosterEmpty: "No family covers available to export",
       familyPosterTooLarge: "Family cover poster is too tall to export in one image",
-      preparingListPoster: "Preparing game grid...",
-      fetchingListPoster: "Fetching game grid covers {current}/{total}...",
-      renderingListPoster: "Rendering game grid...",
-      listPosterSaved: "Game grid saved",
-      listPosterEmpty: "No games in the current grid",
-      listPosterTooLarge: "Game grid is too tall to export in one image"
+      preparingListPoster: "Preparing game poster...",
+      fetchingListPoster: "Fetching game poster covers {current}/{total}...",
+      renderingListPoster: "Rendering game poster...",
+      listPosterSaved: "Game poster saved",
+      listPosterEmpty: "No games in the current poster",
+      listPosterTooLarge: "Game poster is too tall to export in one image"
     }
   });
 
@@ -916,7 +926,9 @@
   let activeTooltipTarget = null;
   let tooltipHideTimer = 0;
   let tooltipMoveFrame = 0;
+  let tooltipRestoreTimer = 0;
   let pendingTooltipEvent = null;
+  let lastTooltipPointer = null;
   let tooltipSizeCache = { width: 0, height: 0 };
 
   bootstrap();
@@ -996,6 +1008,7 @@
         position: fixed;
         left: 0;
         top: 0;
+        --sffa-tooltip-arrow-left: 50%;
         max-width: min(340px, calc(100vw - 24px));
         padding: 8px 10px;
         border: 1px solid rgba(102, 192, 244, 0.38);
@@ -1015,10 +1028,57 @@
         transition: opacity 0.08s ease, transform 0.08s ease, visibility 0.08s ease;
         z-index: 2147483647;
       }
+      .sffa-tooltip::after {
+        content: "";
+        position: absolute;
+        left: var(--sffa-tooltip-arrow-left);
+        width: 8px;
+        height: 8px;
+        background: rgba(15, 20, 27, 0.97);
+        border: solid rgba(102, 192, 244, 0.38);
+        transform: translateX(-50%) rotate(45deg);
+      }
+      .sffa-tooltip:not(.is-above):not(.is-below)::after {
+        display: none;
+      }
+      .sffa-tooltip.is-above::after {
+        bottom: -5px;
+        border-width: 0 1px 1px 0;
+      }
+      .sffa-tooltip.is-below::after {
+        top: -5px;
+        border-width: 1px 0 0 1px;
+      }
       .sffa-tooltip.is-visible {
         opacity: 1;
         visibility: visible;
         transform: translate3d(0, 0, 0);
+      }
+      .sffa-tooltip.is-pairs {
+        min-width: 168px;
+        white-space: normal;
+      }
+      .sffa-tooltip-pairs {
+        display: grid;
+        gap: 4px;
+      }
+      .sffa-tooltip-pair {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: baseline;
+      }
+      .sffa-tooltip-pair-key {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        color: #c8d8e5;
+        text-align: left;
+      }
+      .sffa-tooltip-pair-value {
+        color: #ffffff;
+        font-weight: 600;
+        text-align: right;
+        white-space: nowrap;
       }
       .sffa-launcher-wrap {
         position: fixed;
@@ -2563,6 +2623,12 @@
         display: grid;
         gap: 4px;
       }
+      .sffa-sort-wrap .sffa-list-select {
+        min-width: 118px;
+      }
+      .sffa-sort-wrap .sffa-list-menu {
+        min-width: 150px;
+      }
       .sffa-list-option {
         width: 100%;
         min-height: 30px;
@@ -3248,6 +3314,10 @@
                     <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="overlap" aria-selected="false">${escapeHtml(t("tabs.overlap"))}</button>
                   </div>
                 </div>
+                <div class="sffa-list-wrap sffa-sort-wrap" data-sffa-sort-wrap>
+                  <button class="sffa-list-select" type="button" data-sffa-sort-select aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("sort"))}">${escapeHtml(t("sort"))}</button>
+                  <div class="sffa-list-menu" role="listbox" data-sffa-sort-menu></div>
+                </div>
                 <div class="sffa-search-wrap" data-sffa-search-wrap>
                   <input class="sffa-search-input" data-sffa-search placeholder="${escapeAttr(t("searchPlaceholder"))}" autocomplete="off">
                   <button class="sffa-search-clear" type="button" data-sffa-search-clear data-sffa-tooltip="${escapeAttr(t("clear"))}" aria-label="${escapeAttr(t("clear"))}">
@@ -3431,6 +3501,9 @@
       listWrap: root.querySelector("[data-sffa-list-wrap]"),
       listSelect: root.querySelector("[data-sffa-list-select]"),
       listOptions: Array.from(root.querySelectorAll("[data-sffa-list-option]")),
+      sortWrap: root.querySelector("[data-sffa-sort-wrap]"),
+      sortSelect: root.querySelector("[data-sffa-sort-select]"),
+      sortMenu: root.querySelector("[data-sffa-sort-menu]"),
       searchWrap: root.querySelector("[data-sffa-search-wrap]"),
       searchInput: root.querySelector("[data-sffa-search]"),
       searchClearBtn: root.querySelector("[data-sffa-search-clear]"),
@@ -3555,6 +3628,8 @@
         setReportTab(option.dataset.sffaListOption);
       });
     });
+    elements.sortSelect?.addEventListener("click", toggleSortMenu);
+    elements.sortMenu?.addEventListener("click", handleSortMenuClick);
     elements.searchInput.addEventListener("input", () => {
       renderSearchClearButton();
       scheduleSearchRender();
@@ -3576,6 +3651,7 @@
     elements.tabs.forEach(tab => {
       tab.addEventListener("click", () => {
         cancelSearchRender();
+        closeSortMenu();
         currentTab = tab.dataset.tab;
         renderTabs();
         renderDetails();
@@ -3597,6 +3673,7 @@
           return;
         }
         closeListMenu();
+        closeSortMenu();
         closeAnalysisHistoryMenu();
         closeMenu();
         closeCopyListMenu();
@@ -3609,6 +3686,9 @@
       }
       if (!elements.listWrap?.contains(event.target)) {
         closeListMenu();
+      }
+      if (!elements.sortWrap?.contains(event.target)) {
+        closeSortMenu();
       }
       if (!elements.historyWrap?.contains(event.target)) {
         closeAnalysisHistoryMenu();
@@ -3635,11 +3715,12 @@
     elements.root.addEventListener("focusin", handleTooltipFocusIn);
     elements.root.addEventListener("focusout", handleTooltipFocusOut);
     elements.root.addEventListener("click", hideTooltip);
-    elements.root.addEventListener("scroll", hideTooltip, true);
+    elements.root.addEventListener("scroll", handleTooltipScroll, true);
     window.addEventListener("resize", hideTooltip);
   }
 
   function handleTooltipPointerOver(event) {
+    rememberTooltipPointer(event);
     const target = getTooltipTarget(event.target);
     if (!target) {
       return;
@@ -3659,8 +3740,56 @@
   }
 
   function handleTooltipPointerMove(event) {
+    rememberTooltipPointer(event);
     if (activeTooltipTarget && activeTooltipTarget.contains(event.target)) {
-      scheduleTooltipPosition(event);
+      scheduleTooltipPosition();
+    }
+  }
+
+  function rememberTooltipPointer(event) {
+    if (!event || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) {
+      return;
+    }
+    lastTooltipPointer = {
+      x: event.clientX,
+      y: event.clientY
+    };
+  }
+
+  function handleTooltipScroll() {
+    hideTooltip();
+    scheduleTooltipRestoreFromPointer();
+  }
+
+  function scheduleTooltipRestoreFromPointer() {
+    if (!lastTooltipPointer) {
+      return;
+    }
+    if (tooltipRestoreTimer) {
+      window.clearTimeout(tooltipRestoreTimer);
+    }
+    tooltipRestoreTimer = window.setTimeout(() => {
+      tooltipRestoreTimer = 0;
+      const pointer = lastTooltipPointer;
+      if (!pointer) {
+        return;
+      }
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+      if (pointer.x < 0 || pointer.y < 0 || pointer.x > viewportWidth || pointer.y > viewportHeight) {
+        return;
+      }
+      const target = getTooltipTarget(document.elementFromPoint(pointer.x, pointer.y));
+      if (target) {
+        showTooltip(target);
+      }
+    }, 80);
+  }
+
+  function cancelTooltipRestore() {
+    if (tooltipRestoreTimer) {
+      window.clearTimeout(tooltipRestoreTimer);
+      tooltipRestoreTimer = 0;
     }
   }
 
@@ -3726,7 +3855,7 @@
     element.removeAttribute("title");
   }
 
-  function showTooltip(target, event = null) {
+  function showTooltip(target) {
     const tooltipBox = elements.tooltipBox;
     const text = getTooltipText(target);
     if (!tooltipBox || !text) {
@@ -3738,58 +3867,132 @@
       tooltipHideTimer = 0;
     }
     activeTooltipTarget = target;
-    tooltipBox.textContent = text;
+    renderTooltipContent(tooltipBox, text, target);
     tooltipBox.hidden = false;
     tooltipBox.classList.add("is-visible");
     tooltipSizeCache = {
       width: tooltipBox.offsetWidth,
       height: tooltipBox.offsetHeight
     };
-    positionTooltip(event);
+    positionTooltip();
   }
 
-  function scheduleTooltipPosition(event) {
-    pendingTooltipEvent = event;
+  function renderTooltipContent(tooltipBox, text, target) {
+    const pairs = isMetricTooltipTarget(target) ? parseTooltipPairs(text) : null;
+    tooltipBox.classList.toggle("is-pairs", Boolean(pairs));
+    if (!pairs) {
+      tooltipBox.textContent = text;
+      return;
+    }
+
+    tooltipBox.replaceChildren();
+    const wrap = document.createElement("div");
+    wrap.className = "sffa-tooltip-pairs";
+    pairs.forEach(pair => {
+      const row = document.createElement("div");
+      row.className = "sffa-tooltip-pair";
+
+      const key = document.createElement("span");
+      key.className = "sffa-tooltip-pair-key";
+      key.textContent = pair.key;
+
+      const value = document.createElement("span");
+      value.className = "sffa-tooltip-pair-value";
+      value.textContent = pair.value;
+
+      row.append(key, value);
+      wrap.append(row);
+    });
+    tooltipBox.append(wrap);
+  }
+
+  function isMetricTooltipTarget(target) {
+    return Boolean(target?.classList?.contains("sffa-metric") || target?.classList?.contains("sffa-compare-stat"));
+  }
+
+  function parseTooltipPairs(text) {
+    const lines = String(text || "").split("\n").map(line => line.trim()).filter(Boolean);
+    if (!lines.length) {
+      return null;
+    }
+
+    const pairs = lines.map(line => {
+      const tabIndex = line.indexOf("\t");
+      if (tabIndex > 0) {
+        return {
+          key: line.slice(0, tabIndex).trim(),
+          value: line.slice(tabIndex + 1).trim()
+        };
+      }
+
+      const colonMatch = line.match(/^(.+?)[：:]\s*(.+)$/);
+      if (!colonMatch) {
+        return null;
+      }
+      return {
+        key: colonMatch[1].trim(),
+        value: colonMatch[2].trim()
+      };
+    });
+
+    if (pairs.some(pair => !pair?.key || !pair?.value)) {
+      return null;
+    }
+    return pairs;
+  }
+
+  function scheduleTooltipPosition() {
+    pendingTooltipEvent = null;
     if (tooltipMoveFrame) {
       return;
     }
     tooltipMoveFrame = window.requestAnimationFrame(() => {
       tooltipMoveFrame = 0;
-      positionTooltip(pendingTooltipEvent);
-      pendingTooltipEvent = null;
+      positionTooltip();
     });
   }
 
-  function positionTooltip(event = null) {
+  function positionTooltip() {
     const tooltipBox = elements.tooltipBox;
     if (!tooltipBox || tooltipBox.hidden || !activeTooltipTarget) {
       return;
     }
     const margin = 8;
-    const gap = 12;
+    const gap = 10;
+    const arrowPadding = 14;
     const rect = activeTooltipTarget.getBoundingClientRect();
-    const hasPointer = event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY);
-    const anchorX = hasPointer ? event.clientX : rect.right;
-    const anchorY = hasPointer ? event.clientY : rect.top + rect.height / 2;
     const tooltipWidth = tooltipSizeCache.width || tooltipBox.offsetWidth;
     const tooltipHeight = tooltipSizeCache.height || tooltipBox.offsetHeight;
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
-    const rightLeft = anchorX + gap;
-    const leftLeft = anchorX - tooltipWidth - gap;
-    const left = rightLeft + tooltipWidth <= viewportWidth - margin
-      ? rightLeft
-      : Math.max(margin, leftLeft);
-    const top = Math.min(
-      Math.max(margin, anchorY - tooltipHeight / 2),
-      Math.max(margin, viewportHeight - tooltipHeight - margin)
+    const anchorX = rect.left + rect.width / 2;
+    const topSpace = rect.top - margin;
+    const placement = topSpace >= tooltipHeight + gap ? "above" : "below";
+    const rawLeft = anchorX - tooltipWidth / 2;
+    const left = Math.min(
+      Math.max(margin, rawLeft),
+      Math.max(margin, viewportWidth - tooltipWidth - margin)
     );
+    const rawTop = placement === "above"
+      ? rect.top - tooltipHeight - gap
+      : rect.bottom + gap;
+    const top = placement === "above"
+      ? Math.max(margin, rawTop)
+      : rawTop;
+    const arrowLeft = Math.min(
+      Math.max(arrowPadding, anchorX - left),
+      Math.max(arrowPadding, tooltipWidth - arrowPadding)
+    );
+    tooltipBox.classList.toggle("is-above", placement === "above");
+    tooltipBox.classList.toggle("is-below", placement === "below");
+    tooltipBox.style.setProperty("--sffa-tooltip-arrow-left", `${Math.round(arrowLeft)}px`);
     tooltipBox.style.left = `${Math.round(left)}px`;
     tooltipBox.style.top = `${Math.round(top)}px`;
   }
 
   function hideTooltip() {
     const tooltipBox = elements.tooltipBox;
+    cancelTooltipRestore();
     activeTooltipTarget = null;
     pendingTooltipEvent = null;
     if (tooltipMoveFrame) {
@@ -3806,6 +4009,7 @@
     tooltipHideTimer = window.setTimeout(() => {
       if (!activeTooltipTarget) {
         tooltipBox.hidden = true;
+        tooltipBox.classList.remove("is-above", "is-below");
       }
     }, 90);
   }
@@ -3904,6 +4108,7 @@
     closeListMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
+    closeSortMenu();
     closePriceSettingsDialog();
     closeFamilyPosterDialog();
     closeCompareDialog();
@@ -3925,6 +4130,7 @@
     event.stopPropagation();
     closeLocaleMenu();
     closeListMenu();
+    closeSortMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.menuWrap.classList.toggle("is-menu-open");
@@ -3936,6 +4142,7 @@
     elements.menuWrap?.classList.remove("is-menu-open");
     elements.moreBtn?.setAttribute("aria-expanded", "false");
     closeListMenu();
+    closeSortMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.localeWrap.classList.toggle("is-open");
@@ -3957,6 +4164,7 @@
   function toggleListMenu(event) {
     event.stopPropagation();
     closeMenu();
+    closeSortMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.listWrap.classList.toggle("is-open");
@@ -3968,6 +4176,22 @@
     elements.listSelect?.setAttribute("aria-expanded", "false");
   }
 
+  function toggleSortMenu(event) {
+    event.stopPropagation();
+    closeMenu();
+    closeListMenu();
+    closeAnalysisHistoryMenu();
+    closeCopyListMenu();
+    renderSortControl();
+    const isOpen = elements.sortWrap.classList.toggle("is-open");
+    elements.sortSelect.setAttribute("aria-expanded", String(isOpen));
+  }
+
+  function closeSortMenu() {
+    elements.sortWrap?.classList.remove("is-open");
+    elements.sortSelect?.setAttribute("aria-expanded", "false");
+  }
+
   function openAnalysisHistoryMenu() {
     if (!elements.historyMenu?.children.length) {
       closeAnalysisHistoryMenu();
@@ -3975,6 +4199,7 @@
     }
     closeMenu();
     closeListMenu();
+    closeSortMenu();
     closeCopyListMenu();
     elements.historyWrap?.classList.add("is-open");
     elements.targetInput?.setAttribute("aria-expanded", "true");
@@ -4040,6 +4265,7 @@
 
   function toggleCopyListMenu(event) {
     event.stopPropagation();
+    closeSortMenu();
     const isOpen = elements.copyListWrap.classList.toggle("is-copy-list-open");
     elements.copyListBtn.setAttribute("aria-expanded", String(isOpen));
   }
@@ -4051,6 +4277,7 @@
 
   function toggleFamilyPosterSortMenu(event) {
     event.stopPropagation();
+    closeSortMenu();
     const isOpen = elements.familyPosterSortWrap.classList.toggle("is-open");
     elements.familyPosterSortSelect.setAttribute("aria-expanded", String(isOpen));
   }
@@ -4160,7 +4387,7 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
@@ -4338,6 +4565,7 @@
       prepareOriginalPrices(lastReport.games.new);
       refreshReportMetrics();
     }
+    renderTabs();
     renderDetailsPreserveScroll();
     scheduleVisiblePriceLoads();
   }
@@ -5320,7 +5548,7 @@
     const title = sanitizeFilename(getTabLabel(normalizeMainTab(tab)) || "steam-list");
     const stamp = new Date().toISOString().slice(0, 10);
     const normalized = normalizeListPosterSettings(settings, tab);
-    return `${title || "steam-list"}-covers-${normalized.columns}-${normalized.sortMode}-${normalized.scalePercent}%-${stamp}.png`;
+    return `${title || "steam-list"}-poster-${normalized.columns}-${normalized.sortMode}-${normalized.scalePercent}%-${stamp}.png`;
   }
 
   function sanitizeFilename(value) {
@@ -5328,7 +5556,7 @@
   }
 
   async function refetchVisibleCoverUrls() {
-    const appids = getVisibleCoverAppids();
+    const appids = getCurrentViewVisibleCoverAppids();
     if (!appids.length) {
       return;
     }
@@ -5340,15 +5568,19 @@
     }
   }
 
+  function getCurrentViewVisibleCoverAppids() {
+    if (getListViewMode() === "cover") {
+      return getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-cover-card");
+    }
+    if (getListViewMode() === "poster") {
+      return getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-poster-card");
+    }
+    return getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-game-thumb[data-sffa-cover-appid]");
+  }
+
   function getVisibleCoverAppids() {
     const appids = new Set();
-    if (getListViewMode() === "cover") {
-      getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-cover-card").forEach(appid => appids.add(appid));
-    } else if (getListViewMode() === "poster") {
-      getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-poster-card").forEach(appid => appids.add(appid));
-    } else {
-      getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-game-thumb[data-sffa-cover-appid]").forEach(appid => appids.add(appid));
-    }
+    getCurrentViewVisibleCoverAppids().forEach(appid => appids.add(appid));
     if (isCompareDialogOpen()) {
       getVisibleAppidsFromContainer(elements.compareSummary, ".sffa-compare-card-game-link").forEach(appid => appids.add(appid));
     }
@@ -7316,10 +7548,10 @@
     const labels = Array.isArray(splitMetric.labels) ? splitMetric.labels : [];
     const lines = splitMetric.parts.map((value, index) => {
       const label = labels[index] || `#${index + 1}`;
-      return `${label}: ${formatter(value)}`;
+      return `${label}\t${formatter(value)}`;
     });
     if (splitMetric.deduped) {
-      lines.push(`${t("deduped")}: ${formatter(splitMetric.total)}`);
+      lines.push(`${t("deduped")}\t${formatter(splitMetric.total)}`);
     }
     return lines.join("\n");
   }
@@ -8052,10 +8284,73 @@
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    renderSortControl();
     renderSearchClearButton();
     if (elements.reloadCoversBtn) {
-      elements.reloadCoversBtn.hidden = listViewMode === "table";
+      elements.reloadCoversBtn.hidden = false;
     }
+  }
+
+  function getSortOptionsForTab(tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    const priceOption = col(getPriceLabel(), "price");
+    const nameOption = col(t("sortName"), "name");
+    const idOption = col(t("sortId"), "appid");
+    if (normalizedTab === "family") {
+      return [nameOption, idOption, col(t("owners"), "owners"), col(t("acquiredAt"), "time"), priceOption];
+    }
+    if (normalizedTab === "new") {
+      const options = [nameOption, idOption];
+      if (isMultiTargetReport()) {
+        options.push(col(t("targetOwners"), "targetOwners"));
+      }
+      options.push(priceOption);
+      return options;
+    }
+    if (normalizedTab === "relativeNew" || normalizedTab === "overlap") {
+      return [nameOption, idOption, col(t("owners"), "owners"), priceOption];
+    }
+    const options = [nameOption, idOption, col(t("status"), "status"), priceOption];
+    if (isMultiTargetReport()) {
+      options.push(col(t("targetOwners"), "targetOwners"));
+    }
+    return options;
+  }
+
+  function getSortOptionLabel(key, tab = currentTab) {
+    return getSortOptionsForTab(tab).find(option => option.key === key)?.label || "";
+  }
+
+  function isSortAvailableForTab(sort, tab = currentTab) {
+    if (!sort?.key) {
+      return false;
+    }
+    return getSortOptionsForTab(tab).some(option => option.key === sort.key);
+  }
+
+  function formatSortControlText(label, direction) {
+    return t(direction === "desc" ? "sortDesc" : "sortAsc", { label });
+  }
+
+  function renderSortControl() {
+    if (!elements.sortSelect || !elements.sortMenu) {
+      return;
+    }
+
+    const currentSort = tableSortByTab[currentTab];
+    const currentLabel = isSortAvailableForTab(currentSort) ? getSortOptionLabel(currentSort.key) : "";
+    elements.sortSelect.textContent = currentLabel ? formatSortControlText(currentLabel, currentSort.direction) : t("sort");
+    elements.sortSelect.classList.toggle("is-active", Boolean(currentLabel));
+    elements.sortMenu.innerHTML = getSortOptionsForTab()
+      .flatMap(option => ["asc", "desc"].map(direction => {
+        const active = currentSort?.key === option.key && currentSort.direction === direction;
+        return `
+          <button class="sffa-list-option${active ? " is-active" : ""}" type="button" role="option" data-sffa-sort-key="${escapeAttr(option.key)}" data-sffa-sort-direction="${escapeAttr(direction)}" aria-selected="${String(active)}">
+            ${escapeHtml(formatSortControlText(option.label, direction))}
+          </button>
+        `;
+      }))
+      .join("");
   }
 
   function normalizeListViewMode(mode) {
@@ -8088,6 +8383,7 @@
   function setReportTab(tab) {
     const nextTab = isReportListTab(tab) ? tab : "all";
     closeListMenu();
+    closeSortMenu();
     if (currentTab === nextTab) {
       return;
     }
@@ -8232,7 +8528,28 @@
       key,
       direction: current?.key === key && current.direction === "asc" ? "desc" : "asc"
     };
+    renderSortControl();
     renderDetailsPreserveScroll();
+    scheduleAnalysisHistorySave();
+  }
+
+  function handleSortMenuClick(event) {
+    const option = event.target.closest("[data-sffa-sort-key]");
+    if (!option || !elements.sortMenu?.contains(option)) {
+      return;
+    }
+
+    const key = option.dataset.sffaSortKey;
+    const direction = option.dataset.sffaSortDirection === "desc" ? "desc" : "asc";
+    if (!getSortOptionsForTab().some(sortOption => sortOption.key === key)) {
+      return;
+    }
+
+    tableSortByTab[currentTab] = { key, direction };
+    closeSortMenu();
+    renderSortControl();
+    renderDetailsPreserveScroll();
+    scheduleAnalysisHistorySave();
   }
 
   function renderDetails() {
@@ -8496,7 +8813,7 @@
   function getSortedRows(tab, rows) {
     const sort = tableSortByTab[tab];
     const output = rows.slice();
-    if (!sort?.key || sort.key === "appid") {
+    if (!sort?.key || !isSortAvailableForTab(sort, tab)) {
       return output;
     }
 

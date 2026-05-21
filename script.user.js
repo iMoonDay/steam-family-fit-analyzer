@@ -73,9 +73,14 @@
   const ANALYSIS_HISTORY_KEY = `${STORAGE_KEY}_analysis_v1`;
   // 分析输入历史缓存键名；只保存输入值与账号名称缓存，不保存分析结果。
   const ANALYSIS_INPUT_HISTORY_KEY = `${STORAGE_KEY}_analysis_history_v2`;
+  const LAUNCHER_POSITION_KEY = `${STORAGE_KEY}_launcher_position_v1`;
+  const LAUNCHER_EDGE_MARGIN = 18;
+  const LAUNCHER_CLOSE_TOP_OVERFLOW = 12;
+  const LAUNCHER_CLOSE_RIGHT_OVERFLOW = 12;
   const MAX_ANALYSIS_HISTORY_ITEMS = 12;
   // Steam 商店分类中“家庭共享”特性的分类 ID。
   const FAMILY_SHARING_CATEGORY_ID = 62;
+  const LIST_RENDER_SLOW_LOG_MS = 24;
   // 普通用户 SteamID64 = 该基数 + Steam 好友码 / 账号 ID（accountid）。
   const STEAMID64_INDIVIDUAL_BASE = 76561197960265728n;
   const MAX_STEAM_ACCOUNT_ID = 4294967295n;
@@ -997,12 +1002,16 @@
   let analysisHistorySaveTimer = 0;
   let analysisInputHistoryCache = null;
   let searchRenderTimer = 0;
+  let detailsRenderToken = 0;
+  let pendingDetailsScrollRestore = null;
+  let detailsPerfTraceByToken = new Map();
   let scriptMenuCommandIds = [];
   let activePosterDialogContext = null;
   let autoFamilyRefreshRunning = false;
   let coverReloadToken = 0;
   let familyOwnerToneCache = { key: "", map: new Map() };
   let targetOwnerToneCache = { key: "", map: new Map() };
+  let familyLibraryRowsCache = { key: "", rows: [] };
   let elements = {};
   let activeTooltipTarget = null;
   let tooltipHideTimer = 0;
@@ -1012,12 +1021,22 @@
   let lastTooltipPointer = null;
   let tooltipSizeCache = { width: 0, height: 0 };
   let panelFrontObserver = null;
+  let runtimeInitialized = false;
+  let runtimeInitializationPromise = null;
+  let launcherDragState = null;
 
   bootstrap();
 
-  async function bootstrap() {
+  function bootstrap() {
+    injectStyles();
+    mountPanel({ deferView: true });
+    registerScriptMenuCommands();
+  }
+
+  async function initializeRuntime() {
     await resolveStoreCountryFromAccount();
-    initializeRuntime();
+    state = loadState();
+    initializePanelView();
     const restoredAnalysis = restoreAnalysisHistory();
     autoFillTargetInputFromProfilePage();
     const session = getSteamSession();
@@ -1025,12 +1044,6 @@
       return;
     }
     finalizeBootstrap(session);
-  }
-
-  function initializeRuntime() {
-    state = loadState();
-    injectStyles();
-    mountPanel();
   }
 
   function syncBootstrapSession(session, restoredAnalysis) {
@@ -1165,7 +1178,7 @@
       }
       .sffa-launcher-wrap {
         position: fixed;
-        right: 18px;
+        right: 30px;
         bottom: 18px;
         pointer-events: auto;
         display: inline-flex;
@@ -1176,6 +1189,14 @@
       }
       .sffa-launcher-wrap:hover {
         transform: translateY(-2px) scale(1.02);
+      }
+      .sffa-launcher-wrap.is-dragging {
+        transition: none;
+        transform: translateY(0) scale(1);
+      }
+      .sffa-launcher-wrap.is-positioned {
+        right: auto;
+        bottom: auto;
       }
       .sffa-launcher-wrap.is-hidden {
         opacity: 0;
@@ -3736,6 +3757,11 @@
       .sffa-table-tag.is-price-3 { background: rgba(255, 128, 151, 0.18); color: #ffb6c2; }
       .sffa-table-tag.is-price-empty { background: rgba(150, 156, 167, 0.14); color: #c7d0d8; }
       .sffa-table-tag.is-muted { background: rgba(150, 156, 167, 0.14); color: #c7d0d8; }
+      .sffa-cover-card,
+      .sffa-poster-card {
+        content-visibility: auto;
+        contain-intrinsic-size: 180px 250px;
+      }
       @keyframes sffa-spin {
         to {
           transform: rotate(360deg);
@@ -3746,9 +3772,24 @@
         color: #9fb3c2;
         text-align: center;
       }
+      .sffa-list-loading {
+        min-height: 180px;
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto auto;
+        align-content: center;
+        justify-items: center;
+        gap: 10px;
+        color: #9fb3c2;
+        font-size: 12px;
+      }
+      .sffa-list-loading .sffa-spinner {
+        width: 24px;
+        height: 24px;
+      }
       @media (max-width: 680px) {
         .sffa-launcher-wrap {
-          right: 14px;
+          right: 26px;
           bottom: 14px;
           transform: translateY(0) scale(1);
         }
@@ -3857,14 +3898,17 @@
 
   // ===== 界面挂载与交互 =====
 
-  function mountPanel() {
+  function mountPanel(options = {}) {
     const root = createPanelRoot();
     document.body.appendChild(root);
     elements = collectPanelElements(root);
+    restoreLauncherPosition();
     bringPanelToFront();
     observePanelFront();
     bindPanelEvents();
-    initializePanelView();
+    if (!options.deferView) {
+      initializePanelView();
+    }
   }
 
   function bringPanelToFront() {
@@ -4249,6 +4293,7 @@
   function bindPanelEvents() {
     bindTooltipEvents();
     elements.launcher.addEventListener("click", openDialog);
+    elements.launcher.addEventListener("pointerdown", handleLauncherPointerDown);
     elements.launcherCloseBtn.addEventListener("click", hideLauncherButton);
     elements.closeBtn.addEventListener("click", closeDialog);
     elements.backdrop.addEventListener("click", closeDialog);
@@ -4648,7 +4693,7 @@
     if (!tooltipBox || tooltipBox.hidden || !activeTooltipTarget) {
       return;
     }
-    const margin = 8;
+    const margin = LAUNCHER_EDGE_MARGIN;
     const gap = 10;
     const arrowPadding = 14;
     const rect = activeTooltipTarget.getBoundingClientRect();
@@ -4717,17 +4762,240 @@
   }
 
   function openDialog() {
+    if (launcherDragState?.suppressClick) {
+      launcherDragState.suppressClick = false;
+      return;
+    }
     bringPanelToFront();
     const wasOpen = elements.root.classList.contains("is-open");
     elements.root.classList.add("is-open");
     lockPageScroll();
+    if (!runtimeInitialized) {
+      showRuntimeLoading();
+      ensureRuntimeInitialized().then(() => {
+        if (elements.root?.classList.contains("is-open")) {
+          focusTargetInput();
+        }
+      });
+      return;
+    }
     if (wasOpen) {
       return;
     }
+    focusTargetInput();
+  }
+
+  function focusTargetInput() {
     window.setTimeout(() => {
-      elements.targetInput.focus();
-      elements.targetInput.select();
+      elements.targetInput?.focus();
+      elements.targetInput?.select();
     }, 0);
+  }
+
+  function showRuntimeLoading() {
+    elements.tableWrap?.classList.toggle("is-cover-view", false);
+    if (elements.tableWrap) {
+      elements.tableWrap.innerHTML = renderDetailsLoadingHtml();
+    }
+    if (elements.summary) {
+      elements.summary.innerHTML = "";
+    }
+    if (elements.profile) {
+      elements.profile.innerHTML = "";
+    }
+    setStatus(t("loading"), "warn");
+    setBusy(true);
+  }
+
+  function ensureRuntimeInitialized() {
+    if (runtimeInitialized) {
+      return Promise.resolve();
+    }
+    if (runtimeInitializationPromise) {
+      return runtimeInitializationPromise;
+    }
+    runtimeInitializationPromise = initializeRuntime()
+      .then(() => {
+        runtimeInitialized = true;
+      })
+      .catch(error => {
+        setRawError(error);
+        setStatus(error.message || t("networkFailed"), "err");
+      })
+      .finally(() => {
+        runtimeInitializationPromise = null;
+        setBusy(false);
+      });
+    return runtimeInitializationPromise;
+  }
+
+  function handleLauncherPointerDown(event) {
+    if (event.button != null && event.button !== 0) {
+      return;
+    }
+    const wrap = elements.launcherWrap;
+    if (!wrap) {
+      return;
+    }
+    const rect = wrap.getBoundingClientRect();
+    launcherDragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      left: rect.left,
+      top: rect.top,
+      moved: false,
+      suppressClick: false
+    };
+    wrap.classList.add("is-dragging");
+    elements.launcher.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", handleLauncherPointerMove, true);
+    window.addEventListener("pointerup", handleLauncherPointerUp, true);
+    window.addEventListener("pointercancel", handleLauncherPointerUp, true);
+  }
+
+  function handleLauncherPointerMove(event) {
+    if (!launcherDragState || event.pointerId !== launcherDragState.pointerId) {
+      return;
+    }
+    const dx = event.clientX - launcherDragState.startX;
+    const dy = event.clientY - launcherDragState.startY;
+    if (!launcherDragState.moved && Math.hypot(dx, dy) < 4) {
+      return;
+    }
+    launcherDragState.moved = true;
+    launcherDragState.suppressClick = true;
+    event.preventDefault();
+    applyLauncherFreePosition(launcherDragState.left + dx, launcherDragState.top + dy);
+  }
+
+  function handleLauncherPointerUp(event) {
+    if (!launcherDragState || event.pointerId !== launcherDragState.pointerId) {
+      return;
+    }
+    window.removeEventListener("pointermove", handleLauncherPointerMove, true);
+    window.removeEventListener("pointerup", handleLauncherPointerUp, true);
+    window.removeEventListener("pointercancel", handleLauncherPointerUp, true);
+    elements.launcherWrap?.classList.remove("is-dragging");
+    elements.launcher.releasePointerCapture?.(event.pointerId);
+    const moved = launcherDragState.moved;
+    if (moved) {
+      event.preventDefault();
+      snapLauncherToNearestEdge();
+      saveLauncherPositionFromCurrentRect();
+    }
+    if (moved) {
+      window.setTimeout(() => {
+        if (launcherDragState?.pointerId === event.pointerId) {
+          launcherDragState = null;
+        }
+      }, 0);
+      return;
+    }
+    launcherDragState = null;
+  }
+
+  function applyLauncherFreePosition(left, top) {
+    const wrap = elements.launcherWrap;
+    if (!wrap) {
+      return;
+    }
+    const rect = wrap.getBoundingClientRect();
+    const width = rect.width || 34;
+    const height = rect.height || 34;
+    const margin = LAUNCHER_EDGE_MARGIN;
+    const minTop = margin + LAUNCHER_CLOSE_TOP_OVERFLOW;
+    const maxLeft = Math.max(margin, window.innerWidth - width - margin - LAUNCHER_CLOSE_RIGHT_OVERFLOW);
+    const maxTop = Math.max(margin, window.innerHeight - height - margin);
+    const nextLeft = Math.min(Math.max(margin, Number(left || 0)), maxLeft);
+    const nextTop = Math.min(Math.max(minTop, Number(top || 0)), maxTop);
+    wrap.classList.add("is-positioned");
+    wrap.style.left = `${Math.round(nextLeft)}px`;
+    wrap.style.top = `${Math.round(nextTop)}px`;
+    wrap.style.right = "auto";
+    wrap.style.bottom = "auto";
+  }
+
+  function snapLauncherToNearestEdge() {
+    const wrap = elements.launcherWrap;
+    if (!wrap) {
+      return;
+    }
+    const rect = wrap.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    applyLauncherPosition(centerX < window.innerWidth / 2 ? "left" : "right", rect.top);
+  }
+
+  function applyLauncherPosition(edge, top) {
+    const wrap = elements.launcherWrap;
+    if (!wrap) {
+      return;
+    }
+    const rect = wrap.getBoundingClientRect();
+    const width = rect.width || 34;
+    const height = rect.height || 34;
+    const margin = LAUNCHER_EDGE_MARGIN;
+    const normalizedEdge = edge === "left" ? "left" : "right";
+    const minTop = margin + LAUNCHER_CLOSE_TOP_OVERFLOW;
+    const nextLeft = normalizedEdge === "left" ? margin : Math.max(margin, window.innerWidth - width - margin - LAUNCHER_CLOSE_RIGHT_OVERFLOW);
+    const maxTop = Math.max(margin, window.innerHeight - height - margin);
+    const nextTop = Math.min(Math.max(minTop, Number(top || 0)), maxTop);
+    wrap.classList.add("is-positioned");
+    wrap.style.left = `${Math.round(nextLeft)}px`;
+    wrap.style.top = `${Math.round(nextTop)}px`;
+    wrap.style.right = "auto";
+    wrap.style.bottom = "auto";
+  }
+
+  function saveLauncherPositionFromCurrentRect() {
+    const wrap = elements.launcherWrap;
+    if (!wrap) {
+      return;
+    }
+    const rect = wrap.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    saveLauncherPosition({
+      edge: centerX < window.innerWidth / 2 ? "left" : "right",
+      topRatio: rect.top / Math.max(1, window.innerHeight)
+    });
+  }
+
+  function restoreLauncherPosition() {
+    const position = loadLauncherPosition();
+    if (!position) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      applyLauncherPosition(
+        position.edge,
+        Number(position.topRatio || 0) * window.innerHeight
+      );
+    });
+  }
+
+  function loadLauncherPosition() {
+    try {
+      const saved = GM_getValue(LAUNCHER_POSITION_KEY);
+      if (!saved || typeof saved !== "object") {
+        return null;
+      }
+      const edge = saved.edge === "left" ? "left" : "right";
+      const topRatio = Number(saved.topRatio);
+      if (!Number.isFinite(topRatio)) {
+        return null;
+      }
+      return { edge, topRatio };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function saveLauncherPosition(position) {
+    try {
+      GM_setValue(LAUNCHER_POSITION_KEY, position);
+    } catch (error) {
+      // 忽略位置保存失败。
+    }
   }
 
   function autoFillTargetInputFromProfilePage() {
@@ -4748,13 +5016,13 @@
     if (!elements.launcherWrap) {
       return;
     }
-    const visible = state.launcherVisible !== false;
+    const visible = runtimeInitialized ? state.launcherVisible !== false : true;
     elements.launcherWrap.classList.toggle("is-hidden", !visible);
   }
 
   function hideLauncherButton() {
     state.launcherVisible = false;
-    saveState();
+    saveStateIfRuntimeInitialized();
     renderLauncherVisibility();
     registerScriptMenuCommands();
     setStatus(t("launcherHidden"), "ok");
@@ -4762,10 +5030,16 @@
 
   function toggleLauncherButtonVisibility() {
     state.launcherVisible = state.launcherVisible === false;
-    saveState();
+    saveStateIfRuntimeInitialized();
     renderLauncherVisibility();
     registerScriptMenuCommands();
     setStatus(state.launcherVisible ? t("launcherVisible") : t("launcherHidden"), "ok");
+  }
+
+  function saveStateIfRuntimeInitialized() {
+    if (runtimeInitialized) {
+      saveState();
+    }
   }
 
   function registerScriptMenuCommands() {
@@ -4774,7 +5048,7 @@
       return;
     }
     scriptMenuCommandIds.push(
-      GM_registerMenuCommand(state.launcherVisible === false ? t("showLauncherMenu") : t("hideLauncherMenu"), toggleLauncherButtonVisibility)
+      GM_registerMenuCommand(runtimeInitialized && state.launcherVisible === false ? t("showLauncherMenu") : t("hideLauncherMenu"), toggleLauncherButtonVisibility)
     );
     scriptMenuCommandIds.push(
       GM_registerMenuCommand(t("openDialogMenu"), openDialog)
@@ -6374,18 +6648,37 @@
     if (!container) {
       return [];
     }
-    const nodes = Array.from(container.querySelectorAll(selector));
+    const nodes = getVisibleNodesFromContainer(container, selector);
     if (!nodes.length) {
       return [];
     }
-    const wrapRect = container.getBoundingClientRect();
-    const visibleNodes = nodes.filter(node => {
-      const rect = node.getBoundingClientRect();
-      return rect.bottom >= wrapRect.top && rect.top <= wrapRect.bottom;
-    });
-    return (visibleNodes.length ? visibleNodes : nodes.slice(0, 20))
+    return nodes
       .map(extractAppidFromNode)
       .filter(appid => /^\d+$/.test(appid));
+  }
+
+  function getVisibleNodesFromContainer(container, selector, fallbackLimit = 20) {
+    if (!container) {
+      return [];
+    }
+    const nodes = container.querySelectorAll(selector);
+    if (!nodes.length) {
+      return [];
+    }
+
+    const wrapRect = container.getBoundingClientRect();
+    const visibleNodes = [];
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      if (rect.bottom >= wrapRect.top && rect.top <= wrapRect.bottom) {
+        visibleNodes.push(node);
+        continue;
+      }
+      if (visibleNodes.length && rect.top > wrapRect.bottom + 240) {
+        break;
+      }
+    }
+    return visibleNodes.length ? visibleNodes : Array.from(nodes).slice(0, fallbackLimit);
   }
 
   function extractAppidFromNode(node) {
@@ -7468,21 +7761,16 @@
   }
 
   function getVisiblePriceAppids() {
-    const rows = Array.from(elements.tableWrap.querySelectorAll("[data-price-appid]"));
+    const rows = getVisibleNodesFromContainer(elements.tableWrap, "[data-price-appid]");
     if (!rows.length) {
       return [];
     }
 
-    const wrapRect = elements.tableWrap.getBoundingClientRect();
     const visible = rows
-      .filter(row => {
-        const rect = row.getBoundingClientRect();
-        return rect.bottom >= wrapRect.top && rect.top <= wrapRect.bottom;
-      })
       .map(row => row.dataset.priceAppid)
       .filter(appid => priceLoadState.pendingMap.has(String(appid)));
 
-    return visible.length ? visible : rows.slice(0, 20).map(row => row.dataset.priceAppid);
+    return visible.length ? visible : rows.map(row => row.dataset.priceAppid);
   }
 
   function scheduleVisibleCoverLoads() {
@@ -7562,16 +7850,7 @@
     if (!container) {
       return;
     }
-    const nodes = Array.from(container.querySelectorAll(selector));
-    if (!nodes.length) {
-      return;
-    }
-    const wrapRect = container.getBoundingClientRect();
-    const visibleNodes = nodes.filter(node => {
-      const rect = node.getBoundingClientRect();
-      return rect.bottom >= wrapRect.top && rect.top <= wrapRect.bottom;
-    });
-    const targets = visibleNodes.length ? visibleNodes : nodes.slice(0, 20);
+    const targets = getVisibleNodesFromContainer(container, selector);
     targets.forEach(node => {
       const appid = String(node.dataset.sffaCoverAppid || "").trim();
       const coverUrl = node.dataset.sffaCoverKind === "poster"
@@ -7792,17 +8071,23 @@
     const scrollElement = getDetailsScrollElement();
     const scrollTop = scrollElement?.scrollTop || 0;
     const scrollLeft = scrollElement?.scrollLeft || 0;
-    renderDetails();
-    const nextScrollElement = getDetailsScrollElement();
-    if (nextScrollElement) {
-      nextScrollElement.scrollTop = scrollTop;
-      nextScrollElement.scrollLeft = scrollLeft;
-      syncTableHeaderScroll(nextScrollElement);
-    }
+    const renderToken = renderDetails();
+    pendingDetailsScrollRestore = { token: renderToken, scrollTop, scrollLeft };
+    restoreDetailsScrollPosition(scrollTop, scrollLeft);
   }
 
   function getDetailsScrollElement() {
     return elements.tableWrap?.querySelector("[data-sffa-table-body-scroll]") || elements.tableWrap;
+  }
+
+  function restoreDetailsScrollPosition(scrollTop, scrollLeft) {
+    const nextScrollElement = getDetailsScrollElement();
+    if (!nextScrollElement) {
+      return;
+    }
+    nextScrollElement.scrollTop = scrollTop;
+    nextScrollElement.scrollLeft = scrollLeft;
+    syncTableHeaderScroll(nextScrollElement);
   }
 
   function renderDetailsAfterShareabilityChange(appid) {
@@ -9703,9 +9988,10 @@
       return;
     }
 
-    const activeCount = getActiveRuleFilterCount();
-    elements.ruleFilterSelect.textContent = activeCount ? `${t("ruleFilter")} (${activeCount})` : t("ruleFilter");
-    elements.ruleFilterSelect.classList.toggle("is-active", activeCount > 0);
+    const hasActiveFilters = getActiveRuleFilterCount() > 0;
+    const filteredGameCount = hasActiveFilters ? getCurrentRuleFilteredRowCount() : 0;
+    elements.ruleFilterSelect.textContent = hasActiveFilters ? `${t("ruleFilter")} (${filteredGameCount})` : t("ruleFilter");
+    elements.ruleFilterSelect.classList.toggle("is-active", hasActiveFilters);
     elements.ruleFilterMenu.innerHTML = [
       isRuleFilterKindApplicable("status") && renderRuleFilterGroup("status", t("ruleFilterStatus"), getRuleFilterStatusOptions()),
       isRuleFilterKindApplicable("price") && renderRuleFilterGroup("price", t("ruleFilterPrice"), getRuleFilterPriceOptions()),
@@ -9815,6 +10101,14 @@
       }
       return getRuleFilterValue(kind) === "all" ? count : count + 1;
     }, 0);
+  }
+
+  function getCurrentRuleFilteredRowCount() {
+    const normalizedTab = normalizeMainTab(currentTab);
+    const sourceRows = normalizedTab === "family"
+      ? getFamilyLibraryRows()
+      : lastReport ? getReportRowsForCurrentSelection(normalizedTab) : [];
+    return filterRowsByActiveRules(normalizedTab, filterRowsBySearchQuery(sourceRows)).length;
   }
 
   function isRuleFilterKindApplicable(kind, tab = currentTab) {
@@ -9969,6 +10263,7 @@
     }
     searchRenderTimer = window.setTimeout(() => {
       searchRenderTimer = 0;
+      renderRuleFilterControl();
       renderDetails();
       scheduleAnalysisHistorySave();
     }, SEARCH_RENDER_DEBOUNCE_MS);
@@ -10133,20 +10428,39 @@
   }
 
   function renderDetails() {
+    const renderToken = ++detailsRenderToken;
+    pendingDetailsScrollRestore = null;
+    startDetailsPerfTrace(renderToken);
+    elements.tableWrap.classList.toggle("is-cover-view", false);
+    elements.tableWrap.innerHTML = renderDetailsLoadingHtml();
+    scheduleDetailsRenderChunk(() => renderDetailsNow(renderToken));
+    return renderToken;
+  }
+
+  function renderDetailsLoadingHtml() {
+    return `<div class="sffa-list-loading"><span class="sffa-spinner"></span><span>${escapeHtml(t("loading"))}</span></div>`;
+  }
+
+  function renderDetailsNow(renderToken) {
+    if (renderToken !== detailsRenderToken) {
+      return;
+    }
     elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() !== "table");
     if (currentTab === "family") {
       const sourceRows = getFamilyLibraryRows();
+      markDetailsPerfTrace(renderToken, "source", { source: sourceRows.length });
       const filteredRows = filterRowsByActiveRules("family", filterRowsBySearchQuery(sourceRows));
+      markDetailsPerfTrace(renderToken, "filter", { filtered: filteredRows.length });
       const rows = getSortedRows("family", filteredRows);
+      markDetailsPerfTrace(renderToken, "sort", { rows: rows.length });
+      if (renderToken !== detailsRenderToken) {
+        return;
+      }
       if (rows.length === 0) {
         elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(sourceRows.length ? t("noMatches") : t("noFamilyRefresh"))}</div>`;
         return;
       }
-      prepareOriginalPricesForMissingRows(rows);
-      elements.tableWrap.innerHTML = buildDetailsView("family", rows);
-      applyVisibleCoverImages();
-      scheduleVisibleCoverLoads();
-      scheduleVisiblePriceLoads();
+      renderDetailsRows("family", rows, renderToken);
       return;
     }
 
@@ -10156,10 +10470,13 @@
     }
 
     const sourceRows = getReportRowsForCurrentSelection(currentTab);
+    markDetailsPerfTrace(renderToken, "source", { source: sourceRows.length });
     const filteredRows = filterRowsByActiveRules(currentTab, filterRowsBySearchQuery(sourceRows));
+    markDetailsPerfTrace(renderToken, "filter", { filtered: filteredRows.length });
     const rows = getSortedRows(currentTab, filteredRows);
-    if (["all", "new", "relativeNew", "overlap"].includes(currentTab) && !lastReport.filtering?.running) {
-      prepareOriginalPricesForMissingRows(rows);
+    markDetailsPerfTrace(renderToken, "sort", { rows: rows.length });
+    if (renderToken !== detailsRenderToken) {
+      return;
     }
     if (rows.length === 0) {
       const emptyText = sourceRows.length ? t("noMatches") : t("tabEmpty", { tab: getTabLabel(currentTab) });
@@ -10167,10 +10484,116 @@
       return;
     }
 
-    elements.tableWrap.innerHTML = buildDetailsView(currentTab, rows);
-    applyVisibleCoverImages();
-    scheduleVisibleCoverLoads();
+    renderDetailsRows(currentTab, rows, renderToken);
+  }
+
+  function renderDetailsRows(tab, rows, renderToken) {
+    elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() !== "table");
+    elements.tableWrap.innerHTML = buildDetailsView(tab, rows);
+    markDetailsPerfTrace(renderToken, "paint", { rendered: rows.length });
+    scheduleDetailsPricePreparation(tab, rows, renderToken);
+    scheduleDetailsPostRender(renderToken, true);
+  }
+
+  function scheduleDetailsPricePreparation(tab, rows, renderToken) {
+    const normalizedTab = normalizeMainTab(tab);
+    if (normalizedTab !== "family" && (!["all", "new", "relativeNew", "overlap"].includes(normalizedTab) || lastReport?.filtering?.running)) {
+      return;
+    }
+    scheduleDetailsRenderChunk(() => {
+      if (renderToken !== detailsRenderToken) {
+        return;
+      }
+      prepareDetailsPricesInChunks(rows, 0, renderToken);
+    });
+  }
+
+  function prepareDetailsPricesInChunks(rows, startIndex, renderToken) {
+    if (renderToken !== detailsRenderToken) {
+      return;
+    }
+    const nextIndex = Math.min(rows.length, startIndex + 120);
+    prepareOriginalPricesForMissingRows(rows.slice(startIndex, nextIndex));
     scheduleVisiblePriceLoads();
+    if (nextIndex >= rows.length) {
+      return;
+    }
+    scheduleDetailsRenderChunk(() => prepareDetailsPricesInChunks(rows, nextIndex, renderToken));
+  }
+
+  function startDetailsPerfTrace(renderToken) {
+    detailsPerfTraceByToken.clear();
+    detailsPerfTraceByToken.set(renderToken, {
+      startedAt: performance.now(),
+      tab: currentTab,
+      view: getListViewMode(),
+      marks: []
+    });
+  }
+
+  function markDetailsPerfTrace(renderToken, label, data = {}) {
+    const trace = detailsPerfTraceByToken.get(renderToken);
+    if (!trace) {
+      return;
+    }
+    trace.marks.push({
+      label,
+      at: performance.now(),
+      ...data
+    });
+  }
+
+  function finishDetailsPerfTrace(renderToken) {
+    const trace = detailsPerfTraceByToken.get(renderToken);
+    if (!trace) {
+      return;
+    }
+    detailsPerfTraceByToken.delete(renderToken);
+    const finishedAt = performance.now();
+    const total = finishedAt - trace.startedAt;
+    if (total < LIST_RENDER_SLOW_LOG_MS) {
+      return;
+    }
+    const rows = trace.marks.find(mark => mark.rows != null)?.rows ?? trace.marks.find(mark => mark.rendered != null)?.rendered ?? 0;
+    const stages = trace.marks.map((mark, index) => {
+      const previousAt = index === 0 ? trace.startedAt : trace.marks[index - 1].at;
+      return `${mark.label}:${Math.round(mark.at - previousAt)}ms`;
+    }).join(" ");
+    console.debug(`[SFFA] list render ${Math.round(total)}ms`, {
+      tab: trace.tab,
+      view: trace.view,
+      rows,
+      stages,
+      marks: trace.marks
+    });
+  }
+
+  function scheduleDetailsPostRender(renderToken, finalPass = false) {
+    window.requestAnimationFrame(() => {
+      if (renderToken !== detailsRenderToken) {
+        return;
+      }
+      if (pendingDetailsScrollRestore?.token === renderToken) {
+        restoreDetailsScrollPosition(pendingDetailsScrollRestore.scrollTop, pendingDetailsScrollRestore.scrollLeft);
+        if (finalPass) {
+          pendingDetailsScrollRestore = null;
+        }
+      }
+      applyVisibleCoverImages();
+      scheduleVisibleCoverLoads();
+      scheduleVisiblePriceLoads();
+      if (finalPass) {
+        finishDetailsPerfTrace(renderToken);
+      }
+    });
+  }
+
+  function scheduleDetailsRenderChunk(callback) {
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(callback, { timeout: 120 });
+      return;
+    }
+    window.setTimeout(callback, 0);
   }
 
   function buildDetailsView(tab, rows) {
@@ -10198,11 +10621,19 @@
   }
 
   function buildDetailsCoverGrid(tab, rows) {
-    return `<div class="sffa-cover-grid">${rows.map(game => renderDetailsCoverCard(tab, game)).join("")}</div>`;
+    return `<div class="sffa-cover-grid">${renderDetailsCoverCards(tab, rows)}</div>`;
   }
 
   function buildDetailsPosterGrid(tab, rows) {
-    return `<div class="sffa-poster-grid">${rows.map(game => renderDetailsPosterCard(tab, game)).join("")}</div>`;
+    return `<div class="sffa-poster-grid">${renderDetailsPosterCards(tab, rows)}</div>`;
+  }
+
+  function renderDetailsCoverCards(tab, rows) {
+    return rows.map(game => renderDetailsCoverCard(tab, game)).join("");
+  }
+
+  function renderDetailsPosterCards(tab, rows) {
+    return rows.map(game => renderDetailsPosterCard(tab, game)).join("");
   }
 
   function renderDetailsCoverCard(tab, game) {
@@ -10599,37 +11030,77 @@
   }
 
   function getFamilyLibraryRows() {
-    return (state.familyLibrary?.appidSet || [])
-      .map(appid => state.familyLibrary?.appInfoById?.[String(appid)])
-      .filter(Boolean)
+    return getFamilyLibraryBaseRows()
       .map(game => ({
         ...game,
         localizedName: getCachedLocalizedName(game.appid) || game.localizedName || "",
         price: getCachedOriginalPrice(game.appid)
-      }))
+      }));
+  }
+
+  function getFamilyLibraryBaseRows() {
+    const key = `${state.familyLibrary?.updatedAt || 0}:${state.familyLibrary?.appidSet?.length || 0}`;
+    if (familyLibraryRowsCache.key === key) {
+      return familyLibraryRowsCache.rows;
+    }
+    const rows = (state.familyLibrary?.appidSet || [])
+      .map(appid => state.familyLibrary?.appInfoById?.[String(appid)])
+      .filter(Boolean)
       .sort(sortFamilyLibraryRows);
+    familyLibraryRowsCache = { key, rows };
+    return rows;
   }
 
   function buildAllGamesTable(rows) {
-    const includeTargetOwners = isMultiTargetReport();
-    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(t("status"), "status", statusCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
+    const { columns, rowAttrs } = getDetailsTableConfig("all");
+    return buildGameTable(rows, columns, rowAttrs);
   }
 
   function buildFamilyLibraryTable(rows) {
-    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(t("acquiredAt"), "time", timeCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
+    const { columns, rowAttrs } = getDetailsTableConfig("family");
+    return buildGameTable(rows, columns, rowAttrs);
   }
 
   function buildRelativeNewTable(rows) {
-    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
+    const { columns, rowAttrs } = getDetailsTableConfig("relativeNew");
+    return buildGameTable(rows, columns, rowAttrs);
   }
 
   function buildNewGamesTable(rows) {
-    const includeTargetOwners = isMultiTargetReport();
-    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
+    const { columns, rowAttrs } = getDetailsTableConfig("new");
+    return buildGameTable(rows, columns, rowAttrs);
   }
 
   function buildOverlapTable(rows) {
-    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
+    const { columns, rowAttrs } = getDetailsTableConfig("overlap");
+    return buildGameTable(rows, columns, rowAttrs);
+  }
+
+  function getDetailsTableConfig(tab) {
+    const normalizedTab = normalizeMainTab(tab);
+    const includeTargetOwners = isMultiTargetReport();
+    if (normalizedTab === "all") {
+      return {
+        columns: applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(t("status"), "status", statusCell), col(getPriceLabel(), "price", priceCell)]),
+        rowAttrs: priceRowAttrs
+      };
+    }
+    if (normalizedTab === "family") {
+      return {
+        columns: applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(t("acquiredAt"), "time", timeCell), col(getPriceLabel(), "price", priceCell)]),
+        rowAttrs: priceRowAttrs
+      };
+    }
+    if (normalizedTab === "new") {
+      return {
+        columns: applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(getPriceLabel(), "price", priceCell)]),
+        rowAttrs: priceRowAttrs
+      };
+    }
+    return {
+      columns: applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(getPriceLabel(), "price", priceCell)]),
+      rowAttrs: priceRowAttrs
+    };
   }
 
   function priceRowAttrs(game) {
@@ -10653,9 +11124,14 @@
     const activeColumns = columns.filter(Boolean);
     return tableHtml(
       `<tr>${activeColumns.map(column => sortableTh(column.label, column.key, column.style)).join("")}</tr>`,
-      rows.map(game => `<tr${rowAttrs(game)}>${activeColumns.map(column => column.cell(game)).join("")}</tr>`).join(""),
+      buildGameTableRows(rows, activeColumns, rowAttrs),
       buildTableColgroup(activeColumns)
     );
+  }
+
+  function buildGameTableRows(rows, columns, rowAttrs = () => "") {
+    const activeColumns = columns.filter(Boolean);
+    return rows.map(game => `<tr${rowAttrs(game)}>${activeColumns.map(column => column.cell(game)).join("")}</tr>`).join("");
   }
 
   function buildTableColgroup(columns) {

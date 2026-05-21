@@ -171,6 +171,20 @@
         search: "搜索"
       },
       searchPlaceholder: "搜索游戏名或 AppID",
+      ruleFilter: "筛选",
+      ruleFilterClear: "清除筛选",
+      ruleFilterStatus: "状态",
+      ruleFilterPrice: "价格",
+      ruleFilterOwner: "账号",
+      ruleFilterTime: "入库时间",
+      ruleFilterAll: "全部",
+      ruleFilterNoPrice: "无价格",
+      ruleFilterFree: "免费/0",
+      ruleFilterTimeRecent: "最近",
+      ruleFilterTimeWeek: "一周内",
+      ruleFilterTimeMonth: "一个月内",
+      ruleFilterTimeYear: "一年内",
+      ruleFilterTimeTwoYears: "两年内",
       copyList: "复制列表",
       originalName: "原名",
       initialEmpty: "输入账号后分析",
@@ -430,6 +444,20 @@
         search: "Search"
       },
       searchPlaceholder: "Search game name or AppID",
+      ruleFilter: "Filter",
+      ruleFilterClear: "Clear filters",
+      ruleFilterStatus: "Status",
+      ruleFilterPrice: "Price",
+      ruleFilterOwner: "Account",
+      ruleFilterTime: "Acquired",
+      ruleFilterAll: "All",
+      ruleFilterNoPrice: "No price",
+      ruleFilterFree: "Free/0",
+      ruleFilterTimeRecent: "Recent",
+      ruleFilterTimeWeek: "Past week",
+      ruleFilterTimeMonth: "Past month",
+      ruleFilterTimeYear: "Past year",
+      ruleFilterTimeTwoYears: "Past 2 years",
       copyList: "Copy list",
       originalName: "Original name",
       initialEmpty: "Enter an account to analyze",
@@ -965,6 +993,7 @@
   let comparePriceRangeByTarget = {};
   let globalCompareFilter = "all";
   let globalCompareDrilldown = null;
+  let ruleFilterState = createDefaultRuleFilterState();
   let analysisHistorySaveTimer = 0;
   let analysisInputHistoryCache = null;
   let searchRenderTimer = 0;
@@ -3018,6 +3047,67 @@
       .sffa-sort-wrap .sffa-list-menu {
         min-width: 150px;
       }
+      .sffa-rule-filter-wrap {
+        position: relative;
+      }
+      .sffa-rule-filter-wrap .sffa-list-select {
+        min-width: 92px;
+      }
+      .sffa-rule-filter-menu {
+        width: 320px;
+        max-height: min(460px, calc(100vh - 140px));
+        overflow: auto;
+      }
+      .sffa-rule-filter-group {
+        display: grid;
+        gap: 7px;
+        padding: 6px 0 9px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .sffa-rule-filter-group:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+      .sffa-rule-filter-title {
+        padding: 0 2px;
+        color: #8fd1ff;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.4;
+      }
+      .sffa-rule-filter-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .sffa-rule-filter-option {
+        width: auto;
+        min-width: 0;
+        min-height: 26px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 9px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.035);
+        line-height: 1;
+      }
+      .sffa-rule-filter-option span {
+        min-width: 0;
+        max-width: 132px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sffa-rule-filter-option:hover {
+        background: rgba(102, 192, 244, 0.14);
+        border-color: rgba(143, 209, 255, 0.24);
+      }
+      .sffa-rule-filter-option.is-active {
+        background: rgba(102, 192, 244, 0.28);
+        border-color: rgba(143, 209, 255, 0.46);
+        color: #ffffff;
+      }
       .sffa-list-option {
         width: 100%;
         min-height: 30px;
@@ -3037,6 +3127,28 @@
       }
       .sffa-list-option.is-active {
         background: rgba(102, 192, 244, 0.22);
+        color: #ffffff;
+      }
+      .sffa-list-option.sffa-rule-filter-option {
+        width: auto;
+        min-width: 0;
+        min-height: 26px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 9px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.035);
+        line-height: 1;
+      }
+      .sffa-list-option.sffa-rule-filter-option:hover {
+        background: rgba(102, 192, 244, 0.14);
+        border-color: rgba(143, 209, 255, 0.24);
+      }
+      .sffa-list-option.sffa-rule-filter-option.is-active {
+        background: rgba(102, 192, 244, 0.28);
+        border-color: rgba(143, 209, 255, 0.46);
         color: #ffffff;
       }
       .sffa-tab {
@@ -3824,6 +3936,10 @@
                   <button class="sffa-list-select" type="button" data-sffa-sort-select aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("sort"))}">${escapeHtml(t("sort"))}</button>
                   <div class="sffa-list-menu" role="listbox" data-sffa-sort-menu></div>
                 </div>
+                <div class="sffa-list-wrap sffa-rule-filter-wrap" data-sffa-rule-filter-wrap>
+                  <button class="sffa-list-select" type="button" data-sffa-rule-filter-select aria-haspopup="menu" aria-expanded="false" aria-label="${escapeAttr(t("ruleFilter"))}">${escapeHtml(t("ruleFilter"))}</button>
+                  <div class="sffa-list-menu sffa-rule-filter-menu" role="menu" data-sffa-rule-filter-menu></div>
+                </div>
                 <div class="sffa-search-wrap" data-sffa-search-wrap>
                   <input class="sffa-search-input" data-sffa-search placeholder="${escapeAttr(t("searchPlaceholder"))}" autocomplete="off">
                   <button class="sffa-search-clear" type="button" data-sffa-search-clear data-sffa-tooltip="${escapeAttr(t("clear"))}" aria-label="${escapeAttr(t("clear"))}">
@@ -4023,6 +4139,9 @@
       sortWrap: root.querySelector("[data-sffa-sort-wrap]"),
       sortSelect: root.querySelector("[data-sffa-sort-select]"),
       sortMenu: root.querySelector("[data-sffa-sort-menu]"),
+      ruleFilterWrap: root.querySelector("[data-sffa-rule-filter-wrap]"),
+      ruleFilterSelect: root.querySelector("[data-sffa-rule-filter-select]"),
+      ruleFilterMenu: root.querySelector("[data-sffa-rule-filter-menu]"),
       searchWrap: root.querySelector("[data-sffa-search-wrap]"),
       searchInput: root.querySelector("[data-sffa-search]"),
       searchClearBtn: root.querySelector("[data-sffa-search-clear]"),
@@ -4160,6 +4279,8 @@
     });
     elements.sortSelect?.addEventListener("click", toggleSortMenu);
     elements.sortMenu?.addEventListener("click", handleSortMenuClick);
+    elements.ruleFilterSelect?.addEventListener("click", toggleRuleFilterMenu);
+    elements.ruleFilterMenu?.addEventListener("click", handleRuleFilterMenuClick);
     elements.searchInput.addEventListener("input", () => {
       renderSearchClearButton();
       scheduleSearchRender();
@@ -4208,6 +4329,7 @@
         }
         closeListMenu();
         closeSortMenu();
+        closeRuleFilterMenu();
         closeAnalysisHistoryMenu();
         closeMenu();
         closeCopyListMenu();
@@ -4223,6 +4345,9 @@
       }
       if (!elements.sortWrap?.contains(event.target)) {
         closeSortMenu();
+      }
+      if (!elements.ruleFilterWrap?.contains(event.target)) {
+        closeRuleFilterMenu();
       }
       if (!elements.historyWrap?.contains(event.target)) {
         closeAnalysisHistoryMenu();
@@ -4638,6 +4763,7 @@
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     closeSortMenu();
+    closeRuleFilterMenu();
     closePriceSettingsDialog();
     closeFamilyPosterDialog();
     closeCompareDialog();
@@ -4661,6 +4787,7 @@
     closeLocaleMenu();
     closeListMenu();
     closeSortMenu();
+    closeRuleFilterMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.menuWrap.classList.toggle("is-menu-open");
@@ -4673,6 +4800,7 @@
     elements.moreBtn?.setAttribute("aria-expanded", "false");
     closeListMenu();
     closeSortMenu();
+    closeRuleFilterMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.localeWrap.classList.toggle("is-open");
@@ -4695,6 +4823,7 @@
     event.stopPropagation();
     closeMenu();
     closeSortMenu();
+    closeRuleFilterMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     const isOpen = elements.listWrap.classList.toggle("is-open");
@@ -4710,6 +4839,7 @@
     event.stopPropagation();
     closeMenu();
     closeListMenu();
+    closeRuleFilterMenu();
     closeAnalysisHistoryMenu();
     closeCopyListMenu();
     renderSortControl();
@@ -4722,6 +4852,28 @@
     elements.sortSelect?.setAttribute("aria-expanded", "false");
   }
 
+  function toggleRuleFilterMenu(event) {
+    event.stopPropagation();
+    const wasOpen = elements.ruleFilterWrap.classList.contains("is-open");
+    closeMenu();
+    closeListMenu();
+    closeSortMenu();
+    closeRuleFilterMenu();
+    closeAnalysisHistoryMenu();
+    closeCopyListMenu();
+    if (wasOpen) {
+      return;
+    }
+    renderRuleFilterControl();
+    const isOpen = elements.ruleFilterWrap.classList.toggle("is-open");
+    elements.ruleFilterSelect.setAttribute("aria-expanded", String(isOpen));
+  }
+
+  function closeRuleFilterMenu() {
+    elements.ruleFilterWrap?.classList.remove("is-open");
+    elements.ruleFilterSelect?.setAttribute("aria-expanded", "false");
+  }
+
   function openAnalysisHistoryMenu() {
     if (!elements.historyMenu?.children.length) {
       closeAnalysisHistoryMenu();
@@ -4730,6 +4882,7 @@
     closeMenu();
     closeListMenu();
     closeSortMenu();
+    closeRuleFilterMenu();
     closeCopyListMenu();
     elements.historyWrap?.classList.add("is-open");
     elements.targetInput?.setAttribute("aria-expanded", "true");
@@ -4921,7 +5074,7 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
@@ -9381,7 +9534,9 @@
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    normalizeRuleFilterForCurrentTab();
     renderSortControl();
+    renderRuleFilterControl();
     renderSearchClearButton();
     if (elements.reloadCoversBtn) {
       elements.reloadCoversBtn.hidden = false;
@@ -9448,6 +9603,209 @@
         `;
       }))
       .join("");
+  }
+
+  function createDefaultRuleFilterState() {
+    return {
+      status: ["all"],
+      price: ["all"],
+      owner: ["all"],
+      time: "all"
+    };
+  }
+
+  function renderRuleFilterControl() {
+    if (!elements.ruleFilterSelect || !elements.ruleFilterMenu) {
+      return;
+    }
+
+    const activeCount = getActiveRuleFilterCount();
+    elements.ruleFilterSelect.textContent = activeCount ? `${t("ruleFilter")} (${activeCount})` : t("ruleFilter");
+    elements.ruleFilterSelect.classList.toggle("is-active", activeCount > 0);
+    elements.ruleFilterMenu.innerHTML = [
+      isRuleFilterKindApplicable("status") && renderRuleFilterGroup("status", t("ruleFilterStatus"), getRuleFilterStatusOptions()),
+      isRuleFilterKindApplicable("price") && renderRuleFilterGroup("price", t("ruleFilterPrice"), getRuleFilterPriceOptions()),
+      isRuleFilterKindApplicable("owner") && renderRuleFilterGroup("owner", t("ruleFilterOwner"), getRuleFilterOwnerOptions()),
+      isRuleFilterKindApplicable("time") && renderRuleFilterGroup("time", t("ruleFilterTime"), getRuleFilterTimeOptions()),
+      `<div class="sffa-rule-filter-group"><button class="sffa-list-option" type="button" role="menuitem" data-sffa-rule-filter-clear>${escapeHtml(t("ruleFilterClear"))}</button></div>`
+    ].filter(Boolean).join("");
+  }
+
+  function renderRuleFilterGroup(kind, label, options) {
+    return `
+      <div class="sffa-rule-filter-group">
+        <div class="sffa-rule-filter-title">${escapeHtml(label)}</div>
+        <div class="sffa-rule-filter-options">
+        ${options.map(option => {
+      const active = isRuleFilterOptionActive(kind, option.value);
+      const role = isRuleFilterMultiSelectKind(kind) ? "menuitemcheckbox" : "menuitemradio";
+      return `
+          <button class="sffa-list-option sffa-rule-filter-option${active ? " is-active" : ""}" type="button" role="${role}" data-sffa-rule-filter-kind="${escapeAttr(kind)}" data-sffa-rule-filter-value="${escapeAttr(option.value)}" aria-checked="${active ? "true" : "false"}">
+            <span>${escapeHtml(option.label)}</span>
+          </button>
+        `;
+    }).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function getRuleFilterValue(kind) {
+    if (isRuleFilterMultiSelectKind(kind)) {
+      return getRuleFilterValues(kind)[0] || "all";
+    }
+    return String(ruleFilterState?.[kind] || "all");
+  }
+
+  function getRuleFilterValues(kind) {
+    if (!isRuleFilterMultiSelectKind(kind)) {
+      return [getRuleFilterValue(kind)];
+    }
+    const rawValue = ruleFilterState?.[kind];
+    const values = (Array.isArray(rawValue) ? rawValue : [rawValue])
+      .map(value => String(value || ""))
+      .filter(Boolean);
+    return normalizeMultiRuleFilterValues(values);
+  }
+
+  function setRuleFilterValue(kind, value) {
+    ruleFilterState = {
+      ...ruleFilterState,
+      [kind]: isRuleFilterMultiSelectKind(kind) ? toggleMultiRuleFilterValue(kind, value) : String(value || "all")
+    };
+  }
+
+  function toggleMultiRuleFilterValue(kind, value) {
+    const nextValue = String(value || "all");
+    if (nextValue === "all") {
+      return ["all"];
+    }
+    const currentValues = getRuleFilterValues(kind).filter(item => item !== "all");
+    const nextValues = currentValues.includes(nextValue)
+      ? currentValues.filter(item => item !== nextValue)
+      : [...currentValues, nextValue];
+    return nextValues.length ? nextValues : ["all"];
+  }
+
+  function normalizeMultiRuleFilterValues(values) {
+    const uniqueValues = Array.from(new Set(values.map(value => String(value || "")).filter(Boolean)));
+    if (!uniqueValues.length || uniqueValues.includes("all")) {
+      return ["all"];
+    }
+    return uniqueValues;
+  }
+
+  function isRuleFilterOptionActive(kind, value) {
+    if (isRuleFilterMultiSelectKind(kind)) {
+      return getRuleFilterValues(kind).includes(String(value || "all"));
+    }
+    return getRuleFilterValue(kind) === String(value || "all");
+  }
+
+  function isRuleFilterMultiSelectKind(kind) {
+    return kind !== "time";
+  }
+
+  function normalizeRuleFilterForCurrentTab() {
+    const ownerValues = getRuleFilterValues("owner");
+    if (ownerValues.includes("all")) {
+      return;
+    }
+    const ownerIds = new Set(getRuleFilterOwnerItems().map(item => item.id));
+    const nextOwners = ownerValues.filter(owner => ownerIds.has(owner));
+    if (nextOwners.length !== ownerValues.length) {
+      ruleFilterState = {
+        ...ruleFilterState,
+        owner: nextOwners.length ? nextOwners : ["all"]
+      };
+    }
+  }
+
+  function getActiveRuleFilterCount() {
+    return ["status", "price", "owner", "time"].reduce((count, kind) => {
+      if (!isRuleFilterKindApplicable(kind)) {
+        return count;
+      }
+      if (isRuleFilterMultiSelectKind(kind)) {
+        return count + getRuleFilterValues(kind).filter(value => value !== "all").length;
+      }
+      return getRuleFilterValue(kind) === "all" ? count : count + 1;
+    }, 0);
+  }
+
+  function isRuleFilterKindApplicable(kind, tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    if (kind === "status") {
+      return normalizedTab === "all";
+    }
+    if (kind === "time") {
+      return normalizedTab === "family";
+    }
+    return true;
+  }
+
+  function getRuleFilterStatusOptions() {
+    return [
+      { value: "all", label: t("ruleFilterAll") },
+      { value: "new", label: t("addedGames") },
+      { value: "overlap", label: t("duplicatedGames") },
+      { value: "noValue", label: t("noAddedValue") },
+      { value: "unsupported", label: t("unsupported") },
+      { value: "pending", label: t("pending") }
+    ];
+  }
+
+  function getRuleFilterPriceOptions() {
+    return [
+      { value: "all", label: t("ruleFilterAll") },
+      { value: "none", label: t("ruleFilterNoPrice") },
+      { value: "free", label: t("ruleFilterFree") },
+      ...COMPARE_PRICE_RANGES.map(range => ({ value: range.key, label: range.label }))
+    ];
+  }
+
+  function getRuleFilterOwnerOptions() {
+    return [
+      { value: "all", label: t("ruleFilterAll") },
+      ...getRuleFilterOwnerItems().map(item => ({ value: item.id, label: item.label }))
+    ];
+  }
+
+  function getRuleFilterTimeOptions() {
+    return [
+      { value: "all", label: t("ruleFilterAll") },
+      { value: "recent", label: t("ruleFilterTimeRecent") },
+      { value: "week", label: t("ruleFilterTimeWeek") },
+      { value: "month", label: t("ruleFilterTimeMonth") },
+      { value: "year", label: t("ruleFilterTimeYear") },
+      { value: "twoYears", label: t("ruleFilterTimeTwoYears") }
+    ];
+  }
+
+  function getRuleFilterOwnerItems(tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    const useTargetOwners = normalizedTab === "all" || normalizedTab === "new";
+    const idSet = new Set();
+    const sourceRows = getRuleFilterOwnerSourceRows(normalizedTab);
+    sourceRows.forEach(game => {
+      const ids = useTargetOwners ? game.targetOwners || [] : game.owners || [];
+      ids.map(String).filter(Boolean).forEach(id => idSet.add(id));
+    });
+    const names = useTargetOwners ? getTargetNameById() : state.familyInfo?.steamIdtoName || {};
+    return Array.from(idSet)
+      .map(id => ({ id, label: names[id] || id }))
+      .sort((left, right) => String(left.label || "").localeCompare(String(right.label || ""), getNumberLocale(), { numeric: true, sensitivity: "base" }));
+  }
+
+  function getRuleFilterOwnerSourceRows(tab) {
+    const normalizedTab = normalizeMainTab(tab);
+    if (normalizedTab === "family") {
+      return getFamilyLibraryRows();
+    }
+    if (!lastReport) {
+      return [];
+    }
+    return getReportRowsForCurrentSelection(normalizedTab);
   }
 
   function normalizeListViewMode(mode) {
@@ -9649,6 +10007,31 @@
     scheduleAnalysisHistorySave();
   }
 
+  function handleRuleFilterMenuClick(event) {
+    event.stopPropagation();
+    const clearButton = event.target.closest("[data-sffa-rule-filter-clear]");
+    if (clearButton) {
+      ruleFilterState = createDefaultRuleFilterState();
+      renderRuleFilterControl();
+      renderDetailsPreserveScroll();
+      scheduleAnalysisHistorySave();
+      return;
+    }
+
+    const option = event.target.closest("[data-sffa-rule-filter-kind][data-sffa-rule-filter-value]");
+    if (!option || !elements.ruleFilterMenu?.contains(option)) {
+      return;
+    }
+    const kind = String(option.dataset.sffaRuleFilterKind || "");
+    if (!["status", "price", "owner", "time"].includes(kind)) {
+      return;
+    }
+    setRuleFilterValue(kind, option.dataset.sffaRuleFilterValue || "all");
+    renderRuleFilterControl();
+    renderDetailsPreserveScroll();
+    scheduleAnalysisHistorySave();
+  }
+
   function handleDetailsScroll(event) {
     if (event.target?.dataset?.sffaTableBodyScroll != null) {
       syncTableHeaderScroll(event.target);
@@ -9669,7 +10052,8 @@
     elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() !== "table");
     if (currentTab === "family") {
       const sourceRows = getFamilyLibraryRows();
-      const rows = getSortedRows("family", filterRowsBySearchQuery(sourceRows));
+      const filteredRows = filterRowsByActiveRules("family", filterRowsBySearchQuery(sourceRows));
+      const rows = getSortedRows("family", filteredRows);
       if (rows.length === 0) {
         elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(sourceRows.length ? t("noMatches") : t("noFamilyRefresh"))}</div>`;
         return;
@@ -9688,7 +10072,8 @@
     }
 
     const sourceRows = getReportRowsForCurrentSelection(currentTab);
-    const rows = getSortedRows(currentTab, filterRowsBySearchQuery(sourceRows));
+    const filteredRows = filterRowsByActiveRules(currentTab, filterRowsBySearchQuery(sourceRows));
+    const rows = getSortedRows(currentTab, filteredRows);
     if (["all", "new", "relativeNew", "overlap"].includes(currentTab) && !lastReport.filtering?.running) {
       prepareOriginalPricesForMissingRows(rows);
     }
@@ -9921,6 +10306,125 @@
     });
   }
 
+  function filterRowsByActiveRules(tab, rows) {
+    const normalizedTab = normalizeMainTab(tab);
+    const context = createRuleFilterContext(normalizedTab, rows);
+    return rows.filter(game => isGameMatchedByRuleFilters(normalizedTab, game, context));
+  }
+
+  function createRuleFilterContext(tab, rows) {
+    return {
+      recentFamilyAppids: getRuleFilterValue("time") === "recent" && isRuleFilterKindApplicable("time", tab)
+        ? createRecentFamilyAppidSet(rows)
+        : null
+    };
+  }
+
+  function createRecentFamilyAppidSet(rows) {
+    const sortedRows = rows
+      .filter(game => Number(game?.time || 0) > 0)
+      .slice()
+      .sort((left, right) => Number(right.time || 0) - Number(left.time || 0));
+    const cutoffGame = sortedRows[19];
+    if (!cutoffGame) {
+      return new Set(sortedRows.map(game => String(game.appid || "")));
+    }
+    const cutoffDateKey = getFamilyAcquireDateKey(cutoffGame.time);
+    return new Set(sortedRows
+      .filter((game, index) => index < 20 || getFamilyAcquireDateKey(game.time) === cutoffDateKey)
+      .map(game => String(game.appid || "")));
+  }
+
+  function getFamilyAcquireDateKey(timestamp) {
+    const date = new Date(Number(timestamp || 0) * 1000);
+    return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  }
+
+  function isGameMatchedByRuleFilters(tab, game, context) {
+    return isGameMatchedByStatusFilter(tab, game)
+      && isGameMatchedByPriceFilter(game)
+      && isGameMatchedByOwnerFilter(tab, game)
+      && isGameMatchedByTimeFilter(tab, game, context);
+  }
+
+  function isGameMatchedByStatusFilter(tab, game) {
+    const statuses = getRuleFilterValues("status");
+    if (statuses.includes("all") || !isRuleFilterKindApplicable("status", tab)) {
+      return true;
+    }
+    return statuses.includes(getGameStatusKey(game));
+  }
+
+  function isGameMatchedByPriceFilter(game) {
+    const filters = getRuleFilterValues("price");
+    if (filters.includes("all")) {
+      return true;
+    }
+    return filters.some(filter => isGameMatchedByPriceFilterValue(game, filter));
+  }
+
+  function isGameMatchedByPriceFilterValue(game, filter) {
+    const price = resolveGamePrice(game) || {};
+    if (filter === "none") {
+      return !price || price.unavailable || price.initial == null;
+    }
+    if (filter === "free") {
+      return Boolean(price.isFree || (Number(price.initial || 0) <= 0 && price.initial != null && !price.unavailable));
+    }
+    return getGamePriceRangeKey(price) === filter;
+  }
+
+  function isGameMatchedByOwnerFilter(tab, game) {
+    const ownerFilters = getRuleFilterValues("owner");
+    if (ownerFilters.includes("all") || !isRuleFilterKindApplicable("owner", tab)) {
+      return true;
+    }
+    const owners = tab === "all" || tab === "new" ? game.targetOwners || [] : game.owners || [];
+    const ownerSet = new Set(owners.map(String));
+    return ownerFilters.some(owner => ownerSet.has(owner));
+  }
+
+  function isGameMatchedByTimeFilter(tab, game, context) {
+    const filter = getRuleFilterValue("time");
+    if (filter === "all" || !isRuleFilterKindApplicable("time", tab)) {
+      return true;
+    }
+    if (filter === "recent") {
+      return Boolean(context?.recentFamilyAppids?.has(String(game?.appid || "")));
+    }
+    const acquiredSeconds = Number(game?.time || 0);
+    if (!acquiredSeconds) {
+      return false;
+    }
+    const rangeDays = {
+      week: 7,
+      month: 31,
+      year: 365,
+      twoYears: 365 * 2
+    }[filter];
+    if (!rangeDays) {
+      return true;
+    }
+    const ageMs = Date.now() - acquiredSeconds * 1000;
+    return ageMs >= 0 && ageMs <= rangeDays * 24 * 60 * 60 * 1000;
+  }
+
+  function getGameStatusKey(game) {
+    return lastReport?.classificationById?.[String(game?.appid || "")]?.status || "pending";
+  }
+
+  function getGamePriceRangeKey(price) {
+    if (!price || price.pending || price.unavailable || price.initial == null) {
+      return "";
+    }
+    const cents = Number(price.initial || 0);
+    if (cents <= 0) {
+      return "free";
+    }
+    const range = COMPARE_PRICE_RANGES.find(item => cents >= item.min && cents < item.max);
+    return range?.key || "";
+  }
+
   function getCurrentSearchQuery() {
     return String(elements.searchInput?.value || "").trim().toLowerCase();
   }
@@ -10002,12 +10506,12 @@
   function getCurrentListRows(tab = currentTab) {
     const normalizedTab = normalizeMainTab(tab);
     if (normalizedTab === "family") {
-      return getSortedRows("family", filterRowsBySearchQuery(getFamilyLibraryRows()));
+      return getSortedRows("family", filterRowsByActiveRules("family", filterRowsBySearchQuery(getFamilyLibraryRows())));
     }
     if (!lastReport) {
       return [];
     }
-    return getSortedRows(normalizedTab, filterRowsBySearchQuery(getReportRowsForCurrentSelection(normalizedTab)));
+    return getSortedRows(normalizedTab, filterRowsByActiveRules(normalizedTab, filterRowsBySearchQuery(getReportRowsForCurrentSelection(normalizedTab))));
   }
 
   function getFamilyLibraryRows() {

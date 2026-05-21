@@ -8269,16 +8269,21 @@
     elements.globalCompareHint.textContent = view.accounts.length
       ? `${t("globalCompareHint")} · ${t("globalCompareAccounts", { count: view.accounts.length })} · ${t("globalCompareGames", { count: view.gameCount })}`
       : t("globalCompareHint");
-    elements.globalCompareBody.innerHTML = renderGlobalContributionChartHtml(view);
-    activateGlobalCompareDetailLayout(view);
+    const keepDetailLayout = Boolean(view.drilldown && elements.globalCompareBody.querySelector("[data-sffa-global-content].has-detail"));
+    elements.globalCompareBody.innerHTML = renderGlobalContributionChartHtml(view, { keepDetailLayout });
+    activateGlobalCompareDetailLayout(view, { skipAnimation: keepDetailLayout });
   }
 
-  function activateGlobalCompareDetailLayout(view) {
+  function activateGlobalCompareDetailLayout(view, options = {}) {
     if (!view?.drilldown || !elements.globalCompareBody) {
       return;
     }
     const content = elements.globalCompareBody.querySelector("[data-sffa-global-content]");
     if (!content) {
+      return;
+    }
+    if (options.skipAnimation) {
+      content.classList.add("has-detail");
       return;
     }
     window.requestAnimationFrame(() => {
@@ -8719,7 +8724,7 @@
     return colors[count] || `hsl(${(Number(count || 0) * 47) % 360} 58% 48%)`;
   }
 
-  function renderGlobalContributionChartHtml(view) {
+  function renderGlobalContributionChartHtml(view, options = {}) {
     const accountCount = Math.max(1, view.accounts.length);
     const chartMax = Math.max(1, Number(view.chartMax || 1));
     const filterHtml = renderGlobalCompareFilterHtml();
@@ -8756,7 +8761,7 @@
         </div>
       </div>
       <div class="sffa-global-legend">${legendHtml}</div>
-      <div class="sffa-global-content" data-sffa-global-content>
+      <div class="sffa-global-content${options.keepDetailLayout && hasDetail ? " has-detail" : ""}" data-sffa-global-content>
         <div class="sffa-global-chart">
           <div class="sffa-global-chart-grid" style="--sffa-global-account-count: ${escapeAttr(accountCount)}">
             <div class="sffa-global-y-axis">${ticksHtml}</div>

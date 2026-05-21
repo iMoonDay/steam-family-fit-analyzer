@@ -93,6 +93,7 @@
     { key: "high", max: 29800 },
     { key: "veryHigh", max: Infinity }
   ]);
+  const TAG_TONE_COUNT = 20;
   const REPORT_LIST_TABS = Object.freeze(["all", "new", "relativeNew", "overlap"]);
   const STEAM_LANGUAGE_ALIASES = parseI18nEntries("english=english|en=english|en-us=english|en-gb=english|schinese=schinese|zh-cn=schinese|zh-hans=schinese|tchinese=tchinese|zh-tw=tchinese|zh-hk=tchinese|japanese=japanese|ja=japanese|ja-jp=japanese|koreana=koreana|ko=koreana|ko-kr=koreana|german=german|de=german|de-de=german|french=french|fr=french|fr-fr=french|italian=italian|it=italian|spanish=spanish|es=spanish|es-es=spanish|brazilian=brazilian|pt-br=brazilian|russian=russian|ru=russian");
   const STORE_ITEM_ASSET_BASE_URL = "https://shared.fastly.steamstatic.com/store_item_assets/";
@@ -322,6 +323,7 @@
       viewMode: "视图",
       viewTable: "表格",
       viewCover: "网格",
+      viewPoster: "海报",
       reloadCovers: "重载网格封面",
       coversReloaded: "已重载网格封面",
       continueCovers: "继续加载网格封面...",
@@ -554,6 +556,7 @@
       viewMode: "View",
       viewTable: "Table",
       viewCover: "Grid",
+      viewPoster: "Poster",
       reloadCovers: "Reload grid covers",
       coversReloaded: "Grid cover images reloaded",
       continueCovers: "Continuing grid cover loading...",
@@ -907,9 +910,14 @@
   let activePosterDialogContext = null;
   let autoFamilyRefreshRunning = false;
   let coverReloadToken = 0;
+  let familyOwnerToneCache = { key: "", map: new Map() };
+  let targetOwnerToneCache = { key: "", map: new Map() };
   let elements = {};
   let activeTooltipTarget = null;
   let tooltipHideTimer = 0;
+  let tooltipMoveFrame = 0;
+  let pendingTooltipEvent = null;
+  let tooltipSizeCache = { width: 0, height: 0 };
 
   bootstrap();
 
@@ -999,7 +1007,7 @@
         line-height: 1.45;
         white-space: pre-line;
         overflow-wrap: anywhere;
-        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+        box-shadow: none;
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
@@ -2846,6 +2854,87 @@
         line-height: 1.35;
         overflow-wrap: anywhere;
       }
+      .sffa-poster-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+        gap: 10px;
+      }
+      .sffa-poster-card {
+        position: relative;
+        min-width: 0;
+        aspect-ratio: 2 / 3;
+        display: block;
+        border: 0;
+        border-radius: 4px;
+        background-color: #121820;
+        background-image:
+          linear-gradient(180deg, rgba(8, 12, 18, 0.66) 0%, rgba(8, 12, 18, 0.16) 28%, rgba(8, 12, 18, 0.42) 58%, rgba(8, 12, 18, 0.96) 100%),
+          var(--sffa-cover, none);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        color: inherit;
+        text-decoration: none;
+        overflow: hidden;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+        transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+      }
+      .sffa-poster-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.34);
+        filter: brightness(1.03);
+      }
+      .sffa-poster-top,
+      .sffa-poster-bottom {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        display: flex;
+        gap: 6px;
+        min-width: 0;
+        pointer-events: none;
+      }
+      .sffa-poster-top {
+        top: 10px;
+        align-items: flex-start;
+        justify-content: space-between;
+      }
+      .sffa-poster-bottom {
+        bottom: 10px;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .sffa-poster-left-tags,
+      .sffa-poster-owner-tags {
+        min-width: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .sffa-poster-price {
+        flex: 0 0 auto;
+        margin-left: auto;
+      }
+      .sffa-poster-title {
+        max-width: 100%;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1.18;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.82);
+        overflow-wrap: anywhere;
+      }
+      .sffa-poster-card .sffa-table-tag {
+        background-color: rgba(12, 18, 26, 0.24);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px) saturate(1.2);
+        -webkit-backdrop-filter: blur(10px) saturate(1.2);
+      }
       .sffa-table {
         width: 100%;
         border-collapse: collapse;
@@ -2974,6 +3063,18 @@
       .sffa-table-tag.is-tone-5 { background: rgba(80, 220, 196, 0.16); color: #9ff4e4; }
       .sffa-table-tag.is-tone-6 { background: rgba(255, 216, 102, 0.16); color: #ffe58f; }
       .sffa-table-tag.is-tone-7 { background: rgba(150, 156, 167, 0.18); color: #d7dde2; }
+      .sffa-table-tag.is-tone-8 { background: rgba(120, 170, 255, 0.18); color: #b9d3ff; }
+      .sffa-table-tag.is-tone-9 { background: rgba(255, 156, 95, 0.18); color: #ffc39b; }
+      .sffa-table-tag.is-tone-10 { background: rgba(126, 238, 164, 0.16); color: #b8f8ca; }
+      .sffa-table-tag.is-tone-11 { background: rgba(240, 132, 226, 0.16); color: #f6b8ee; }
+      .sffa-table-tag.is-tone-12 { background: rgba(114, 229, 255, 0.16); color: #b8f2ff; }
+      .sffa-table-tag.is-tone-13 { background: rgba(205, 222, 96, 0.16); color: #edf69a; }
+      .sffa-table-tag.is-tone-14 { background: rgba(255, 112, 112, 0.16); color: #ffb0b0; }
+      .sffa-table-tag.is-tone-15 { background: rgba(166, 142, 255, 0.18); color: #cec2ff; }
+      .sffa-table-tag.is-tone-16 { background: rgba(92, 205, 148, 0.18); color: #a8efc5; }
+      .sffa-table-tag.is-tone-17 { background: rgba(255, 191, 120, 0.16); color: #ffd7aa; }
+      .sffa-table-tag.is-tone-18 { background: rgba(111, 214, 214, 0.16); color: #aeeeee; }
+      .sffa-table-tag.is-tone-19 { background: rgba(214, 154, 118, 0.18); color: #f1c1a7; }
       .sffa-table-tag.is-status-new { background: rgba(111, 201, 132, 0.18); color: #a8efb5; }
       .sffa-table-tag.is-status-overlap { background: rgba(102, 192, 244, 0.16); color: #8fd1ff; }
       .sffa-table-tag.is-status-no-value { background: rgba(125, 132, 141, 0.16); color: #d7dde2; }
@@ -3030,6 +3131,10 @@
           padding: 8px;
         }
         .sffa-cover-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .sffa-poster-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
         }
@@ -3154,6 +3259,7 @@
                 <div class="sffa-view-switch" data-sffa-view-switch aria-label="${escapeAttr(t("viewMode"))}">
                   <button class="sffa-view-btn is-active" type="button" data-sffa-view-mode="table">${escapeHtml(t("viewTable"))}</button>
                   <button class="sffa-view-btn" type="button" data-sffa-view-mode="cover">${escapeHtml(t("viewCover"))}</button>
+                  <button class="sffa-view-btn" type="button" data-sffa-view-mode="poster">${escapeHtml(t("viewPoster"))}</button>
                 </div>
                 <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
                 <div class="sffa-copy-list-wrap" data-sffa-copy-list-wrap>
@@ -3554,7 +3660,7 @@
 
   function handleTooltipPointerMove(event) {
     if (activeTooltipTarget && activeTooltipTarget.contains(event.target)) {
-      positionTooltip(event);
+      scheduleTooltipPosition(event);
     }
   }
 
@@ -3635,7 +3741,23 @@
     tooltipBox.textContent = text;
     tooltipBox.hidden = false;
     tooltipBox.classList.add("is-visible");
+    tooltipSizeCache = {
+      width: tooltipBox.offsetWidth,
+      height: tooltipBox.offsetHeight
+    };
     positionTooltip(event);
+  }
+
+  function scheduleTooltipPosition(event) {
+    pendingTooltipEvent = event;
+    if (tooltipMoveFrame) {
+      return;
+    }
+    tooltipMoveFrame = window.requestAnimationFrame(() => {
+      tooltipMoveFrame = 0;
+      positionTooltip(pendingTooltipEvent);
+      pendingTooltipEvent = null;
+    });
   }
 
   function positionTooltip(event = null) {
@@ -3647,21 +3769,21 @@
     const gap = 12;
     const rect = activeTooltipTarget.getBoundingClientRect();
     const hasPointer = event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY);
-    const anchorX = hasPointer ? event.clientX : rect.left + rect.width / 2;
-    const anchorTop = hasPointer ? event.clientY : rect.top;
-    const anchorBottom = hasPointer ? event.clientY : rect.bottom;
-    const tooltipWidth = tooltipBox.offsetWidth;
-    const tooltipHeight = tooltipBox.offsetHeight;
+    const anchorX = hasPointer ? event.clientX : rect.right;
+    const anchorY = hasPointer ? event.clientY : rect.top + rect.height / 2;
+    const tooltipWidth = tooltipSizeCache.width || tooltipBox.offsetWidth;
+    const tooltipHeight = tooltipSizeCache.height || tooltipBox.offsetHeight;
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
-    const preferTop = anchorTop - tooltipHeight - gap >= margin || anchorBottom + tooltipHeight + gap > viewportHeight - margin;
-    const left = Math.min(
-      Math.max(margin, anchorX - tooltipWidth / 2),
-      Math.max(margin, viewportWidth - tooltipWidth - margin)
+    const rightLeft = anchorX + gap;
+    const leftLeft = anchorX - tooltipWidth - gap;
+    const left = rightLeft + tooltipWidth <= viewportWidth - margin
+      ? rightLeft
+      : Math.max(margin, leftLeft);
+    const top = Math.min(
+      Math.max(margin, anchorY - tooltipHeight / 2),
+      Math.max(margin, viewportHeight - tooltipHeight - margin)
     );
-    const top = preferTop
-      ? Math.max(margin, anchorTop - tooltipHeight - gap)
-      : Math.min(Math.max(margin, anchorBottom + gap), Math.max(margin, viewportHeight - tooltipHeight - margin));
     tooltipBox.style.left = `${Math.round(left)}px`;
     tooltipBox.style.top = `${Math.round(top)}px`;
   }
@@ -3669,6 +3791,11 @@
   function hideTooltip() {
     const tooltipBox = elements.tooltipBox;
     activeTooltipTarget = null;
+    pendingTooltipEvent = null;
+    if (tooltipMoveFrame) {
+      window.cancelAnimationFrame(tooltipMoveFrame);
+      tooltipMoveFrame = 0;
+    }
     if (!tooltipBox) {
       return;
     }
@@ -4039,7 +4166,14 @@
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
     normalizeNativeTooltipAttributes(elements.root);
     elements.listOptions.forEach(option => { option.textContent = getMainTabLabel(option.dataset.sffaListOption); });
-    elements.viewModeButtons.forEach(button => { button.textContent = t(button.dataset.sffaViewMode === "cover" ? "viewCover" : "viewTable"); });
+    elements.viewModeButtons.forEach(button => {
+      const key = button.dataset.sffaViewMode === "poster"
+        ? "viewPoster"
+        : button.dataset.sffaViewMode === "cover"
+          ? "viewCover"
+          : "viewTable";
+      button.textContent = t(key);
+    });
     elements.priceModeButtons.forEach(button => { button.textContent = getPriceModeOptionLabel(button.dataset.sffaPriceModeOption); });
     elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
     elements.localeOptions.forEach(option => { option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption); option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode); });
@@ -5210,6 +5344,8 @@
     const appids = new Set();
     if (getListViewMode() === "cover") {
       getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-cover-card").forEach(appid => appids.add(appid));
+    } else if (getListViewMode() === "poster") {
+      getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-poster-card").forEach(appid => appids.add(appid));
     } else {
       getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-game-thumb[data-sffa-cover-appid]").forEach(appid => appids.add(appid));
     }
@@ -5220,7 +5356,7 @@
   }
 
   function shouldProcessVisibleCovers() {
-    return getListViewMode() === "cover" || getListViewMode() === "table" || isCompareDialogOpen();
+    return getListViewMode() === "cover" || getListViewMode() === "poster" || getListViewMode() === "table" || isCompareDialogOpen();
   }
 
   function getVisibleAppidsFromContainer(container, selector) {
@@ -6352,14 +6488,18 @@
       return;
     }
     applyVisibleCoverImages();
+    const needsPosterStoreItem = getListViewMode() === "poster";
     const visibleAppids = getVisibleCoverAppids().map(String);
     visibleAppids.forEach(appid => {
-      const cachedCoverUrl = hasVerifiedStoreCoverUrl(appid) ? getCachedStoreCoverUrl(appid) : "";
+      const cachedCoverUrl = needsPosterStoreItem ? getFamilyPosterCoverUrl(appid) : hasVerifiedStoreCoverUrl(appid) ? getCachedStoreCoverUrl(appid) : "";
       if (cachedCoverUrl) {
         ensureCoverUrlHealthy(appid, cachedCoverUrl);
       }
     });
-    const appids = visibleAppids.filter(appid => !hasVerifiedStoreCoverUrl(appid) && !coverLoadState.loadingSet.has(String(appid)));
+    const appids = visibleAppids.filter(appid => {
+      const hasCoverData = needsPosterStoreItem ? hasFreshPosterStoreItem(appid) : hasVerifiedStoreCoverUrl(appid);
+      return !hasCoverData && !coverLoadState.loadingSet.has(String(appid));
+    });
     if (!appids.length) {
       return;
     }
@@ -6381,7 +6521,7 @@
       batch.forEach(appid => coverLoadState.loadingSet.delete(appid));
       coverLoadState.running = false;
       if (!rateLimitState.active) {
-        const remaining = getVisibleCoverAppids().some(appid => !hasVerifiedStoreCoverUrl(appid));
+        const remaining = getVisibleCoverAppids().some(appid => needsPosterStoreItem ? !hasFreshPosterStoreItem(appid) : !hasVerifiedStoreCoverUrl(appid));
         if (remaining) {
           scheduleVisibleCoverLoads();
         }
@@ -6397,6 +6537,8 @@
   function applyVisibleCoverImages() {
     if (getListViewMode() === "cover") {
       applyVisibleCoverImagesInContainer(elements.tableWrap, ".sffa-cover-card-media[data-sffa-cover-appid]");
+    } else if (getListViewMode() === "poster") {
+      applyVisibleCoverImagesInContainer(elements.tableWrap, ".sffa-poster-card[data-sffa-cover-appid]");
     } else {
       applyVisibleCoverImagesInContainer(elements.tableWrap, ".sffa-game-thumb[data-sffa-cover-appid]");
     }
@@ -6421,7 +6563,9 @@
     const targets = visibleNodes.length ? visibleNodes : nodes.slice(0, 20);
     targets.forEach(node => {
       const appid = String(node.dataset.sffaCoverAppid || "").trim();
-      const coverUrl = getCompareGameCoverUrl(appid);
+      const coverUrl = node.dataset.sffaCoverKind === "poster"
+        ? withCoverReloadToken(getFamilyPosterCoverUrl(appid))
+        : getCompareGameCoverUrl(appid);
       if (!coverUrl) {
         return;
       }
@@ -7910,12 +8054,12 @@
     });
     renderSearchClearButton();
     if (elements.reloadCoversBtn) {
-      elements.reloadCoversBtn.hidden = listViewMode !== "cover";
+      elements.reloadCoversBtn.hidden = listViewMode === "table";
     }
   }
 
   function normalizeListViewMode(mode) {
-    return mode === "cover" ? "cover" : "table";
+    return mode === "cover" || mode === "poster" ? mode : "table";
   }
 
   function getListViewMode() {
@@ -8092,7 +8236,7 @@
   }
 
   function renderDetails() {
-    elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() === "cover");
+    elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() !== "table");
     if (currentTab === "family") {
       const sourceRows = getFamilyLibraryRows();
       const rows = getSortedRows("family", filterRowsBySearchQuery(sourceRows));
@@ -8131,7 +8275,11 @@
   }
 
   function buildDetailsView(tab, rows) {
-    return getListViewMode() === "cover" ? buildDetailsCoverGrid(tab, rows) : buildDetailsTable(tab, rows);
+    const viewMode = getListViewMode();
+    if (viewMode === "poster") {
+      return buildDetailsPosterGrid(tab, rows);
+    }
+    return viewMode === "cover" ? buildDetailsCoverGrid(tab, rows) : buildDetailsTable(tab, rows);
   }
 
   function buildDetailsTable(tab, rows) {
@@ -8152,6 +8300,10 @@
 
   function buildDetailsCoverGrid(tab, rows) {
     return `<div class="sffa-cover-grid">${rows.map(game => renderDetailsCoverCard(tab, game)).join("")}</div>`;
+  }
+
+  function buildDetailsPosterGrid(tab, rows) {
+    return `<div class="sffa-poster-grid">${rows.map(game => renderDetailsPosterCard(tab, game)).join("")}</div>`;
   }
 
   function renderDetailsCoverCard(tab, game) {
@@ -8179,7 +8331,73 @@
   }
 
   function needsCoverPriceTracking(tab) {
-    return tab === "new" || tab === "relativeNew";
+    return true;
+  }
+
+  function renderDetailsPosterCard(tab, game) {
+    const appid = String(game.appid || "");
+    const title = getGameLocalizedDisplayName(game);
+    const originalName = getGameOriginalName(game);
+    const price = resolveGamePrice(game) || {};
+    const topTag = getDetailsPosterTopTag(tab, game);
+    const ownerTags = getDetailsPosterOwnerTagItems(tab, game);
+    const priceTag = renderPosterPriceTag(price);
+    return `
+      <a class="sffa-poster-card" href="https://store.steampowered.com/app/${escapeAttr(appid)}/" target="_blank" rel="noopener" data-price-appid="${escapeAttr(appid)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-cover-kind="poster" aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(`ID ${appid || "-"}\n${originalName}`)}">
+        <span class="sffa-poster-top">
+          <span class="sffa-poster-left-tags">${topTag}</span>
+          <span class="sffa-poster-price">${priceTag}</span>
+        </span>
+        <span class="sffa-poster-bottom">
+          <span class="sffa-poster-title">${escapeHtml(title)}</span>
+          <span class="sffa-poster-owner-tags">${renderPosterOwnerTags(ownerTags)}</span>
+        </span>
+      </a>
+    `;
+  }
+
+  function getDetailsPosterTopTag(tab, game) {
+    if (tab === "family") {
+      return renderPosterTimeTag(game.time);
+    }
+    if (tab !== "all") {
+      return "";
+    }
+    const status = lastReport?.classificationById?.[String(game.appid)]?.status || "pending";
+    return renderPosterStatusTag(status);
+  }
+
+  function getDetailsPosterOwnerTagItems(tab, game) {
+    if (tab === "all" || tab === "new") {
+      return getTargetOwnerTagItems(game.targetOwners || []);
+    }
+    return getOwnerTagItems(game.owners || [], state.familyInfo?.steamIdtoName || {});
+  }
+
+  function renderPosterStatusTag(status) {
+    return `<span class="sffa-table-tag is-status-${escapeAttr(getCompareStatusClass(status))}">${escapeHtml(getGameListLabelByStatus(status))}</span>`;
+  }
+
+  function renderPosterTimeTag(timestamp) {
+    const text = formatFamilyAcquireDate(timestamp);
+    if (text === "-") {
+      return "";
+    }
+    return `<span class="sffa-table-tag" style="${escapeAttr(getMonthTagStyle(timestamp))}">${escapeHtml(text)}</span>`;
+  }
+
+  function renderPosterPriceTag(price) {
+    if (!price || price.pending || price.unavailable || price.isFree || price.initial == null || Number(price.initial || 0) <= 0) {
+      return "";
+    }
+    return `<span class="sffa-table-tag ${escapeAttr(getTablePriceTagClass(price))}">${escapeHtml(formatOriginalPriceText(price || {}))}</span>`;
+  }
+
+  function renderPosterOwnerTags(items) {
+    if (!items.length) {
+      return "";
+    }
+    return items.map(item => `<span class="sffa-table-tag is-tone-${getTagTone(item)}">${escapeHtml(item.label)}</span>`).join("");
   }
 
   function getDetailsCoverChip(tab, game) {
@@ -8456,7 +8674,7 @@
     if (!items.length) {
       return "-";
     }
-    return `<span class="sffa-table-tags">${items.map(item => `<span class="sffa-table-tag is-tone-${getStableTagTone(item.id)}">${escapeHtml(item.label)}</span>`).join("")}</span>`;
+    return `<span class="sffa-table-tags">${items.map(item => `<span class="sffa-table-tag is-tone-${getTagTone(item)}">${escapeHtml(item.label)}</span>`).join("")}</span>`;
   }
 
   function renderTableStatusTag(status, content) {
@@ -8502,17 +8720,28 @@
     return `background: hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha}); color: hsl(${hue}, ${Math.min(92, saturation + 10)}%, ${Math.min(88, lightness + 10)}%);`;
   }
 
+  function getTagTone(item) {
+    if (Number.isInteger(item?.tone)) {
+      return item.tone % TAG_TONE_COUNT;
+    }
+    return getStableTagTone(item?.id);
+  }
+
   function getStableTagTone(value) {
     const text = String(value || "");
     let hash = 0;
     for (let index = 0; index < text.length; index += 1) {
-      hash = (hash * 31 + text.charCodeAt(index)) % 8;
+      hash = (hash * 31 + text.charCodeAt(index)) % TAG_TONE_COUNT;
     }
     return hash;
   }
 
   function getGameListLabel(appid) {
     const status = lastReport?.classificationById?.[String(appid)]?.status;
+    return getGameListLabelByStatus(status);
+  }
+
+  function getGameListLabelByStatus(status) {
     return {
       new: t("addedGames"),
       overlap: t("duplicatedGames"),
@@ -9654,7 +9883,8 @@
     return Array.from(new Set((owners || []).map(String).filter(Boolean)))
       .map(steamid => ({
         id: steamid,
-        label: nameById?.[steamid] || steamid
+        label: nameById?.[steamid] || steamid,
+        tone: getOwnerTone(steamid)
       }));
   }
 
@@ -9670,19 +9900,88 @@
     return ownerIds
       .map(steamid => ({
         id: steamid,
-        label: targetNameById[steamid] || steamid
+        label: targetNameById[steamid] || steamid,
+        tone: getTargetOwnerTone(steamid)
       }));
   }
 
-  function getTargetNameById() {
+  function getOwnerTone(steamid) {
+    return getOrderedToneFromMap(steamid, getFamilyOwnerToneMap());
+  }
+
+  function getTargetOwnerTone(steamid) {
+    return getOrderedToneFromMap(steamid, getTargetOwnerToneMap());
+  }
+
+  function getOrderedToneFromMap(steamid, toneById) {
+    const id = String(steamid || "");
+    return toneById.has(id) ? toneById.get(id) : getStableTagTone(id);
+  }
+
+  function getFamilyOwnerToneMap() {
+    const key = `${state.familyLibrary?.updatedAt || 0}:${state.familyLibrary?.appidSet?.length || 0}:${Object.keys(state.familyInfo?.steamIdtoName || {}).length}`;
+    if (familyOwnerToneCache.key === key) {
+      return familyOwnerToneCache.map;
+    }
+    familyOwnerToneCache = {
+      key,
+      map: buildToneMap(getFamilyOwnerIds())
+    };
+    return familyOwnerToneCache.map;
+  }
+
+  function getTargetOwnerToneMap() {
+    const key = getTargetOwnerIds().join("|");
+    if (targetOwnerToneCache.key === key) {
+      return targetOwnerToneCache.map;
+    }
+    targetOwnerToneCache = {
+      key,
+      map: buildToneMap(getTargetOwnerIds())
+    };
+    return targetOwnerToneCache.map;
+  }
+
+  function buildToneMap(orderedIds) {
+    const toneById = new Map();
+    orderedIds.forEach((id, index) => {
+      toneById.set(String(id), index % TAG_TONE_COUNT);
+    });
+    return toneById;
+  }
+
+  function getFamilyOwnerIds() {
+    const ids = new Set();
+    (state.familyLibrary?.appidSet || []).forEach(appid => {
+      const info = state.familyLibrary?.appInfoById?.[String(appid)];
+      (info?.owners || []).map(String).filter(Boolean).forEach(id => ids.add(id));
+    });
+    Object.keys(state.familyInfo?.steamIdtoName || {}).forEach(id => ids.add(String(id)));
+    return Array.from(ids);
+  }
+
+  function getTargetOwnerIds() {
     const targets = Array.isArray(lastReport?.target?.targets) && lastReport.target.targets.length
       ? lastReport.target.targets
       : [lastReport?.target].filter(Boolean);
+    return targets.map(target => String(target?.steamid64 || "")).filter(Boolean);
+  }
+
+  function getTargetNameById() {
+    const targets = getTargetOwnerIds().map(steamid64 => ({ steamid64 }));
     const names = {};
-    targets.forEach(target => {
+    const rawTargets = Array.isArray(lastReport?.target?.targets) && lastReport.target.targets.length
+      ? lastReport.target.targets
+      : [lastReport?.target].filter(Boolean);
+    rawTargets.forEach(target => {
       const steamid64 = String(target?.steamid64 || "");
       if (steamid64) {
         names[steamid64] = getTargetProfileDisplayName(target);
+      }
+    });
+    targets.forEach(target => {
+      if (target.steamid64 && !names[target.steamid64]) {
+        names[target.steamid64] = target.steamid64;
       }
     });
     return names;
@@ -9768,6 +10067,18 @@
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit"
+    });
+  }
+
+  function formatFamilyAcquireDate(timestamp) {
+    const seconds = Number(timestamp || 0);
+    if (!seconds) {
+      return "-";
+    }
+    return new Date(seconds * 1000).toLocaleDateString(getNumberLocale(), {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
     });
   }
 

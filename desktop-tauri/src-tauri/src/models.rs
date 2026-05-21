@@ -108,6 +108,29 @@ pub struct SteamQrLoginPollResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SteamGuardConfirmation {
+    pub confirmation_type: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamPasswordLoginResult {
+    pub status: String,
+    pub steamid64: String,
+    pub account_name: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub access_token_expires_at: Option<i64>,
+    pub client_id: String,
+    pub request_id: String,
+    pub interval_seconds: u64,
+    pub allowed_confirmations: Vec<SteamGuardConfirmation>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SteamLoginRefreshResult {
     pub steamid64: String,
     pub access_token: String,

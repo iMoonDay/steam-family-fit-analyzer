@@ -11,6 +11,7 @@ import type {
   CoverCacheRequest,
   SteamLoginProfile,
   SteamLoginRefreshResult,
+  SteamPasswordLoginResult,
   SteamQrLoginPollResult,
   SteamQrLoginSession
 } from "../types";
@@ -235,7 +236,56 @@ export async function pollSteamQrLogin(session: SteamQrLoginSession): Promise<St
   }
 }
 
-export async function fetchFamilyConfigFromSteamLogin(result: SteamQrLoginPollResult): Promise<AutoSteamConfigResult> {
+export async function beginSteamPasswordLogin(accountName: string, password: string): Promise<SteamPasswordLoginResult> {
+  try {
+    return await invoke<SteamPasswordLoginResult>("begin_steam_password_login", {
+      accountName,
+      password
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能使用 Steam 账号密码登录，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function pollSteamPasswordLogin(session: Pick<SteamPasswordLoginResult, "clientId" | "requestId">): Promise<SteamPasswordLoginResult> {
+  try {
+    return await invoke<SteamPasswordLoginResult>("poll_steam_password_login", {
+      clientId: session.clientId,
+      requestId: session.requestId
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能检查 Steam 账号密码登录，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function submitSteamPasswordLoginGuard(
+  session: Pick<SteamPasswordLoginResult, "clientId" | "requestId" | "steamid64">,
+  code: string,
+  codeType: string
+): Promise<SteamPasswordLoginResult> {
+  try {
+    return await invoke<SteamPasswordLoginResult>("submit_steam_password_login_guard", {
+      clientId: session.clientId,
+      requestId: session.requestId,
+      steamid64: session.steamid64,
+      code,
+      codeType
+    });
+  } catch (error) {
+    if (isTauriRuntimeError(error)) {
+      throw new Error(String(error));
+    }
+    throw new Error("浏览器预览模式不能提交 Steam Guard 验证码，请使用 Tauri 桌面窗口。");
+  }
+}
+
+export async function fetchFamilyConfigFromSteamLogin(result: Pick<SteamQrLoginPollResult, "steamid64" | "accessToken">): Promise<AutoSteamConfigResult> {
   try {
     return await invoke<AutoSteamConfigResult>("fetch_family_config_from_steam_login", {
       steamid64: result.steamid64,
@@ -249,7 +299,7 @@ export async function fetchFamilyConfigFromSteamLogin(result: SteamQrLoginPollRe
   }
 }
 
-export async function fetchSteamApiKeyFromSteamLogin(result: SteamQrLoginPollResult): Promise<string | null> {
+export async function fetchSteamApiKeyFromSteamLogin(result: Pick<SteamQrLoginPollResult, "steamid64" | "accessToken">): Promise<string | null> {
   try {
     return await invoke<string | null>("fetch_steam_api_key_from_steam_login", {
       steamid64: result.steamid64,

@@ -65,6 +65,25 @@ export type SteamQrLoginPollResult = {
   message: string;
 };
 
+export type SteamGuardConfirmation = {
+  confirmationType: "email_code" | "device_code" | "device_confirmation" | "email_confirmation" | "machine_token" | "legacy_machine_auth" | string;
+  message: string;
+};
+
+export type SteamPasswordLoginResult = {
+  status: "guard_required" | "waiting_confirmation" | "confirmed" | string;
+  steamid64: string;
+  accountName: string;
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: number | null;
+  clientId: string;
+  requestId: string;
+  intervalSeconds: number;
+  allowedConfirmations: SteamGuardConfirmation[];
+  message: string;
+};
+
 export type SteamLoginRefreshResult = {
   steamid64: string;
   accessToken: string;

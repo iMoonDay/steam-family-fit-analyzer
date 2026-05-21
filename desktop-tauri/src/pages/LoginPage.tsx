@@ -1,13 +1,16 @@
-import { Button, Checkbox, Group, PasswordInput, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { Button, Checkbox, Group, PasswordInput, Select, Stack, Text, TextInput } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import type { AutoSteamConfigResult, SteamQrLoginPollResult, SteamQrLoginSession } from "../types";
+import type { AutoSteamConfigResult, SteamGuardConfirmation, SteamPasswordLoginResult, SteamQrLoginPollResult, SteamQrLoginSession } from "../types";
 import {
+  beginSteamPasswordLogin,
   beginSteamQrLogin,
   fetchFamilyConfigFromSteamLogin,
   fetchSteamApiKeyFromSteamLogin,
   fetchSteamLoginProfile,
-  pollSteamQrLogin
+  pollSteamPasswordLogin,
+  pollSteamQrLogin,
+  submitSteamPasswordLoginGuard
 } from "../services/desktop";
 import { writeClipboard } from "../core/external";
 import {
@@ -18,7 +21,7 @@ import {
 } from "../core/steamLoginCache";
 import type { SteamLoginCache } from "../core/steamLoginCache";
 
-type LoginMode = "qr" | "password" | "cookie";
+type LoginMode = "qr" | "password";
 
 type LoginSuccessState = {
   familyConfigSynced: boolean;
@@ -26,6 +29,11 @@ type LoginSuccessState = {
   steamApiKeyMissing: boolean;
   syncFailed: boolean;
 };
+
+type SteamLoginResult = Pick<
+  SteamQrLoginPollResult,
+  "steamid64" | "accountName" | "accessToken" | "refreshToken" | "accessTokenExpiresAt"
+>;
 
 export function LoginPage({
   isActive,
@@ -49,8 +57,9 @@ export function LoginPage({
   const [qrCode, setQrCode] = useState("");
   const [accountNameInput, setAccountNameInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
-  const [sessionIdInput, setSessionIdInput] = useState("");
-  const [steamLoginSecureInput, setSteamLoginSecureInput] = useState("");
+  const [passwordSession, setPasswordSession] = useState<SteamPasswordLoginResult | null>(null);
+  const [passwordGuardCode, setPasswordGuardCode] = useState("");
+  const [passwordGuardType, setPasswordGuardType] = useState("");
   const [loginAccount, setLoginAccount] = useState<SteamLoginCache | null>(null);
   const pollingRef = useRef(false);
   const profileFetchAttemptRef = useRef("");
@@ -77,6 +86,24 @@ export function LoginPage({
 
     return () => window.clearInterval(timer);
   }, [session]);
+
+  useEffect(() => {
+    if (!passwordSession || needsGuardCode(passwordGuardType)) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      void checkPasswordLogin();
+    }, Math.max(passwordSession.intervalSeconds, 3) * 1000);
+
+    return () => window.clearInterval(timer);
+  }, [passwordSession, passwordGuardType]);
+
+  useEffect(() => {
+    setPasswordSession(null);
+    setPasswordGuardCode("");
+    setPasswordGuardType("");
+  }, [accountNameInput, passwordInput]);
 
   useEffect(() => {
     onLoginAccountChange(loginAccount);
@@ -169,58 +196,7 @@ export function LoginPage({
 
       setSession(null);
       setQrCode("");
-      await clearSteamLoginNotice();
-      let nextAccount: SteamLoginCache = {
-        steamid64: result.steamid64,
-        accountName: result.accountName,
-        displayName: "",
-        profileUrl: "",
-        avatar: "",
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        accessTokenExpiresAt: result.accessTokenExpiresAt,
-        steamApiKey: "",
-        familyGroupId: "",
-        savedAt: Date.now()
-      };
-      setLoginAccount(nextAccount);
-
-      let familyConfigSynced = false;
-      let steamApiKeySynced = false;
-      let steamApiKeyMissing = false;
-      let syncFailed = false;
-      onMessage("同步中");
-      try {
-        const detected = await fetchFamilyConfigFromSteamLogin(result);
-        nextAccount = mergeDetectedSteamConfig(nextAccount, detected);
-        setLoginAccount(nextAccount);
-        familyConfigSynced = true;
-      } catch {
-        syncFailed = true;
-      }
-
-      try {
-        const steamApiKey = await fetchSteamApiKeyFromSteamLogin(result);
-        if (steamApiKey) {
-          nextAccount = { ...nextAccount, steamApiKey, savedAt: Date.now() };
-          setLoginAccount(nextAccount);
-          steamApiKeySynced = true;
-        } else {
-          steamApiKeyMissing = true;
-        }
-        const profileApiKey = steamApiKey || nextAccount.steamApiKey;
-        if (profileApiKey) {
-          await syncLoginProfile(result, profileApiKey);
-        }
-      } catch {
-        syncFailed = true;
-      }
-      onMessage(formatLoginSuccessMessage({
-        familyConfigSynced,
-        steamApiKeySynced,
-        steamApiKeyMissing,
-        syncFailed
-      }));
+      await completeSteamLogin(result);
     } catch (error) {
       onMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -231,7 +207,62 @@ export function LoginPage({
     }
   }
 
-  async function syncLoginProfile(result: SteamQrLoginPollResult, steamApiKey: string) {
+  async function completeSteamLogin(result: SteamLoginResult) {
+    await clearSteamLoginNotice();
+    let nextAccount: SteamLoginCache = {
+      steamid64: result.steamid64,
+      accountName: result.accountName,
+      displayName: "",
+      profileUrl: "",
+      avatar: "",
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      accessTokenExpiresAt: result.accessTokenExpiresAt,
+      steamApiKey: "",
+      familyGroupId: "",
+      savedAt: Date.now()
+    };
+    setLoginAccount(nextAccount);
+
+    let familyConfigSynced = false;
+    let steamApiKeySynced = false;
+    let steamApiKeyMissing = false;
+    let syncFailed = false;
+    onMessage("同步中");
+    try {
+      const detected = await fetchFamilyConfigFromSteamLogin(result);
+      nextAccount = mergeDetectedSteamConfig(nextAccount, detected);
+      setLoginAccount(nextAccount);
+      familyConfigSynced = true;
+    } catch {
+      syncFailed = true;
+    }
+
+    try {
+      const steamApiKey = await fetchSteamApiKeyFromSteamLogin(result);
+      if (steamApiKey) {
+        nextAccount = { ...nextAccount, steamApiKey, savedAt: Date.now() };
+        setLoginAccount(nextAccount);
+        steamApiKeySynced = true;
+      } else {
+        steamApiKeyMissing = true;
+      }
+      const profileApiKey = steamApiKey || nextAccount.steamApiKey;
+      if (profileApiKey) {
+        await syncLoginProfile(result, profileApiKey);
+      }
+    } catch {
+      syncFailed = true;
+    }
+    onMessage(formatLoginSuccessMessage({
+      familyConfigSynced,
+      steamApiKeySynced,
+      steamApiKeyMissing,
+      syncFailed
+    }));
+  }
+
+  async function syncLoginProfile(result: SteamLoginResult, steamApiKey: string) {
     const profile = await fetchSteamLoginProfile(result.steamid64, steamApiKey);
     setLoginAccount(current => ({
       steamid64: result.steamid64,
@@ -280,12 +311,55 @@ export function LoginPage({
     });
   }
 
-  function handlePasswordLogin() {
-    onMessage("请使用二维码登录");
+  async function handlePasswordLogin() {
+    setBusy(true);
+    try {
+      const result = passwordSession
+        ? await submitSteamPasswordLoginGuard(passwordSession, passwordGuardCode, passwordGuardType)
+        : await beginSteamPasswordLogin(accountNameInput, passwordInput);
+      await handlePasswordLoginResult(result);
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function handleCookieLogin() {
-    onMessage("Cookie 登录暂未实现");
+  async function checkPasswordLogin() {
+    if (!passwordSession || busy) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await pollSteamPasswordLogin(passwordSession);
+      await handlePasswordLoginResult(result);
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePasswordLoginResult(result: SteamPasswordLoginResult) {
+    if (result.status === "confirmed") {
+      setPasswordSession(null);
+      setPasswordGuardCode("");
+      setPasswordGuardType("");
+      setPasswordInput("");
+      await completeSteamLogin(result);
+      return;
+    }
+
+    if (result.status === "guard_required") {
+      const nextType = passwordGuardType || result.allowedConfirmations[0]?.confirmationType || "";
+      setPasswordSession(result);
+      setPasswordGuardType(nextType);
+      onMessage(guardStatusMessage(result.allowedConfirmations, nextType));
+      return;
+    }
+
+    setPasswordSession(result);
+    onMessage(result.message);
   }
 
   function handleLogout() {
@@ -322,23 +396,20 @@ export function LoginPage({
               onBegin={() => void handleBeginQrLogin()}
               onPoll={() => session ? void pollQrLogin(session, true) : undefined}
             />
-          ) : loginMode === "password" ? (
+          ) : (
             <PasswordLoginPanel
               busy={busy}
               accountName={accountNameInput}
               password={passwordInput}
+              guardSession={passwordSession}
+              guardCode={passwordGuardCode}
+              guardType={passwordGuardType}
               onAccountNameChange={setAccountNameInput}
               onPasswordChange={setPasswordInput}
+              onGuardCodeChange={setPasswordGuardCode}
+              onGuardTypeChange={setPasswordGuardType}
               onSubmit={handlePasswordLogin}
-            />
-          ) : (
-            <CookieLoginPanel
-              busy={busy}
-              sessionId={sessionIdInput}
-              steamLoginSecure={steamLoginSecureInput}
-              onSessionIdChange={setSessionIdInput}
-              onSteamLoginSecureChange={setSteamLoginSecureInput}
-              onSubmit={handleCookieLogin}
+              onPoll={() => void checkPasswordLogin()}
             />
           )}
         </div>
@@ -361,14 +432,6 @@ export function LoginPage({
                 onClick={() => setLoginMode("password")}
               >
                 账号密码
-              </button>
-              <button
-                type="button"
-                className={loginMode === "cookie" ? "is-active" : ""}
-                aria-selected={loginMode === "cookie"}
-                onClick={() => setLoginMode("cookie")}
-              >
-                Cookie
               </button>
             </div>
 
@@ -439,6 +502,46 @@ function mergeDetectedSteamConfig(cache: SteamLoginCache, detected: AutoSteamCon
   };
 }
 
+function guardStatusMessage(confirmations: SteamGuardConfirmation[], selectedType: string) {
+  const confirmation = confirmations.find(item => item.confirmationType === selectedType) || confirmations[0];
+  if (!confirmation) {
+    return "需要验证";
+  }
+  if (needsGuardCode(confirmation.confirmationType)) {
+    return "请输入验证码";
+  }
+  if (confirmation.confirmationType === "device_confirmation") {
+    return "请在手机 Steam 确认";
+  }
+  if (confirmation.confirmationType === "email_confirmation") {
+    return "请在邮箱确认";
+  }
+  return "请完成验证";
+}
+
+function needsGuardCode(guardType: string) {
+  return ["email_code", "device_code", "machine_token", "legacy_machine_auth"].includes(guardType);
+}
+
+function guardTypeLabel(guardType: string) {
+  switch (guardType) {
+    case "email_code":
+      return "邮箱验证码";
+    case "device_code":
+      return "Steam Guard 验证码";
+    case "device_confirmation":
+      return "手机确认";
+    case "email_confirmation":
+      return "邮箱确认";
+    case "machine_token":
+      return "设备验证码";
+    case "legacy_machine_auth":
+      return "设备授权码";
+    default:
+      return "验证码";
+  }
+}
+
 function QrLoginPanel({
   busy,
   qrCode,
@@ -481,17 +584,38 @@ function PasswordLoginPanel({
   busy,
   accountName,
   password,
+  guardSession,
+  guardCode,
+  guardType,
   onAccountNameChange,
   onPasswordChange,
-  onSubmit
+  onGuardCodeChange,
+  onGuardTypeChange,
+  onSubmit,
+  onPoll
 }: {
   busy: boolean;
   accountName: string;
   password: string;
+  guardSession: SteamPasswordLoginResult | null;
+  guardCode: string;
+  guardType: string;
   onAccountNameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onGuardCodeChange: (value: string) => void;
+  onGuardTypeChange: (value: string) => void;
   onSubmit: () => void;
+  onPoll: () => void;
 }) {
+  const selectedConfirmation = guardSession?.allowedConfirmations.find(
+    confirmation => confirmation.confirmationType === guardType
+  ) || guardSession?.allowedConfirmations[0] || null;
+  const requiresCode = needsGuardCode(guardType);
+  const guardOptions = (guardSession?.allowedConfirmations || []).map(confirmation => ({
+    value: confirmation.confirmationType,
+    label: guardTypeLabel(confirmation.confirmationType)
+  }));
+
   return (
     <Stack gap="sm" className="login-password-panel">
       <TextInput
@@ -499,55 +623,45 @@ function PasswordLoginPanel({
         value={accountName}
         onChange={event => onAccountNameChange(event.currentTarget.value)}
         autoComplete="username"
+        disabled={Boolean(guardSession)}
       />
       <PasswordInput
         label="密码"
         value={password}
         onChange={event => onPasswordChange(event.currentTarget.value)}
         autoComplete="current-password"
+        disabled={Boolean(guardSession)}
       />
-      <Button color="steamBlue" loading={busy} onClick={onSubmit}>
-        登录
-      </Button>
-    </Stack>
-  );
-}
-
-function CookieLoginPanel({
-  busy,
-  sessionId,
-  steamLoginSecure,
-  onSessionIdChange,
-  onSteamLoginSecureChange,
-  onSubmit
-}: {
-  busy: boolean;
-  sessionId: string;
-  steamLoginSecure: string;
-  onSessionIdChange: (value: string) => void;
-  onSteamLoginSecureChange: (value: string) => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <Stack gap="sm" className="login-password-panel">
-      <TextInput
-        label="sessionid"
-        value={sessionId}
-        onChange={event => onSessionIdChange(event.currentTarget.value)}
-        autoComplete="off"
-      />
-      <Textarea
-        label="steamLoginSecure"
-        value={steamLoginSecure}
-        onChange={event => onSteamLoginSecureChange(event.currentTarget.value)}
-        autosize
-        minRows={5}
-        maxRows={7}
-        autoComplete="off"
-      />
-      <Button color="steamBlue" loading={busy} onClick={onSubmit}>
-        登录
-      </Button>
+      {guardSession ? (
+        <>
+          {guardOptions.length > 1 ? (
+            <Select
+              label="验证方式"
+              data={guardOptions}
+              value={guardType}
+              onChange={value => onGuardTypeChange(value || "")}
+              allowDeselect={false}
+            />
+          ) : null}
+          {requiresCode ? (
+            <TextInput
+              label={guardTypeLabel(guardType)}
+              value={guardCode}
+              onChange={event => onGuardCodeChange(event.currentTarget.value)}
+              autoComplete="one-time-code"
+            />
+          ) : selectedConfirmation?.message ? (
+            <Text size="xs" className="path-text">{selectedConfirmation.message}</Text>
+          ) : null}
+          <Button color="steamBlue" loading={busy} onClick={requiresCode ? onSubmit : onPoll}>
+            {requiresCode ? "提交验证" : "检查登录"}
+          </Button>
+        </>
+      ) : (
+        <Button color="steamBlue" loading={busy} onClick={onSubmit}>
+          登录
+        </Button>
+      )}
     </Stack>
   );
 }

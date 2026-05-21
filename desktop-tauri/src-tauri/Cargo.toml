@@ -24,6 +24,7 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 sha2 = "0.10"
+rsa = "0.9"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

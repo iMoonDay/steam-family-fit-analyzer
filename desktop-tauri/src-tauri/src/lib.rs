@@ -16,8 +16,8 @@ use crate::{
         AnalysisPreview, AnalysisReport, AnalyzeInput, AppSettings, AppStatus,
         AutoSteamConfigResult, BrowserCallbackSession, CacheCoversInput, CacheCoversOutput,
         PriceInfo, RefreshReportPricesInput, ReportGame, ReportGameLists, ReportGamePrices,
-        SteamLoginCache, SteamLoginProfile, SteamLoginRefreshResult, SteamQrLoginPollResult,
-        SteamQrLoginSession,
+        SteamLoginCache, SteamLoginProfile, SteamLoginRefreshResult, SteamPasswordLoginResult,
+        SteamQrLoginPollResult, SteamQrLoginSession,
     },
     steam::StoreItemEnrichment,
 };
@@ -157,6 +157,44 @@ async fn poll_steam_qr_login(
 ) -> Result<SteamQrLoginPollResult, String> {
     let client = steam::build_client()?;
     steam_login::poll_qr_login(&client, &client_id, &request_id).await
+}
+
+#[tauri::command]
+async fn begin_steam_password_login(
+    account_name: String,
+    password: String,
+) -> Result<SteamPasswordLoginResult, String> {
+    let client = steam::build_client()?;
+    steam_login::begin_password_login(&client, &account_name, &password).await
+}
+
+#[tauri::command]
+async fn poll_steam_password_login(
+    client_id: String,
+    request_id: String,
+) -> Result<SteamPasswordLoginResult, String> {
+    let client = steam::build_client()?;
+    steam_login::poll_password_login(&client, &client_id, &request_id).await
+}
+
+#[tauri::command]
+async fn submit_steam_password_login_guard(
+    client_id: String,
+    request_id: String,
+    steamid64: String,
+    code: String,
+    code_type: String,
+) -> Result<SteamPasswordLoginResult, String> {
+    let client = steam::build_client()?;
+    steam_login::submit_password_login_guard(
+        &client,
+        &client_id,
+        &request_id,
+        &steamid64,
+        &code,
+        &code_type,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -408,8 +446,8 @@ async fn fetch_family_library_report(
     } else {
         settings.family_group_id.trim().to_string()
     };
-    let mut library = steam::fetch_family_library(&client, access_token, family_group_id.as_str())
-        .await?;
+    let mut library =
+        steam::fetch_family_library(&client, access_token, family_group_id.as_str()).await?;
     let family_owner_ids = library
         .games_by_id
         .values()
@@ -452,7 +490,11 @@ async fn fetch_family_library_report(
             status: "relativeNew".to_string(),
         })
         .collect::<Vec<_>>();
-    games.sort_by(|left, right| left.name.cmp(&right.name).then_with(|| left.appid.cmp(&right.appid)));
+    games.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.appid.cmp(&right.appid))
+    });
 
     let mut report = AnalysisReport {
         target_count: 0,
@@ -691,6 +733,9 @@ pub fn run() {
             start_browser_config_callback,
             begin_steam_qr_login,
             poll_steam_qr_login,
+            begin_steam_password_login,
+            poll_steam_password_login,
+            submit_steam_password_login_guard,
             fetch_family_config_from_steam_login,
             fetch_steam_api_key_from_steam_login,
             refresh_steam_login,

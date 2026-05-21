@@ -246,6 +246,13 @@
       globalCompareSingle: "单独贡献",
       globalCompareShared: "{count} 人共同贡献",
       globalCompareNoData: "暂无全局对比数据",
+      globalCompareFilterAll: "全部",
+      globalCompareFilterTargets: "目标账号",
+      globalCompareFilterFamily: "家庭成员",
+      globalCompareDetailTitle: "{account} · {bucket}",
+      globalCompareDetailCount: "{count} 款游戏",
+      globalCompareDetailHint: "点击色块查看贡献详情",
+      globalCompareDetailEmpty: "该分组暂无游戏",
       refreshing: "刷新中...",
       notLoggedInOrExpired: "未登录或页面过期",
       refreshedCount: "已刷新：{count} 款",
@@ -498,6 +505,13 @@
       globalCompareSingle: "Solo contribution",
       globalCompareShared: "{count}-account shared",
       globalCompareNoData: "No global comparison data",
+      globalCompareFilterAll: "All",
+      globalCompareFilterTargets: "Targets",
+      globalCompareFilterFamily: "Family",
+      globalCompareDetailTitle: "{account} · {bucket}",
+      globalCompareDetailCount: "{count} games",
+      globalCompareDetailHint: "Click a segment to inspect games",
+      globalCompareDetailEmpty: "No games in this group",
       refreshing: "Refreshing...",
       notLoggedInOrExpired: "Not signed in or page expired",
       refreshedCount: "Refreshed: {count}",
@@ -949,6 +963,8 @@
   let shareabilityProgressUiState = createShareabilityProgressUiState();
   let rateLimitState = createRateLimitState();
   let comparePriceRangeByTarget = {};
+  let globalCompareFilter = "all";
+  let globalCompareDrilldown = null;
   let analysisHistorySaveTimer = 0;
   let analysisInputHistoryCache = null;
   let searchRenderTimer = 0;
@@ -2231,6 +2247,7 @@
         display: grid;
         gap: 12px;
         min-height: 0;
+        max-height: calc(100vh - 100px);
         padding: 14px;
         overflow: auto;
       }
@@ -2242,6 +2259,38 @@
         color: #b8c7d3;
         font-size: 12px;
         line-height: 1.3;
+      }
+      .sffa-global-controls {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .sffa-global-filter {
+        display: inline-grid;
+        grid-template-columns: repeat(3, minmax(0, auto));
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid rgba(102, 192, 244, 0.22);
+        border-radius: 999px;
+        background: #0f141b;
+      }
+      .sffa-global-filter-btn {
+        min-height: 28px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #b8c7d3;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .sffa-global-filter-btn.is-active {
+        background: #66c0f4;
+        color: #071018;
+        font-weight: 700;
       }
       .sffa-global-legend {
         display: flex;
@@ -2263,16 +2312,41 @@
       }
       .sffa-global-chart {
         min-width: 0;
+        flex: 1 1 100%;
+        max-width: 100%;
         overflow: auto hidden;
         padding-bottom: 2px;
+        transform-origin: left center;
+        transition: flex-basis 0.42s cubic-bezier(0.2, 0.82, 0.2, 1), max-width 0.42s cubic-bezier(0.2, 0.82, 0.2, 1), transform 0.42s cubic-bezier(0.2, 0.82, 0.2, 1), opacity 0.22s ease;
+      }
+      .sffa-global-content {
+        min-height: 0;
+        display: flex;
+        gap: 0;
+        align-items: stretch;
+        overflow: hidden;
+        transition: gap 0.42s cubic-bezier(0.2, 0.82, 0.2, 1);
+      }
+      .sffa-global-content.has-detail {
+        gap: 12px;
+      }
+      .sffa-global-content.has-detail .sffa-global-chart {
+        flex-basis: calc(50% - 6px);
+        max-width: calc(50% - 6px);
+        transform: scaleX(0.985);
       }
       .sffa-global-chart-grid {
         position: relative;
-        min-width: max(100%, calc(var(--sffa-global-account-count, 1) * 92px + 58px));
+        min-width: max(100%, calc(var(--sffa-global-account-count, 1) * 78px + 50px));
         display: grid;
         grid-template-columns: 42px minmax(0, 1fr);
         gap: 10px;
         min-height: 330px;
+      }
+      .sffa-global-content.has-detail .sffa-global-chart-grid {
+        min-width: max(100%, calc(var(--sffa-global-account-count, 1) * 56px + 44px));
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 8px;
       }
       .sffa-global-y-axis {
         position: relative;
@@ -2304,11 +2378,16 @@
         position: relative;
         z-index: 1;
         display: grid;
-        grid-template-columns: repeat(var(--sffa-global-account-count, 1), minmax(74px, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(var(--sffa-global-account-count, 1), minmax(58px, 1fr));
+        gap: 8px;
         align-items: end;
         height: 260px;
-        padding: 0 12px;
+        padding: 0 10px;
+      }
+      .sffa-global-content.has-detail .sffa-global-bars {
+        grid-template-columns: repeat(var(--sffa-global-account-count, 1), minmax(44px, 1fr));
+        gap: 6px;
+        padding: 0 7px;
       }
       .sffa-global-bar-wrap {
         min-width: 0;
@@ -2319,11 +2398,14 @@
         align-items: end;
       }
       .sffa-global-bar-shell {
-        width: min(100%, 54px);
+        width: min(100%, 48px);
         height: 100%;
         justify-self: center;
         display: flex;
         align-items: end;
+      }
+      .sffa-global-content.has-detail .sffa-global-bar-shell {
+        width: min(100%, 36px);
       }
       .sffa-global-bar {
         width: 100%;
@@ -2338,8 +2420,15 @@
       .sffa-global-segment {
         flex: 0 0 var(--sffa-global-segment-height);
         min-height: 0;
+        border: 0;
+        padding: 0;
         background: var(--sffa-global-segment-color);
-        cursor: default;
+        cursor: pointer;
+      }
+      .sffa-global-segment:hover,
+      .sffa-global-segment.is-active {
+        filter: brightness(1.18);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
       }
       .sffa-global-segment + .sffa-global-segment {
         border-bottom: 1px solid rgba(12, 18, 24, 0.72);
@@ -2359,6 +2448,85 @@
         color: #9fb3c2;
         font-size: 13px;
         text-align: center;
+      }
+      .sffa-global-detail {
+        display: grid;
+        flex: 0 0 0;
+        max-width: 0;
+        height: 330px;
+        min-height: 0;
+        box-sizing: border-box;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 8px;
+        padding: 10px 0;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        background: #11161d;
+        opacity: 0;
+        transform: translateX(18px) scale(0.985);
+        overflow: hidden;
+        transition: flex-basis 0.42s cubic-bezier(0.2, 0.82, 0.2, 1), max-width 0.42s cubic-bezier(0.2, 0.82, 0.2, 1), padding 0.42s cubic-bezier(0.2, 0.82, 0.2, 1), border-color 0.22s ease, opacity 0.26s ease 0.1s, transform 0.32s cubic-bezier(0.2, 0.82, 0.2, 1) 0.08s;
+      }
+      .sffa-global-content.has-detail .sffa-global-detail {
+        flex-basis: calc(50% - 6px);
+        max-width: calc(50% - 6px);
+        padding: 10px;
+        border-color: rgba(255, 255, 255, 0.06);
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+      .sffa-global-detail-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .sffa-global-detail-head strong {
+        min-width: 0;
+        color: #ffffff;
+        font-size: 13px;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .sffa-global-detail-head span {
+        color: #9fb3c2;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .sffa-global-detail-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 6px;
+        min-height: 0;
+        overflow: auto;
+      }
+      .sffa-global-detail-game {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: center;
+        padding: 6px 8px;
+        border-radius: 3px;
+        background: #1a2230;
+        color: inherit;
+        text-decoration: none;
+      }
+      .sffa-global-detail-game:hover {
+        background: #223044;
+        text-decoration: none;
+      }
+      .sffa-global-detail-game strong {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        color: #ffffff;
+        font-size: 12px;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .sffa-modal-overlay {
         position: fixed;
@@ -2398,6 +2566,7 @@
       }
       .sffa-modal-shell.sffa-global-compare-shell.is-center {
         width: min(920px, calc(100vw - 28px));
+        grid-template-rows: auto minmax(0, 1fr);
         max-height: calc(100vh - 28px);
         overflow: hidden;
       }
@@ -3508,6 +3677,22 @@
         .sffa-compare-summary {
           grid-template-columns: 1fr;
         }
+        .sffa-global-content.has-detail {
+          flex-direction: column;
+          gap: 10px;
+        }
+        .sffa-global-content.has-detail .sffa-global-chart,
+        .sffa-global-content.has-detail .sffa-global-detail {
+          flex-basis: auto;
+          max-width: 100%;
+        }
+        .sffa-global-content.has-detail .sffa-global-detail {
+          height: auto;
+          transform: translateY(0) scale(1);
+        }
+        .sffa-global-detail-list {
+          max-height: clamp(120px, 26vh, 220px);
+        }
         .sffa-compare-price-ranges {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -3954,6 +4139,7 @@
     elements.familyPosterScaleInput?.addEventListener("input", updateFamilyPosterScaleValue);
     elements.compareSummary?.addEventListener("click", handleCompareSummaryClick);
     elements.compareSummary?.addEventListener("scroll", () => scheduleVisibleCoverLoads());
+    elements.globalCompareBody?.addEventListener("click", handleGlobalCompareClick);
     elements.tableWrap.addEventListener("scroll", handleDetailsScroll, true);
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.profile.addEventListener("change", handleTargetSelectionChange);
@@ -8058,6 +8244,7 @@
 
     closeMenu();
     closeCompareDialog();
+    globalCompareDrilldown = null;
     renderGlobalCompareDialog(lastReport);
     elements.root.classList.add("is-global-compare-open");
   }
@@ -8082,9 +8269,23 @@
     elements.globalCompareHint.textContent = view.accounts.length
       ? `${t("globalCompareHint")} · ${t("globalCompareAccounts", { count: view.accounts.length })} · ${t("globalCompareGames", { count: view.gameCount })}`
       : t("globalCompareHint");
-    elements.globalCompareBody.innerHTML = view.accounts.length && view.gameCount
-      ? renderGlobalContributionChartHtml(view)
-      : `<div class="sffa-global-empty">${escapeHtml(t("globalCompareNoData"))}</div>`;
+    elements.globalCompareBody.innerHTML = renderGlobalContributionChartHtml(view);
+    activateGlobalCompareDetailLayout(view);
+  }
+
+  function activateGlobalCompareDetailLayout(view) {
+    if (!view?.drilldown || !elements.globalCompareBody) {
+      return;
+    }
+    const content = elements.globalCompareBody.querySelector("[data-sffa-global-content]");
+    if (!content) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        content.classList.add("has-detail");
+      });
+    });
   }
 
   function renderCompareDialogIfOpen() {
@@ -8240,6 +8441,7 @@
   function buildGlobalContributionView(report) {
     const accountById = new Map();
     const gameOwnersById = new Map();
+    const gameById = new Map();
     const targetAccounts = getGlobalCompareTargetAccounts(report);
     const familyNameById = state.familyInfo?.steamIdtoName || {};
 
@@ -8265,6 +8467,10 @@
 
     (state.familyLibrary?.appidSet || []).forEach(appid => {
       const familyInfo = state.familyLibrary?.appInfoById?.[String(appid)] || {};
+      registerGlobalCompareGame(gameById, {
+        appid,
+        name: familyInfo.name || `App ${appid}`
+      });
       (familyInfo.owners || []).forEach(steamid64 => {
         const normalizedId = String(steamid64 || "");
         if (!accountById.has(normalizedId)) {
@@ -8285,6 +8491,7 @@
     });
     (report?.games?.all || []).forEach(game => {
       const appid = String(game?.appid || "");
+      registerGlobalCompareGame(gameById, game);
       const owners = (game?.targetOwners || []).map(String).filter(Boolean);
       if (owners.length) {
         owners.forEach(steamid64 => addGlobalGameOwner(gameOwnersById, appid, steamid64));
@@ -8296,24 +8503,26 @@
     });
 
     const accounts = Array.from(accountById.values());
-    const accountIdSet = new Set(accounts.map(account => account.steamid64));
+    const visibleAccountIdSet = new Set(accounts
+      .filter(account => isGlobalCompareRowVisible(account))
+      .map(account => account.steamid64));
     const rowsById = new Map(accounts.map(account => [account.steamid64, {
       ...account,
       total: 0,
-      buckets: {}
+      buckets: {},
+      bucketGames: {}
     }]));
     const bucketCounts = new Set();
-    let gameCount = 0;
 
-    gameOwnersById.forEach(ownerSet => {
-      const owners = Array.from(ownerSet).filter(steamid64 => accountIdSet.has(steamid64));
+    gameOwnersById.forEach((ownerSet, appid) => {
+      const owners = Array.from(ownerSet).filter(steamid64 => visibleAccountIdSet.has(steamid64));
       if (!owners.length) {
         return;
       }
-      gameCount += 1;
       const ownerCount = owners.length;
       const bucketKey = String(ownerCount);
       bucketCounts.add(ownerCount);
+      const game = gameById.get(String(appid)) || { appid: String(appid), name: `App ${appid}` };
       owners.forEach(steamid64 => {
         const row = rowsById.get(steamid64);
         if (!row) {
@@ -8321,10 +8530,28 @@
         }
         row.total += 1;
         row.buckets[bucketKey] = Number(row.buckets[bucketKey] || 0) + 1;
+        if (!Array.isArray(row.bucketGames[bucketKey])) {
+          row.bucketGames[bucketKey] = [];
+        }
+        row.bucketGames[bucketKey].push(game);
       });
     });
 
-    const buckets = Array.from(bucketCounts)
+    const rows = Array.from(rowsById.values())
+      .filter(row => visibleAccountIdSet.has(row.steamid64))
+      .sort(compareGlobalContributionRows);
+    const displayedBucketCounts = new Set();
+    const displayedGameIds = new Set();
+    rows.forEach(row => {
+      Object.entries(row.bucketGames || {}).forEach(([bucketKey, games]) => {
+        if (!Array.isArray(games) || !games.length) {
+          return;
+        }
+        displayedBucketCounts.add(Number(bucketKey));
+        games.forEach(game => displayedGameIds.add(String(game?.appid || "")));
+      });
+    });
+    const buckets = Array.from(displayedBucketCounts.size ? displayedBucketCounts : bucketCounts)
       .sort((left, right) => {
         if (left === 1) {
           return 1;
@@ -8340,16 +8567,17 @@
         label: count === 1 ? t("globalCompareSingle") : t("globalCompareShared", { count }),
         color: getGlobalCompareBucketColor(count)
       }));
-    const rows = Array.from(rowsById.values()).sort(compareGlobalContributionRows);
     const maxTotal = Math.max(...rows.map(row => row.total), 0);
     const chart = getGlobalContributionChartScale(maxTotal);
+    const drilldown = getGlobalContributionDrilldown(rows, buckets);
 
     return {
       accounts: rows,
       buckets,
-      gameCount,
+      gameCount: displayedGameIds.size,
       chartMax: chart.max,
-      ticks: chart.ticks
+      ticks: chart.ticks,
+      drilldown
     };
   }
 
@@ -8358,6 +8586,18 @@
       ? report.target.targets
       : [report?.target].filter(Boolean);
     return targets.filter(target => String(target?.steamid64 || ""));
+  }
+
+  function registerGlobalCompareGame(gameById, game) {
+    const appid = String(game?.appid || "");
+    if (!appid || gameById.has(appid)) {
+      return;
+    }
+    gameById.set(appid, {
+      ...game,
+      appid,
+      name: game?.name || `App ${appid}`
+    });
   }
 
   function upsertGlobalCompareAccount(accountById, account) {
@@ -8371,7 +8611,9 @@
         steamid64,
         displayName: String(account?.displayName || steamid64),
         avatar: String(account?.avatar || ""),
-        source: account?.source || ""
+        source: account?.source || "",
+        isTarget: account?.source === "target",
+        isFamily: account?.source === "family"
       });
       return;
     }
@@ -8383,7 +8625,21 @@
     }
     if (account?.source === "target") {
       existing.source = "target";
+      existing.isTarget = true;
     }
+    if (account?.source === "family") {
+      existing.isFamily = true;
+    }
+  }
+
+  function isGlobalCompareRowVisible(row) {
+    if (globalCompareFilter === "target") {
+      return Boolean(row?.isTarget);
+    }
+    if (globalCompareFilter === "family") {
+      return Boolean(row?.isFamily);
+    }
+    return true;
   }
 
   function addGlobalGameOwner(gameOwnersById, appid, steamid64) {
@@ -8423,6 +8679,26 @@
     return { max: chartMax, ticks };
   }
 
+  function getGlobalContributionDrilldown(rows, buckets) {
+    if (!globalCompareDrilldown) {
+      return null;
+    }
+    const steamid64 = String(globalCompareDrilldown.steamid64 || "");
+    const bucketKey = String(globalCompareDrilldown.bucketKey || "");
+    const row = rows.find(item => item.steamid64 === steamid64);
+    const bucket = buckets.find(item => item.key === bucketKey);
+    if (!row || !bucket) {
+      globalCompareDrilldown = null;
+      return null;
+    }
+    const games = (row.bucketGames?.[bucketKey] || []).slice().sort(sortByName);
+    return {
+      row,
+      bucket,
+      games
+    };
+  }
+
   function getNiceChartStep(rawStep) {
     const value = Math.max(1, Number(rawStep || 1));
     const magnitude = 10 ** Math.floor(Math.log10(value));
@@ -8446,6 +8722,18 @@
   function renderGlobalContributionChartHtml(view) {
     const accountCount = Math.max(1, view.accounts.length);
     const chartMax = Math.max(1, Number(view.chartMax || 1));
+    const filterHtml = renderGlobalCompareFilterHtml();
+    if (!view.accounts.length || !view.gameCount) {
+      return `
+        <div class="sffa-global-controls">
+          ${filterHtml}
+          <div class="sffa-global-overview">
+            <span>${escapeHtml(`${t("globalCompareYAxis")} · ${t("globalCompareAccounts", { count: view.accounts.length })} · ${t("globalCompareGames", { count: view.gameCount })}`)}</span>
+          </div>
+        </div>
+        <div class="sffa-global-empty">${escapeHtml(t("globalCompareNoData"))}</div>
+      `;
+    }
     const legendHtml = view.buckets.map(bucket => `
       <span class="sffa-global-legend-item">
         <span class="sffa-global-legend-swatch" style="--sffa-legend-color: ${escapeAttr(bucket.color)}"></span>
@@ -8457,21 +8745,45 @@
       return `<span class="sffa-global-y-tick" style="top: ${escapeAttr(top.toFixed(4))}%">${escapeHtml(String(value))}</span>`;
     }).join("");
     const barsHtml = view.accounts.map(row => renderGlobalContributionBarHtml(row, view.buckets, chartMax)).join("");
+    const hasDetail = Boolean(view.drilldown);
+    const detailHtml = hasDetail ? renderGlobalContributionDetailHtml(view.drilldown) : "";
 
     return `
-      <div class="sffa-global-overview">
-        <span>${escapeHtml(`${t("globalCompareYAxis")} · ${t("globalCompareAccounts", { count: view.accounts.length })} · ${t("globalCompareGames", { count: view.gameCount })}`)}</span>
-        <div class="sffa-global-legend">${legendHtml}</div>
+      <div class="sffa-global-controls">
+        ${filterHtml}
+        <div class="sffa-global-overview">
+          <span>${escapeHtml(`${t("globalCompareYAxis")} · ${t("globalCompareAccounts", { count: view.accounts.length })} · ${t("globalCompareGames", { count: view.gameCount })}`)}</span>
+        </div>
       </div>
-      <div class="sffa-global-chart">
-        <div class="sffa-global-chart-grid" style="--sffa-global-account-count: ${escapeAttr(accountCount)}">
-          <div class="sffa-global-y-axis">${ticksHtml}</div>
-          <div class="sffa-global-plot">
-            <div class="sffa-global-bars">
-              ${barsHtml}
+      <div class="sffa-global-legend">${legendHtml}</div>
+      <div class="sffa-global-content" data-sffa-global-content>
+        <div class="sffa-global-chart">
+          <div class="sffa-global-chart-grid" style="--sffa-global-account-count: ${escapeAttr(accountCount)}">
+            <div class="sffa-global-y-axis">${ticksHtml}</div>
+            <div class="sffa-global-plot">
+              <div class="sffa-global-bars">
+                ${barsHtml}
+              </div>
             </div>
           </div>
         </div>
+        ${detailHtml}
+      </div>
+    `;
+  }
+
+  function renderGlobalCompareFilterHtml() {
+    const options = [
+      ["all", t("globalCompareFilterAll")],
+      ["target", t("globalCompareFilterTargets")],
+      ["family", t("globalCompareFilterFamily")]
+    ];
+    return `
+      <div class="sffa-global-filter" role="group" aria-label="${escapeAttr(t("globalCompare"))}">
+        ${options.map(([value, label]) => {
+      const active = globalCompareFilter === value;
+      return `<button class="sffa-global-filter-btn${active ? " is-active" : ""}" type="button" data-sffa-global-filter="${escapeAttr(value)}" aria-pressed="${active ? "true" : "false"}">${escapeHtml(label)}</button>`;
+    }).join("")}
       </div>
     `;
   }
@@ -8486,7 +8798,8 @@
       }
       const segmentHeight = value / total * 100;
       const tooltip = formatGlobalContributionSegmentTooltip(row, bucket, value);
-      return `<span class="sffa-global-segment" style="--sffa-global-segment-height: ${escapeAttr(segmentHeight.toFixed(4))}%; --sffa-global-segment-color: ${escapeAttr(bucket.color)}" data-sffa-tooltip="${escapeAttr(tooltip)}"></span>`;
+      const active = globalCompareDrilldown?.steamid64 === row.steamid64 && globalCompareDrilldown?.bucketKey === bucket.key;
+      return `<button class="sffa-global-segment${active ? " is-active" : ""}" type="button" style="--sffa-global-segment-height: ${escapeAttr(segmentHeight.toFixed(4))}%; --sffa-global-segment-color: ${escapeAttr(bucket.color)}" data-sffa-global-account="${escapeAttr(row.steamid64)}" data-sffa-global-bucket="${escapeAttr(bucket.key)}" data-sffa-tooltip="${escapeAttr(tooltip)}" aria-label="${escapeAttr(tooltip)}"></button>`;
     }).join("");
     const summaryTooltip = formatGlobalContributionTooltip(row, buckets);
 
@@ -8511,6 +8824,40 @@
       lines.push(`${bucket.label}\t${Number(row.buckets?.[bucket.key] || 0)}`);
     });
     return lines.join("\n");
+  }
+
+  function renderGlobalContributionDetailHtml(detail) {
+    const title = t("globalCompareDetailTitle", {
+      account: detail.row.displayName || detail.row.steamid64 || "-",
+      bucket: detail.bucket.label
+    });
+    const games = Array.isArray(detail.games) ? detail.games : [];
+    const gamesHtml = games.length
+      ? games.map(renderGlobalContributionDetailGameHtml).join("")
+      : `<div class="sffa-global-empty">${escapeHtml(t("globalCompareDetailEmpty"))}</div>`;
+    return `
+      <section class="sffa-global-detail">
+        <div class="sffa-global-detail-head">
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(t("globalCompareDetailCount", { count: games.length }))}</span>
+        </div>
+        <div class="sffa-global-detail-list">
+          ${gamesHtml}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderGlobalContributionDetailGameHtml(game) {
+    const appid = String(game?.appid || "");
+    const name = getGameLocalizedDisplayName(game);
+    const originalName = getGameOriginalName(game);
+    const gameUrl = `https://store.steampowered.com/app/${appid}/`;
+    return `
+      <a class="sffa-global-detail-game" ${buildSteamLinkAttrs(gameUrl)} data-sffa-tooltip="${escapeAttr(`ID ${appid || "-"}\n${originalName}`)}">
+        <strong>${escapeHtml(name)}</strong>
+      </a>
+    `;
   }
 
   function formatGlobalContributionSegmentTooltip(row, bucket, value) {
@@ -8687,6 +9034,34 @@
       comparePriceRangeByTarget[steamid64] = range;
     }
     renderCompareDialog(lastReport);
+  }
+
+  function handleGlobalCompareClick(event) {
+    const filterButton = event.target.closest("[data-sffa-global-filter]");
+    if (filterButton) {
+      globalCompareFilter = normalizeGlobalCompareFilter(filterButton.dataset.sffaGlobalFilter);
+      globalCompareDrilldown = null;
+      renderGlobalCompareDialog(lastReport);
+      return;
+    }
+
+    const segmentButton = event.target.closest("[data-sffa-global-account][data-sffa-global-bucket]");
+    if (!segmentButton || !lastReport) {
+      return;
+    }
+
+    const steamid64 = String(segmentButton.dataset.sffaGlobalAccount || "");
+    const bucketKey = String(segmentButton.dataset.sffaGlobalBucket || "");
+    if (!steamid64 || !bucketKey) {
+      return;
+    }
+    const sameSelection = globalCompareDrilldown?.steamid64 === steamid64 && globalCompareDrilldown?.bucketKey === bucketKey;
+    globalCompareDrilldown = sameSelection ? null : { steamid64, bucketKey };
+    renderGlobalCompareDialog(lastReport);
+  }
+
+  function normalizeGlobalCompareFilter(value) {
+    return ["all", "target", "family"].includes(value) ? value : "all";
   }
 
   function getCompareTargetSummaryText(stats) {

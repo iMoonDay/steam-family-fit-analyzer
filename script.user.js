@@ -170,6 +170,7 @@
       },
       searchPlaceholder: "搜索游戏名或 AppID",
       copyList: "复制列表",
+      originalName: "原名",
       initialEmpty: "输入账号后分析",
       signInFirst: "请先登录",
       accountSwitched: "账号已切换，请刷新",
@@ -400,6 +401,7 @@
       },
       searchPlaceholder: "Search game name or AppID",
       copyList: "Copy list",
+      originalName: "Original name",
       initialEmpty: "Enter an account to analyze",
       signInFirst: "Please sign in first",
       accountSwitched: "Account changed, please refresh",
@@ -2797,7 +2799,10 @@
         padding: 8px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         text-align: left;
-        vertical-align: top;
+        vertical-align: middle;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .sffa-table th {
         position: sticky;
@@ -2823,9 +2828,48 @@
       .sffa-table td {
         color: #d8e4ee;
       }
+      .sffa-table th:not(:first-child),
+      .sffa-table td:not(:first-child) {
+        text-align: right;
+      }
       .sffa-table a {
         color: #8fd1ff;
         text-decoration: none;
+      }
+      .sffa-game-name {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        color: #d8e4ee;
+      }
+      .sffa-game-thumb {
+        display: block;
+        width: 86px;
+        aspect-ratio: 460 / 215;
+        border-radius: 3px;
+        background-color: rgba(255, 255, 255, 0.05);
+        background-image: linear-gradient(135deg, rgba(102, 192, 244, 0.12), rgba(22, 32, 43, 0.82)), var(--sffa-cover, none);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 8px 18px rgba(0, 0, 0, 0.18);
+        transition: filter 0.14s ease, transform 0.14s ease;
+      }
+      .sffa-game-thumb:hover {
+        filter: brightness(1.08);
+        transform: translateY(-1px);
+      }
+      .sffa-game-name-text {
+        display: block;
+        justify-self: start;
+        width: fit-content;
+        max-width: 100%;
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .sffa-spinner {
         width: 14px;
@@ -2842,6 +2886,47 @@
         align-items: center;
         gap: 6px;
       }
+      .sffa-table-tags {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+      }
+      .sffa-table-tag {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        max-width: 100%;
+        min-height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #dbe8f3;
+        font-size: 11px;
+        line-height: 1.15;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .sffa-table-tag.is-tone-0 { background: rgba(102, 192, 244, 0.18); color: #9cdbff; }
+      .sffa-table-tag.is-tone-1 { background: rgba(111, 201, 132, 0.18); color: #a8efb5; }
+      .sffa-table-tag.is-tone-2 { background: rgba(225, 170, 92, 0.18); color: #ffd28f; }
+      .sffa-table-tag.is-tone-3 { background: rgba(185, 131, 255, 0.18); color: #d5bcff; }
+      .sffa-table-tag.is-tone-4 { background: rgba(255, 128, 151, 0.18); color: #ffb6c2; }
+      .sffa-table-tag.is-tone-5 { background: rgba(80, 220, 196, 0.16); color: #9ff4e4; }
+      .sffa-table-tag.is-tone-6 { background: rgba(255, 216, 102, 0.16); color: #ffe58f; }
+      .sffa-table-tag.is-tone-7 { background: rgba(150, 156, 167, 0.18); color: #d7dde2; }
+      .sffa-table-tag.is-status-new { background: rgba(111, 201, 132, 0.18); color: #a8efb5; }
+      .sffa-table-tag.is-status-overlap { background: rgba(102, 192, 244, 0.16); color: #8fd1ff; }
+      .sffa-table-tag.is-status-no-value { background: rgba(125, 132, 141, 0.16); color: #d7dde2; }
+      .sffa-table-tag.is-status-unsupported { background: rgba(225, 170, 92, 0.16); color: #ffd28f; }
+      .sffa-table-tag.is-status-pending { background: rgba(150, 156, 167, 0.16); color: #d7dde2; }
+      .sffa-table-tag.is-price-0 { background: rgba(111, 201, 132, 0.18); color: #a8efb5; }
+      .sffa-table-tag.is-price-1 { background: rgba(102, 192, 244, 0.16); color: #8fd1ff; }
+      .sffa-table-tag.is-price-2 { background: rgba(225, 170, 92, 0.18); color: #ffd28f; }
+      .sffa-table-tag.is-price-3 { background: rgba(255, 128, 151, 0.18); color: #ffb6c2; }
+      .sffa-table-tag.is-price-empty { background: rgba(150, 156, 167, 0.14); color: #c7d0d8; }
+      .sffa-table-tag.is-muted { background: rgba(150, 156, 167, 0.14); color: #c7d0d8; }
       @keyframes sffa-spin {
         to {
           transform: rotate(360deg);
@@ -5031,6 +5116,8 @@
     const appids = new Set();
     if (getListViewMode() === "cover") {
       getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-cover-card").forEach(appid => appids.add(appid));
+    } else {
+      getVisibleAppidsFromContainer(elements.tableWrap, ".sffa-game-thumb[data-sffa-cover-appid]").forEach(appid => appids.add(appid));
     }
     if (isCompareDialogOpen()) {
       getVisibleAppidsFromContainer(elements.compareSummary, ".sffa-compare-card-game-link").forEach(appid => appids.add(appid));
@@ -5039,7 +5126,7 @@
   }
 
   function shouldProcessVisibleCovers() {
-    return getListViewMode() === "cover" || isCompareDialogOpen();
+    return getListViewMode() === "cover" || getListViewMode() === "table" || isCompareDialogOpen();
   }
 
   function getVisibleAppidsFromContainer(container, selector) {
@@ -5061,6 +5148,10 @@
   }
 
   function extractAppidFromNode(node) {
+    const directAppid = String(node?.dataset?.sffaCoverAppid || "").trim();
+    if (directAppid) {
+      return directAppid;
+    }
     const directHref = String(node?.getAttribute?.("href") || "");
     if (directHref) {
       const directMatch = directHref.match(/\/app\/(\d+)\//);
@@ -6229,6 +6320,8 @@
   function applyVisibleCoverImages() {
     if (getListViewMode() === "cover") {
       applyVisibleCoverImagesInContainer(elements.tableWrap, ".sffa-cover-card-media[data-sffa-cover-appid]");
+    } else {
+      applyVisibleCoverImagesInContainer(elements.tableWrap, ".sffa-game-thumb[data-sffa-cover-appid]");
     }
     if (isCompareDialogOpen()) {
       applyVisibleCoverImagesInContainer(elements.compareSummary, ".sffa-compare-card-game[data-sffa-cover-appid]");
@@ -8107,7 +8200,7 @@
   function getSortedRows(tab, rows) {
     const sort = tableSortByTab[tab];
     const output = rows.slice();
-    if (!sort?.key) {
+    if (!sort?.key || sort.key === "appid") {
       return output;
     }
 
@@ -8135,7 +8228,7 @@
       case "appid":
         return Number(game.appid || 0);
       case "name":
-        return getGameDisplayName(game);
+        return getGameLocalizedDisplayName(game);
       case "status":
         return getGameListLabel(game.appid);
       case "owners":
@@ -8203,24 +8296,24 @@
 
   function buildAllGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(t("status"), "status", statusCell, "width: 110px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
+    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(t("status"), "status", statusCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
   }
 
   function buildFamilyLibraryTable(rows) {
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(t("acquiredAt"), "time", timeCell, "width: 130px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
+    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(t("acquiredAt"), "time", timeCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
   }
 
   function buildRelativeNewTable(rows) {
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
+    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
   }
 
   function buildNewGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
+    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
   }
 
   function buildOverlapTable(rows) {
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell, "width: calc((100% - 82px - 110px) / 2);"), col(t("owners"), "owners", ownersCell, "width: calc((100% - 82px - 110px) / 2);"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
+    return buildGameTable(rows, applyGameTableColumnWidths([col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell), col(getPriceLabel(), "price", priceCell)]), priceRowAttrs);
   }
 
   function priceRowAttrs(game) {
@@ -8229,6 +8322,15 @@
 
   function col(label, key, cell, style = "") {
     return { label, key, cell, style };
+  }
+
+  function applyGameTableColumnWidths(columns) {
+    const activeColumns = columns.filter(Boolean);
+    const remainingWidth = activeColumns.length > 1 ? 50 / (activeColumns.length - 1) : 50;
+    return activeColumns.map((column, index) => ({
+      ...column,
+      style: `width: ${index === 0 ? 50 : remainingWidth}%;${index === 0 ? "" : " text-align: right;"}`
+    }));
   }
 
   function buildGameTable(rows, columns, rowAttrs = () => "") {
@@ -8240,20 +8342,24 @@
     return `<td${attrs}>${content}</td>`;
   }
 
-  function appLinkCell(game) {
-    return buildCell(`<a href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener">${escapeHtml(game.appid)}</a>`);
-  }
-
   function nameCell(game) {
-    return buildCell(escapeHtml(getGameDisplayName(game)));
+    const appid = String(game.appid || "");
+    const displayName = getGameLocalizedDisplayName(game);
+    const originalName = getGameOriginalName(game);
+    return buildCell(`
+      <span class="sffa-game-name">
+        <a class="sffa-game-thumb" href="https://store.steampowered.com/app/${escapeAttr(appid)}/" target="_blank" rel="noopener" aria-label="${escapeAttr(displayName)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-tooltip="${escapeAttr(appid)}"></a>
+        <span class="sffa-game-name-text" data-sffa-tooltip="${escapeAttr(originalName)}">${escapeHtml(displayName)}</span>
+      </span>
+    `);
   }
 
   function ownersCell(game) {
-    return buildCell(escapeHtml(formatOwners(game.owners || []) || "-"));
+    return buildCell(renderTableOwnerTags(getOwnerTagItems(game.owners || [], state.familyInfo?.steamIdtoName || {})));
   }
 
   function targetOwnersCell(game) {
-    return buildCell(escapeHtml(formatTargetOwners(game.targetOwners || [])));
+    return buildCell(renderTableOwnerTags(getTargetOwnerTagItems(game.targetOwners || [])));
   }
 
   function priceCell(game) {
@@ -8261,11 +8367,70 @@
   }
 
   function timeCell(game) {
-    return buildCell(escapeHtml(formatFamilyAcquireTime(game.time)));
+    return buildCell(renderTableTimeTag(game.time));
   }
 
   function statusCell(game) {
     return buildCell(getGameListStatusHtml(game.appid), ` data-status-appid="${escapeAttr(game.appid)}"`);
+  }
+
+  function renderTableOwnerTags(items) {
+    if (!items.length) {
+      return "-";
+    }
+    return `<span class="sffa-table-tags">${items.map(item => `<span class="sffa-table-tag is-tone-${getStableTagTone(item.id)}">${escapeHtml(item.label)}</span>`).join("")}</span>`;
+  }
+
+  function renderTableStatusTag(status, content) {
+    return `<span class="sffa-table-tags"><span class="sffa-table-tag is-status-${escapeAttr(getCompareStatusClass(status))}">${content}</span></span>`;
+  }
+
+  function renderTablePriceTag(price, content) {
+    const className = getTablePriceTagClass(price);
+    return `<span class="sffa-table-tags"><span class="sffa-table-tag ${escapeAttr(className)}">${content}</span></span>`;
+  }
+
+  function renderTableTimeTag(timestamp) {
+    const text = formatFamilyAcquireTime(timestamp);
+    if (text === "-") {
+      return "-";
+    }
+    const style = getMonthTagStyle(timestamp);
+    return `<span class="sffa-table-tags"><span class="sffa-table-tag" style="${escapeAttr(style)}">${escapeHtml(text)}</span></span>`;
+  }
+
+  function getTablePriceTagClass(price) {
+    if (price?.pending) {
+      return "is-muted";
+    }
+    if (!price || price.unavailable || price.isFree || price.initial == null || Number(price.initial || 0) <= 0) {
+      return "is-price-empty";
+    }
+    const cents = Number(price.initial || 0);
+    const rangeIndex = COMPARE_PRICE_RANGES.findIndex(range => cents >= range.min && cents < range.max);
+    return `is-price-${Math.max(0, rangeIndex)}`;
+  }
+
+  function getMonthTagStyle(timestamp) {
+    const date = new Date(Number(timestamp || 0) * 1000);
+    const monthKey = date.getFullYear() * 12 + date.getMonth();
+    const now = new Date();
+    const currentMonthKey = now.getFullYear() * 12 + now.getMonth();
+    const age = Math.max(0, currentMonthKey - monthKey);
+    const hue = ((monthKey * 47) % 360 + 360) % 360;
+    const saturation = Math.max(28, 76 - age * 4);
+    const lightness = Math.max(58, 76 - age * 2);
+    const alpha = Math.max(0.12, 0.24 - age * 0.01);
+    return `background: hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha}); color: hsl(${hue}, ${Math.min(92, saturation + 10)}%, ${Math.min(88, lightness + 10)}%);`;
+  }
+
+  function getStableTagTone(value) {
+    const text = String(value || "");
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = (hash * 31 + text.charCodeAt(index)) % 8;
+    }
+    return hash;
   }
 
   function getGameListLabel(appid) {
@@ -8282,18 +8447,30 @@
   function getGameListStatusHtml(appid) {
     const status = lastReport?.classificationById?.[String(appid)]?.status;
     if (status === "pending") {
-      return `<span class="sffa-status-inline"><span class="sffa-spinner" data-sffa-tooltip="${escapeAttr(t("pending"))}"></span>${escapeHtml(t("pending"))}</span>`;
+      return renderTableStatusTag(status, `<span class="sffa-status-inline"><span class="sffa-spinner" data-sffa-tooltip="${escapeAttr(t("pending"))}"></span>${escapeHtml(t("pending"))}</span>`);
     }
-    return escapeHtml(getGameListLabel(appid));
+    return renderTableStatusTag(status || "pending", escapeHtml(getGameListLabel(appid)));
   }
 
   function getGameDisplayName(game) {
-    const originalName = game.name || game.familyName || `App ${game.appid}`;
-    const localizedName = game.localizedName || getCachedLocalizedName(game.appid) || game.price?.localizedName || "";
+    const originalName = getGameOriginalName(game);
+    const localizedName = getGameLocalizedName(game);
     if (!localizedName || normalizeGameName(localizedName) === normalizeGameName(originalName)) {
       return originalName;
     }
     return `${localizedName} (${originalName})`;
+  }
+
+  function getGameLocalizedDisplayName(game) {
+    return getGameLocalizedName(game) || getGameOriginalName(game);
+  }
+
+  function getGameLocalizedName(game) {
+    return game.localizedName || getCachedLocalizedName(game.appid) || game.price?.localizedName || "";
+  }
+
+  function getGameOriginalName(game) {
+    return game.name || game.familyName || `App ${game.appid}`;
   }
 
   function getCachedLocalizedName(appid) {
@@ -9367,26 +9544,48 @@
   }
 
   function formatOwners(owners) {
-    if (!owners.length) {
+    const items = getOwnerTagItems(owners, state.familyInfo?.steamIdtoName || {});
+    if (!items.length) {
       return "";
     }
-    return owners
-      .map(steamid => state.familyInfo?.steamIdtoName?.[steamid] || steamid)
+    return items
+      .map(item => item.label)
       .join(UI_LOCALE === "en" ? ", " : "、");
   }
 
   function formatTargetOwners(owners) {
+    const items = getTargetOwnerTagItems(owners);
+    if (!items.length) {
+      return "";
+    }
+
+    return items
+      .map(item => item.label)
+      .join(UI_LOCALE === "en" ? ", " : "、");
+  }
+
+  function getOwnerTagItems(owners, nameById) {
+    return Array.from(new Set((owners || []).map(String).filter(Boolean)))
+      .map(steamid => ({
+        id: steamid,
+        label: nameById?.[steamid] || steamid
+      }));
+  }
+
+  function getTargetOwnerTagItems(owners) {
     const selectedIds = isMultiTargetReport() ? new Set(getSelectedTargetSteamIds()) : null;
     const ownerIds = Array.from(new Set((owners || []).map(String).filter(Boolean)))
       .filter(steamid => !selectedIds || selectedIds.has(steamid));
     if (!ownerIds.length) {
-      return "";
+      return [];
     }
 
     const targetNameById = getTargetNameById();
     return ownerIds
-      .map(steamid => targetNameById[steamid] || steamid)
-      .join(UI_LOCALE === "en" ? ", " : "、");
+      .map(steamid => ({
+        id: steamid,
+        label: targetNameById[steamid] || steamid
+      }));
   }
 
   function getTargetNameById() {
@@ -9409,15 +9608,15 @@
 
   function formatOriginalPriceCell(price) {
     if (price?.pending) {
-      return `<span class="sffa-spinner" data-sffa-tooltip="${escapeAttr(t("loading"))}"></span>`;
+      return renderTablePriceTag(price, `<span class="sffa-spinner" data-sffa-tooltip="${escapeAttr(t("loading"))}"></span>`);
     }
     if (!price || (price.initial == null && !price.unavailable && !price.isFree)) {
-      return "-";
+      return renderTablePriceTag(price, "-");
     }
     if (price.unavailable) {
-      return "-";
+      return renderTablePriceTag(price, "-");
     }
-    return formatMoney(Number(price.initial || 0), price.currency);
+    return renderTablePriceTag(price, escapeHtml(formatMoney(Number(price.initial || 0), price.currency)));
   }
 
   function formatOriginalPriceText(price) {

@@ -4,5 +4,6 @@
 .codex/
 .playwright*/
 .trae/
+desktop-tauri/
 
 dev-loader.user.js

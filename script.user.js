@@ -714,6 +714,13 @@
     return isCurrentPriceMode() ? t("currentPrice") : t("originalPrice");
   }
 
+  function getAddedValueLabel() {
+    const priceLabel = getPriceLabel();
+    return UI_LOCALE === "en"
+      ? `${t("addedValue")} (${priceLabel})`
+      : `${t("addedValue")}（${priceLabel}）`;
+  }
+
   function getPriceCacheKeyForMode(mode = getPriceMode()) {
     const normalizedMode = normalizePriceMode(mode);
     return normalizedMode === PRICE_MODE_HISTORY_LOW
@@ -2780,16 +2787,27 @@
       }
       .sffa-table-wrap {
         min-height: 0;
-        overflow: auto;
+        overflow: hidden;
         border: 1px solid rgba(255, 255, 255, 0.07);
         border-radius: 3px;
         background: #11161d;
       }
       .sffa-table-wrap.is-cover-view {
         padding: 10px;
-        background:
-          radial-gradient(circle at top left, rgba(102, 192, 244, 0.08), transparent 26%),
-          linear-gradient(180deg, #11161d 0%, #0e141b 100%);
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        overflow: auto;
+        scrollbar-color: rgba(102, 192, 244, 0.28) transparent;
+      }
+      .sffa-table-wrap.is-cover-view::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .sffa-table-wrap.is-cover-view .sffa-cover-card,
+      .sffa-table-wrap.is-cover-view .sffa-poster-card,
+      .sffa-table-wrap.is-cover-view .sffa-cover-card:hover,
+      .sffa-table-wrap.is-cover-view .sffa-poster-card:hover {
+        box-shadow: none;
       }
       .sffa-cover-grid {
         display: grid;
@@ -3001,6 +3019,35 @@
         backdrop-filter: blur(10px) saturate(1.2);
         -webkit-backdrop-filter: blur(10px) saturate(1.2);
       }
+      .sffa-table-shell {
+        min-width: 100%;
+        height: 100%;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+      .sffa-table-head-scroll {
+        overflow-x: hidden;
+        overflow-y: scroll;
+        scrollbar-color: transparent transparent;
+        background: #0f141b;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .sffa-table-head-scroll::-webkit-scrollbar {
+        width: 12px;
+        height: 0;
+      }
+      .sffa-table-head-scroll::-webkit-scrollbar-thumb,
+      .sffa-table-head-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .sffa-table-body-scroll {
+        min-height: 0;
+        overflow: auto;
+      }
+      .sffa-table-head-scroll .sffa-table th {
+        border-bottom: 0;
+      }
       .sffa-table {
         width: 100%;
         border-collapse: collapse;
@@ -3018,8 +3065,6 @@
         word-break: break-word;
       }
       .sffa-table th {
-        position: sticky;
-        top: 0;
         background: #0f141b;
         color: #9fb3c2;
         z-index: 1;
@@ -3610,7 +3655,7 @@
     elements.familyPosterScaleInput?.addEventListener("input", updateFamilyPosterScaleValue);
     elements.compareSummary?.addEventListener("click", handleCompareSummaryClick);
     elements.compareSummary?.addEventListener("scroll", () => scheduleVisibleCoverLoads());
-    elements.tableWrap.addEventListener("scroll", () => { scheduleVisiblePriceLoads(); scheduleVisibleCoverLoads(); });
+    elements.tableWrap.addEventListener("scroll", handleDetailsScroll, true);
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.profile.addEventListener("change", handleTargetSelectionChange);
     elements.profile.addEventListener("click", handleProfileActionClick);
@@ -3918,20 +3963,12 @@
 
     const pairs = lines.map(line => {
       const tabIndex = line.indexOf("\t");
-      if (tabIndex > 0) {
-        return {
-          key: line.slice(0, tabIndex).trim(),
-          value: line.slice(tabIndex + 1).trim()
-        };
-      }
-
-      const colonMatch = line.match(/^(.+?)[：:]\s*(.+)$/);
-      if (!colonMatch) {
+      if (tabIndex <= 0) {
         return null;
       }
       return {
-        key: colonMatch[1].trim(),
-        value: colonMatch[2].trim()
+        key: line.slice(0, tabIndex).trim(),
+        value: line.slice(tabIndex + 1).trim()
       };
     });
 
@@ -4564,6 +4601,7 @@
     if (lastReport?.games?.new) {
       prepareOriginalPrices(lastReport.games.new);
       refreshReportMetrics();
+      renderSummary(lastReport);
     }
     renderTabs();
     renderDetailsPreserveScroll();
@@ -4966,7 +5004,7 @@
       labelValue(t("addedGames"), lastReport.metrics.newCount),
       labelValue(t("duplicatedGames"), lastReport.metrics.overlapCount),
       labelValue(t("overlapRate"), formatPercent(lastReport.metrics.overlapRate)),
-      labelValue(t("addedValue"), formatMoney(lastReport.metrics.initialValue))
+      labelValue(getAddedValueLabel(), formatMoney(lastReport.metrics.initialValue))
     ].join("\n");
 
     try {
@@ -7010,9 +7048,20 @@
   }
 
   function renderDetailsPreserveScroll() {
-    const scrollTop = elements.tableWrap.scrollTop;
+    const scrollElement = getDetailsScrollElement();
+    const scrollTop = scrollElement?.scrollTop || 0;
+    const scrollLeft = scrollElement?.scrollLeft || 0;
     renderDetails();
-    elements.tableWrap.scrollTop = scrollTop;
+    const nextScrollElement = getDetailsScrollElement();
+    if (nextScrollElement) {
+      nextScrollElement.scrollTop = scrollTop;
+      nextScrollElement.scrollLeft = scrollLeft;
+      syncTableHeaderScroll(nextScrollElement);
+    }
+  }
+
+  function getDetailsScrollElement() {
+    return elements.tableWrap?.querySelector("[data-sffa-table-body-scroll]") || elements.tableWrap;
   }
 
   function renderDetailsAfterShareabilityChange(appid) {
@@ -7506,7 +7555,7 @@
       metricHtml(t("tabs.family"), `${metrics.familyCount}`),
       metricHtml(t("totalGames"), totalGamesMetric.value, totalGamesMetric.title),
       metricHtml(t("addedGames"), addedGamesMetric.value, addedGamesMetric.title),
-      metricHtml(t("addedValue"), addedValueMetric.value, addedValueMetric.title),
+      metricHtml(getAddedValueLabel(), addedValueMetric.value, addedValueMetric.title),
       metricHtml(t("duplicatedGames"), duplicatedGamesMetric.value, duplicatedGamesMetric.title),
       metricHtml(t("overlapRate"), overlapRateMetric.value, overlapRateMetric.title)
     ].join("");
@@ -7873,7 +7922,7 @@
     const html = [
       metricCardHtml(`${t("compareUnique")}/${t("compareTotal")}`, `${stats.uniqueCount}/${stats.totalCount}`, uniqueBest && stats.uniqueCount === compare.statMax.unique, false, t("compareUniqueTip")),
       metricCardHtml(`${t("compareUniqueAdded")}/${t("compareAdded")}`, `${stats.uniqueAddedCount}/${stats.addedCount}`, addedBest && stats.uniqueAddedCount === compare.statMax.added, false, t("compareUniqueAddedTip")),
-      metricCardHtml(t("addedValue"), formatMoney(Number(stats.addedValue || 0)), addedValueBest && stats.addedValue === compare.statMax.addedValue),
+      metricCardHtml(getAddedValueLabel(), formatMoney(Number(stats.addedValue || 0)), addedValueBest && stats.addedValue === compare.statMax.addedValue),
       metricCardHtml(t("compareAverageValue"), formatMoney(Number(stats.qualityValue || 0)), averageValueBest && stats.qualityValue === compare.statMax.averageValue),
       renderComparePriceRangeCards(stats, selectedRange, { disabled: !showGameList })
     ].join("");
@@ -8552,6 +8601,22 @@
     scheduleAnalysisHistorySave();
   }
 
+  function handleDetailsScroll(event) {
+    if (event.target?.dataset?.sffaTableBodyScroll != null) {
+      syncTableHeaderScroll(event.target);
+    }
+    scheduleVisiblePriceLoads();
+    scheduleVisibleCoverLoads();
+  }
+
+  function syncTableHeaderScroll(bodyScroll) {
+    const headScroll = elements.tableWrap?.querySelector("[data-sffa-table-head-scroll]");
+    if (!headScroll || !bodyScroll) {
+      return;
+    }
+    headScroll.scrollLeft = bodyScroll.scrollLeft;
+  }
+
   function renderDetails() {
     elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() !== "table");
     if (currentTab === "family") {
@@ -8948,7 +9013,19 @@
 
   function buildGameTable(rows, columns, rowAttrs = () => "") {
     const activeColumns = columns.filter(Boolean);
-    return tableHtml(`<tr>${activeColumns.map(column => sortableTh(column.label, column.key, column.style)).join("")}</tr>`, rows.map(game => `<tr${rowAttrs(game)}>${activeColumns.map(column => column.cell(game)).join("")}</tr>`).join(""));
+    return tableHtml(
+      `<tr>${activeColumns.map(column => sortableTh(column.label, column.key, column.style)).join("")}</tr>`,
+      rows.map(game => `<tr${rowAttrs(game)}>${activeColumns.map(column => column.cell(game)).join("")}</tr>`).join(""),
+      buildTableColgroup(activeColumns)
+    );
+  }
+
+  function buildTableColgroup(columns) {
+    const cols = columns.map(column => {
+      const width = String(column.style || "").match(/width:\s*([^;]+);?/i)?.[1];
+      return `<col${width ? ` style="width: ${escapeAttr(width)};"` : ""}>`;
+    }).join("");
+    return `<colgroup>${cols}</colgroup>`;
   }
 
   function buildCell(content, attrs = "") {
@@ -9139,12 +9216,22 @@
       .replace(/[\s™®©:：\-–—_'".,，()[\]（）【】]/g, "");
   }
 
-  function tableHtml(header, body) {
+  function tableHtml(header, body, colgroup = "") {
     return `
-      <table class="sffa-table">
-        <thead>${header}</thead>
-        <tbody>${body}</tbody>
-      </table>
+      <div class="sffa-table-shell">
+        <div class="sffa-table-head-scroll" data-sffa-table-head-scroll>
+          <table class="sffa-table">
+            ${colgroup}
+            <thead>${header}</thead>
+          </table>
+        </div>
+        <div class="sffa-table-body-scroll" data-sffa-table-body-scroll>
+          <table class="sffa-table">
+            ${colgroup}
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+      </div>
     `;
   }
 

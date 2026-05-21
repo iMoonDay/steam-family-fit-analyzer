@@ -236,6 +236,16 @@
       comparePriceDistribution: "价格分布：¥0-¥48 {low} 款，¥48-¥98 {mid} 款，¥98-¥198 {high} 款，¥198+ {top} 款",
       compareStructure: "结构：独占 {unique} 款，共享 {shared} 款",
       compareTotal: "总游戏",
+      globalCompare: "全局对比",
+      globalCompareTitle: "全局贡献对比",
+      globalCompareHint: "统计目标账号和家庭库成员在当前数据中的游戏贡献量。",
+      globalCompareAccounts: "{count} 个账号",
+      globalCompareGames: "{count} 款游戏",
+      globalCompareTotal: "总贡献",
+      globalCompareYAxis: "游戏贡献量",
+      globalCompareSingle: "单独贡献",
+      globalCompareShared: "{count} 人共同贡献",
+      globalCompareNoData: "暂无全局对比数据",
       refreshing: "刷新中...",
       notLoggedInOrExpired: "未登录或页面过期",
       refreshedCount: "已刷新：{count} 款",
@@ -478,6 +488,16 @@
       comparePriceDistribution: "Price distribution: ¥0-¥48 {low} games, ¥48-¥98 {mid} games, ¥98-¥198 {high} games, ¥198+ {top} games",
       compareStructure: "Structure: {unique} exclusive games, {shared} shared games",
       compareTotal: "Total",
+      globalCompare: "Global",
+      globalCompareTitle: "Global contribution comparison",
+      globalCompareHint: "Counts game contributions across target accounts and family members.",
+      globalCompareAccounts: "{count} accounts",
+      globalCompareGames: "{count} games",
+      globalCompareTotal: "Total contributions",
+      globalCompareYAxis: "Game contributions",
+      globalCompareSingle: "Solo contribution",
+      globalCompareShared: "{count}-account shared",
+      globalCompareNoData: "No global comparison data",
       refreshing: "Refreshing...",
       notLoggedInOrExpired: "Not signed in or page expired",
       refreshedCount: "Refreshed: {count}",
@@ -2202,6 +2222,144 @@
       .sffa-compare-body {
         display: none;
       }
+      .sffa-global-compare-shell {
+        width: min(920px, calc(100vw - 28px));
+        max-height: calc(100vh - 28px);
+        overflow: hidden;
+      }
+      .sffa-global-compare-body {
+        display: grid;
+        gap: 12px;
+        min-height: 0;
+        padding: 14px;
+        overflow: auto;
+      }
+      .sffa-global-overview {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        color: #b8c7d3;
+        font-size: 12px;
+        line-height: 1.3;
+      }
+      .sffa-global-legend {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px 12px;
+      }
+      .sffa-global-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .sffa-global-legend-swatch {
+        width: 18px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--sffa-legend-color);
+      }
+      .sffa-global-chart {
+        min-width: 0;
+        overflow: auto hidden;
+        padding-bottom: 2px;
+      }
+      .sffa-global-chart-grid {
+        position: relative;
+        min-width: max(100%, calc(var(--sffa-global-account-count, 1) * 92px + 58px));
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 10px;
+        min-height: 330px;
+      }
+      .sffa-global-y-axis {
+        position: relative;
+        height: 260px;
+        margin-top: 8px;
+        color: #718494;
+        font-size: 11px;
+      }
+      .sffa-global-y-tick {
+        position: absolute;
+        right: 0;
+        transform: translateY(-50%);
+        line-height: 1;
+      }
+      .sffa-global-plot {
+        position: relative;
+        min-width: 0;
+        height: 300px;
+        display: grid;
+        align-items: end;
+        padding: 8px 0 32px;
+        background:
+          linear-gradient(to top, rgba(255, 255, 255, 0.065) 1px, transparent 1px) 0 8px / 100% 65px repeat-y,
+          linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.01));
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .sffa-global-bars {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(var(--sffa-global-account-count, 1), minmax(74px, 1fr));
+        gap: 12px;
+        align-items: end;
+        height: 260px;
+        padding: 0 12px;
+      }
+      .sffa-global-bar-wrap {
+        min-width: 0;
+        height: 100%;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) 28px;
+        gap: 8px;
+        align-items: end;
+      }
+      .sffa-global-bar-shell {
+        width: min(100%, 54px);
+        height: 100%;
+        justify-self: center;
+        display: flex;
+        align-items: end;
+      }
+      .sffa-global-bar {
+        width: 100%;
+        height: var(--sffa-global-bar-height);
+        min-height: 2px;
+        display: flex;
+        flex-direction: column-reverse;
+        overflow: hidden;
+        border-radius: 3px 3px 0 0;
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .sffa-global-segment {
+        flex: 0 0 var(--sffa-global-segment-height);
+        min-height: 0;
+        background: var(--sffa-global-segment-color);
+        cursor: default;
+      }
+      .sffa-global-segment + .sffa-global-segment {
+        border-bottom: 1px solid rgba(12, 18, 24, 0.72);
+      }
+      .sffa-global-x-label {
+        min-width: 0;
+        color: #9fb3c2;
+        font-size: 11px;
+        line-height: 1.2;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .sffa-global-empty {
+        padding: 24px;
+        color: #9fb3c2;
+        font-size: 13px;
+        text-align: center;
+      }
       .sffa-modal-overlay {
         position: fixed;
         inset: 0;
@@ -2238,8 +2396,14 @@
         width: min(460px, calc(100vw - 24px));
         transform: translate(-50%, -50%) scale(0.985);
       }
+      .sffa-modal-shell.sffa-global-compare-shell.is-center {
+        width: min(920px, calc(100vw - 28px));
+        max-height: calc(100vh - 28px);
+        overflow: hidden;
+      }
       #sffa-root.is-price-settings-open .sffa-price-overlay,
-      #sffa-root.is-family-poster-open .sffa-family-poster-overlay {
+      #sffa-root.is-family-poster-open .sffa-family-poster-overlay,
+      #sffa-root.is-global-compare-open .sffa-global-compare-overlay {
         opacity: 1;
         visibility: visible;
         pointer-events: auto;
@@ -3522,6 +3686,19 @@
         </section>
       </div>
       ${renderModalHtml({
+        name: "global-compare",
+        overlayAttrs: "data-sffa-global-compare-overlay",
+        backdropAttrs: "data-sffa-global-compare-backdrop",
+        closeAttrs: "data-sffa-global-compare-close",
+        titleAttrs: "data-sffa-global-compare-title",
+        hintAttrs: "data-sffa-global-compare-hint",
+        title: t("globalCompareTitle"),
+        hint: t("globalCompareHint"),
+        shellClass: "is-center",
+        bodyClass: "sffa-global-compare-body",
+        bodyHtml: `<div data-sffa-global-compare-body></div>`
+      })}
+      ${renderModalHtml({
         name: "price",
         overlayAttrs: "data-sffa-price-overlay",
         backdropAttrs: "data-sffa-price-backdrop",
@@ -3689,6 +3866,12 @@
       compareHint: root.querySelector("[data-sffa-compare-hint]"),
       compareSummary: root.querySelector("[data-sffa-compare-summary]"),
       compareBody: root.querySelector("[data-sffa-compare-body]"),
+      globalCompareOverlay: root.querySelector("[data-sffa-global-compare-overlay]"),
+      globalCompareBackdrop: root.querySelector("[data-sffa-global-compare-backdrop]"),
+      globalCompareCloseBtn: root.querySelector("[data-sffa-global-compare-close]"),
+      globalCompareTitle: root.querySelector("[data-sffa-global-compare-title]"),
+      globalCompareHint: root.querySelector("[data-sffa-global-compare-hint]"),
+      globalCompareBody: root.querySelector("[data-sffa-global-compare-body]"),
       priceOverlay: root.querySelector("[data-sffa-price-overlay]"),
       priceBackdrop: root.querySelector("[data-sffa-price-backdrop]"),
       priceCloseBtn: root.querySelector("[data-sffa-price-close]"),
@@ -3753,6 +3936,8 @@
     elements.rateCheckBtn?.addEventListener("click", checkRateLimit);
     elements.compareBackdrop?.addEventListener("click", closeCompareDialog);
     elements.compareCloseBtn?.addEventListener("click", closeCompareDialog);
+    elements.globalCompareBackdrop?.addEventListener("click", closeGlobalCompareDialog);
+    elements.globalCompareCloseBtn?.addEventListener("click", closeGlobalCompareDialog);
     elements.priceBackdrop?.addEventListener("click", closePriceSettingsDialog);
     elements.priceCloseBtn?.addEventListener("click", closePriceSettingsDialog);
     elements.priceCancelBtn?.addEventListener("click", closePriceSettingsDialog);
@@ -3829,6 +4014,10 @@
         }
         if (isCompareDialogOpen()) {
           closeCompareDialog();
+          return;
+        }
+        if (isGlobalCompareDialogOpen()) {
+          closeGlobalCompareDialog();
           return;
         }
         closeListMenu();
@@ -4266,6 +4455,7 @@
     closePriceSettingsDialog();
     closeFamilyPosterDialog();
     closeCompareDialog();
+    closeGlobalCompareDialog();
     elements.root.classList.remove("is-open");
     unlockPageScroll();
   }
@@ -4512,7 +4702,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => {
       if (!element) {
         return;
@@ -4545,7 +4735,7 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
@@ -4565,6 +4755,7 @@
     renderPriceSettingsDialog();
     renderFamilyPosterDialog();
     renderCompareDialogIfOpen();
+    renderGlobalCompareDialogIfOpen();
     [registerScriptMenuCommands, renderFamilyMeta, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
     renderSummary(lastReport);
     renderTargetProfile(lastReport);
@@ -7750,12 +7941,14 @@
       : renderTargetAccountRow(target, false);
     const count = targets.length > 1 ? targets.length : 1;
     const compareHtml = `<button class="sffa-compare-btn" type="button" data-sffa-open-compare aria-label="${escapeAttr(t("compare"))}">${escapeHtml(t("compare"))}</button>`;
+    const globalCompareHtml = `<button class="sffa-compare-btn" type="button" data-sffa-open-global-compare aria-label="${escapeAttr(t("globalCompare"))}">${escapeHtml(t("globalCompare"))}</button>`;
     elements.profile.innerHTML = `
       <div class="sffa-profile-topbar">
         <span>${escapeHtml(formatDateTime(report.generatedAt))}</span>
         <div class="sffa-profile-topbar-actions">
           <span>${escapeHtml(t("targetAccountCount", { count }))}</span>
           ${compareHtml}
+          ${globalCompareHtml}
         </div>
       </div>
       <div class="sffa-account-list">${accountRows}</div>
@@ -7813,6 +8006,12 @@
   }
 
   function handleProfileActionClick(event) {
+    const globalButton = event.target.closest("[data-sffa-open-global-compare]");
+    if (globalButton) {
+      openGlobalCompareDialog();
+      return;
+    }
+
     const button = event.target.closest("[data-sffa-open-compare]");
     if (!button) {
       return;
@@ -7831,6 +8030,7 @@
     }
 
     closeMenu();
+    closeGlobalCompareDialog();
     comparePriceRangeByTarget = {};
     renderCompareDialog(lastReport);
     elements.root.classList.add("is-compare-open");
@@ -7844,6 +8044,47 @@
   function closeCompareDialog() {
     elements.root.classList.remove("is-compare-open");
     comparePriceRangeByTarget = {};
+  }
+
+  function isGlobalCompareDialogOpen() {
+    return Boolean(elements.root?.classList.contains("is-global-compare-open"));
+  }
+
+  function openGlobalCompareDialog() {
+    if (!lastReport) {
+      setStatus(t("noSummary"), "warn");
+      return;
+    }
+
+    closeMenu();
+    closeCompareDialog();
+    renderGlobalCompareDialog(lastReport);
+    elements.root.classList.add("is-global-compare-open");
+  }
+
+  function closeGlobalCompareDialog() {
+    elements.root.classList.remove("is-global-compare-open");
+  }
+
+  function renderGlobalCompareDialogIfOpen() {
+    if (!isGlobalCompareDialogOpen() || !lastReport) {
+      return;
+    }
+    renderGlobalCompareDialog(lastReport);
+  }
+
+  function renderGlobalCompareDialog(report) {
+    if (!elements.globalCompareBody || !elements.globalCompareHint) {
+      return;
+    }
+
+    const view = buildGlobalContributionView(report);
+    elements.globalCompareHint.textContent = view.accounts.length
+      ? `${t("globalCompareHint")} · ${t("globalCompareAccounts", { count: view.accounts.length })} · ${t("globalCompareGames", { count: view.gameCount })}`
+      : t("globalCompareHint");
+    elements.globalCompareBody.innerHTML = view.accounts.length && view.gameCount
+      ? renderGlobalContributionChartHtml(view)
+      : `<div class="sffa-global-empty">${escapeHtml(t("globalCompareNoData"))}</div>`;
   }
 
   function renderCompareDialogIfOpen() {
@@ -7994,6 +8235,290 @@
       targetStats,
       statMax
     };
+  }
+
+  function buildGlobalContributionView(report) {
+    const accountById = new Map();
+    const gameOwnersById = new Map();
+    const targetAccounts = getGlobalCompareTargetAccounts(report);
+    const familyNameById = state.familyInfo?.steamIdtoName || {};
+
+    (state.familyInfo?.family_member || []).forEach(member => {
+      upsertGlobalCompareAccount(accountById, {
+        steamid64: member?.steamid,
+        displayName: member?.userName || familyNameById[String(member?.steamid || "")],
+        avatar: "",
+        source: "family"
+      });
+    });
+    Object.entries(familyNameById).forEach(([steamid64, displayName]) => {
+      upsertGlobalCompareAccount(accountById, { steamid64, displayName, avatar: "", source: "family" });
+    });
+    targetAccounts.forEach(target => {
+      upsertGlobalCompareAccount(accountById, {
+        steamid64: target?.steamid64,
+        displayName: getTargetProfileDisplayName(target),
+        avatar: target?.avatar || "",
+        source: "target"
+      });
+    });
+
+    (state.familyLibrary?.appidSet || []).forEach(appid => {
+      const familyInfo = state.familyLibrary?.appInfoById?.[String(appid)] || {};
+      (familyInfo.owners || []).forEach(steamid64 => {
+        const normalizedId = String(steamid64 || "");
+        if (!accountById.has(normalizedId)) {
+          upsertGlobalCompareAccount(accountById, {
+            steamid64: normalizedId,
+            displayName: familyNameById[normalizedId] || normalizedId,
+            avatar: "",
+            source: "family"
+          });
+        }
+        addGlobalGameOwner(gameOwnersById, appid, normalizedId);
+      });
+    });
+
+    targetAccounts.forEach(target => {
+      const steamid64 = String(target?.steamid64 || "");
+      (target?.gameAppids || []).forEach(appid => addGlobalGameOwner(gameOwnersById, appid, steamid64));
+    });
+    (report?.games?.all || []).forEach(game => {
+      const appid = String(game?.appid || "");
+      const owners = (game?.targetOwners || []).map(String).filter(Boolean);
+      if (owners.length) {
+        owners.forEach(steamid64 => addGlobalGameOwner(gameOwnersById, appid, steamid64));
+        return;
+      }
+      if (targetAccounts.length === 1) {
+        addGlobalGameOwner(gameOwnersById, appid, targetAccounts[0]?.steamid64);
+      }
+    });
+
+    const accounts = Array.from(accountById.values());
+    const accountIdSet = new Set(accounts.map(account => account.steamid64));
+    const rowsById = new Map(accounts.map(account => [account.steamid64, {
+      ...account,
+      total: 0,
+      buckets: {}
+    }]));
+    const bucketCounts = new Set();
+    let gameCount = 0;
+
+    gameOwnersById.forEach(ownerSet => {
+      const owners = Array.from(ownerSet).filter(steamid64 => accountIdSet.has(steamid64));
+      if (!owners.length) {
+        return;
+      }
+      gameCount += 1;
+      const ownerCount = owners.length;
+      const bucketKey = String(ownerCount);
+      bucketCounts.add(ownerCount);
+      owners.forEach(steamid64 => {
+        const row = rowsById.get(steamid64);
+        if (!row) {
+          return;
+        }
+        row.total += 1;
+        row.buckets[bucketKey] = Number(row.buckets[bucketKey] || 0) + 1;
+      });
+    });
+
+    const buckets = Array.from(bucketCounts)
+      .sort((left, right) => {
+        if (left === 1) {
+          return 1;
+        }
+        if (right === 1) {
+          return -1;
+        }
+        return right - left;
+      })
+      .map(count => ({
+        key: String(count),
+        count,
+        label: count === 1 ? t("globalCompareSingle") : t("globalCompareShared", { count }),
+        color: getGlobalCompareBucketColor(count)
+      }));
+    const rows = Array.from(rowsById.values()).sort(compareGlobalContributionRows);
+    const maxTotal = Math.max(...rows.map(row => row.total), 0);
+    const chart = getGlobalContributionChartScale(maxTotal);
+
+    return {
+      accounts: rows,
+      buckets,
+      gameCount,
+      chartMax: chart.max,
+      ticks: chart.ticks
+    };
+  }
+
+  function getGlobalCompareTargetAccounts(report) {
+    const targets = Array.isArray(report?.target?.targets) && report.target.targets.length
+      ? report.target.targets
+      : [report?.target].filter(Boolean);
+    return targets.filter(target => String(target?.steamid64 || ""));
+  }
+
+  function upsertGlobalCompareAccount(accountById, account) {
+    const steamid64 = String(account?.steamid64 || "");
+    if (!steamid64) {
+      return;
+    }
+    const existing = accountById.get(steamid64);
+    if (!existing) {
+      accountById.set(steamid64, {
+        steamid64,
+        displayName: String(account?.displayName || steamid64),
+        avatar: String(account?.avatar || ""),
+        source: account?.source || ""
+      });
+      return;
+    }
+    if (!existing.avatar && account?.avatar) {
+      existing.avatar = String(account.avatar);
+    }
+    if ((!existing.displayName || existing.displayName === steamid64) && account?.displayName) {
+      existing.displayName = String(account.displayName);
+    }
+    if (account?.source === "target") {
+      existing.source = "target";
+    }
+  }
+
+  function addGlobalGameOwner(gameOwnersById, appid, steamid64) {
+    const normalizedAppid = String(appid || "");
+    const normalizedSteamId = String(steamid64 || "");
+    if (!normalizedAppid || !normalizedSteamId) {
+      return;
+    }
+    if (!gameOwnersById.has(normalizedAppid)) {
+      gameOwnersById.set(normalizedAppid, new Set());
+    }
+    gameOwnersById.get(normalizedAppid).add(normalizedSteamId);
+  }
+
+  function compareGlobalContributionRows(left, right) {
+    const totalDiff = Number(right.total || 0) - Number(left.total || 0);
+    if (totalDiff !== 0) {
+      return totalDiff;
+    }
+    return String(left.displayName || "").localeCompare(String(right.displayName || ""), getNumberLocale(), {
+      numeric: true,
+      sensitivity: "base"
+    });
+  }
+
+  function getGlobalContributionChartScale(maxTotal) {
+    const maxValue = Math.max(1, Number(maxTotal || 0));
+    const step = getNiceChartStep(maxValue / 4);
+    const chartMax = Math.max(step, Math.ceil(maxValue / step) * step);
+    const ticks = [];
+    for (let value = chartMax; value >= 0; value -= step) {
+      ticks.push(value);
+    }
+    if (ticks[ticks.length - 1] !== 0) {
+      ticks.push(0);
+    }
+    return { max: chartMax, ticks };
+  }
+
+  function getNiceChartStep(rawStep) {
+    const value = Math.max(1, Number(rawStep || 1));
+    const magnitude = 10 ** Math.floor(Math.log10(value));
+    const normalized = value / magnitude;
+    const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    return niceNormalized * magnitude;
+  }
+
+  function getGlobalCompareBucketColor(count) {
+    const colors = {
+      1: "#b01723",
+      2: "#a9661b",
+      3: "#a5aa1a",
+      4: "#3c9b72",
+      5: "#3388c7",
+      6: "#7566d8"
+    };
+    return colors[count] || `hsl(${(Number(count || 0) * 47) % 360} 58% 48%)`;
+  }
+
+  function renderGlobalContributionChartHtml(view) {
+    const accountCount = Math.max(1, view.accounts.length);
+    const chartMax = Math.max(1, Number(view.chartMax || 1));
+    const legendHtml = view.buckets.map(bucket => `
+      <span class="sffa-global-legend-item">
+        <span class="sffa-global-legend-swatch" style="--sffa-legend-color: ${escapeAttr(bucket.color)}"></span>
+        <span>${escapeHtml(bucket.label)}</span>
+      </span>
+    `).join("");
+    const ticksHtml = view.ticks.map(value => {
+      const top = (1 - Number(value || 0) / chartMax) * 100;
+      return `<span class="sffa-global-y-tick" style="top: ${escapeAttr(top.toFixed(4))}%">${escapeHtml(String(value))}</span>`;
+    }).join("");
+    const barsHtml = view.accounts.map(row => renderGlobalContributionBarHtml(row, view.buckets, chartMax)).join("");
+
+    return `
+      <div class="sffa-global-overview">
+        <span>${escapeHtml(`${t("globalCompareYAxis")} · ${t("globalCompareAccounts", { count: view.accounts.length })} · ${t("globalCompareGames", { count: view.gameCount })}`)}</span>
+        <div class="sffa-global-legend">${legendHtml}</div>
+      </div>
+      <div class="sffa-global-chart">
+        <div class="sffa-global-chart-grid" style="--sffa-global-account-count: ${escapeAttr(accountCount)}">
+          <div class="sffa-global-y-axis">${ticksHtml}</div>
+          <div class="sffa-global-plot">
+            <div class="sffa-global-bars">
+              ${barsHtml}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderGlobalContributionBarHtml(row, buckets, chartMax) {
+    const total = Number(row?.total || 0);
+    const height = total > 0 ? Math.max(1, total / chartMax * 100) : 0;
+    const segments = buckets.map(bucket => {
+      const value = Number(row?.buckets?.[bucket.key] || 0);
+      if (!value || total <= 0) {
+        return "";
+      }
+      const segmentHeight = value / total * 100;
+      const tooltip = formatGlobalContributionSegmentTooltip(row, bucket, value);
+      return `<span class="sffa-global-segment" style="--sffa-global-segment-height: ${escapeAttr(segmentHeight.toFixed(4))}%; --sffa-global-segment-color: ${escapeAttr(bucket.color)}" data-sffa-tooltip="${escapeAttr(tooltip)}"></span>`;
+    }).join("");
+    const summaryTooltip = formatGlobalContributionTooltip(row, buckets);
+
+    return `
+      <div class="sffa-global-bar-wrap">
+        <div class="sffa-global-bar-shell">
+          <div class="sffa-global-bar" style="--sffa-global-bar-height: ${escapeAttr(height.toFixed(4))}%">
+            ${segments}
+          </div>
+        </div>
+        <div class="sffa-global-x-label" data-sffa-tooltip="${escapeAttr(summaryTooltip)}">${escapeHtml(row.displayName || row.steamid64 || "-")}</div>
+      </div>
+    `;
+  }
+
+  function formatGlobalContributionTooltip(row, buckets) {
+    const lines = [
+      row.displayName || row.steamid64 || "-",
+      `${t("globalCompareTotal")}\t${Number(row.total || 0)}`
+    ];
+    buckets.forEach(bucket => {
+      lines.push(`${bucket.label}\t${Number(row.buckets?.[bucket.key] || 0)}`);
+    });
+    return lines.join("\n");
+  }
+
+  function formatGlobalContributionSegmentTooltip(row, bucket, value) {
+    const lines = [
+      row.displayName || row.steamid64 || "-",
+      `${bucket.label}\t${Number(value || 0)}`
+    ];
+    return lines.join("\n");
   }
 
   function getCompareGameOwners(game, activeTargets, activeIdSet) {

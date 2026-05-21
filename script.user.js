@@ -183,6 +183,10 @@
       showLauncherMenu: "显示侧边按钮",
       hideLauncherMenu: "隐藏侧边按钮",
       openDialogMenu: "打开分析弹窗",
+      openLinksInClientOn: "调用客户端：开",
+      openLinksInClientOff: "调用客户端：关",
+      openLinksInClientEnabled: "已启用 Steam 客户端打开链接",
+      openLinksInClientDisabled: "已改为浏览器打开链接",
       priceSettings: "价格配置",
       priceSettingsTitle: "价格配置",
       priceSettingsHint: "选择本次统计、排序、复制和展示使用的价格口径。",
@@ -421,6 +425,10 @@
       showLauncherMenu: "Show side button",
       hideLauncherMenu: "Hide side button",
       openDialogMenu: "Open analyzer",
+      openLinksInClientOn: "Open in client: on",
+      openLinksInClientOff: "Open in client: off",
+      openLinksInClientEnabled: "Steam client links enabled",
+      openLinksInClientDisabled: "Browser links enabled",
       priceSettings: "Price settings",
       priceSettingsTitle: "Price settings",
       priceSettingsHint: "Choose the price basis used for statistics, sorting, copying, and display.",
@@ -897,6 +905,7 @@
     },
     storeCache: {},
     autoFamilyRefreshEnabled: true,
+    openLinksInSteamClient: false,
     lastAutoFamilyRefreshAttemptAt: 0,
     appLocaleMode: APP_LOCALE,
     priceConfig: {
@@ -937,6 +946,7 @@
   let pendingTooltipEvent = null;
   let lastTooltipPointer = null;
   let tooltipSizeCache = { width: 0, height: 0 };
+  let panelFrontObserver = null;
 
   bootstrap();
 
@@ -991,7 +1001,8 @@
       #sffa-root {
         position: fixed;
         inset: 0;
-        z-index: 999999;
+        z-index: 2147483647 !important;
+        isolation: isolate;
         pointer-events: none;
         color: #dbe8f3;
         font-family: Motiva Sans, Arial, Helvetica, sans-serif;
@@ -1402,6 +1413,10 @@
       .sffa-menu-item:hover {
         background: rgba(102, 192, 244, 0.14);
       }
+      .sffa-menu-item.is-active {
+        background: rgba(102, 192, 244, 0.2);
+        color: #ffffff;
+      }
       .sffa-menu-item.danger {
         color: #ffd0d0;
       }
@@ -1430,7 +1445,7 @@
         min-width: 0;
         min-height: 0;
         display: grid;
-        grid-template-rows: auto auto minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
         gap: 8px;
         overflow: hidden;
         padding: 10px;
@@ -1451,6 +1466,31 @@
         gap: 8px;
         align-items: center;
         flex-wrap: wrap;
+      }
+      .sffa-control-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+      }
+      .sffa-control-primary {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(360px, 1fr) minmax(220px, 0.72fr);
+        gap: 8px;
+        align-items: center;
+      }
+      .sffa-control-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+        white-space: nowrap;
+      }
+      .sffa-control-status {
+        min-width: 0;
+        display: flex;
+        justify-content: stretch;
       }
       .sffa-input {
         flex: 1 1 320px;
@@ -1474,6 +1514,9 @@
       .sffa-row > .sffa-list-wrap.sffa-history-wrap {
         flex: 1 1 320px;
         min-width: 0;
+      }
+      .sffa-control-row > .sffa-list-wrap.sffa-history-wrap {
+        flex: none;
       }
       .sffa-history-wrap .sffa-input {
         width: 100%;
@@ -1574,12 +1617,18 @@
       .sffa-status-row {
         display: flex;
         align-items: center;
+        justify-content: flex-end;
         gap: 6px;
         min-width: 0;
+        width: 100%;
       }
       .sffa-status-row .sffa-status {
         flex: 1 1 auto;
         min-width: 0;
+        overflow: hidden;
+        text-align: right;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .sffa-status.ok {
         color: #9be0ad;
@@ -1792,7 +1841,7 @@
       .sffa-compare-overlay {
         position: fixed;
         inset: 0;
-        z-index: 999998;
+        z-index: 30;
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
@@ -2156,7 +2205,7 @@
       .sffa-modal-overlay {
         position: fixed;
         inset: 0;
-        z-index: 999997;
+        z-index: 20;
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
@@ -2684,6 +2733,21 @@
       }
       .sffa-tab[data-tab="family"] {
         margin-left: auto;
+      }
+      .sffa-copy-list-btn {
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        font-size: 20px;
+        line-height: 1;
+      }
+      .sffa-copy-list-btn[aria-expanded="true"] {
+        background: #2c4254;
+        border-color: rgba(143, 209, 255, 0.34);
+        color: #ffffff;
       }
       .sffa-search-wrap {
         position: relative;
@@ -3232,6 +3296,24 @@
           grid-template-columns: 1fr;
           grid-template-rows: auto minmax(0, 1fr);
         }
+        .sffa-control-row {
+          grid-template-columns: 1fr;
+        }
+        .sffa-control-primary {
+          grid-template-columns: 1fr;
+        }
+        .sffa-control-actions {
+          justify-content: stretch;
+        }
+        .sffa-control-actions .sffa-btn {
+          flex: 1 1 0;
+        }
+        .sffa-control-status {
+          justify-content: stretch;
+        }
+        .sffa-status-row .sffa-status {
+          text-align: left;
+        }
         .sffa-summary {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -3288,8 +3370,31 @@
     const root = createPanelRoot();
     document.body.appendChild(root);
     elements = collectPanelElements(root);
+    bringPanelToFront();
+    observePanelFront();
     bindPanelEvents();
     initializePanelView();
+  }
+
+  function bringPanelToFront() {
+    const root = elements.root || document.getElementById("sffa-root");
+    if (!root || !document.body) {
+      return;
+    }
+    root.style.setProperty("z-index", "2147483647", "important");
+    if (document.body.lastElementChild !== root) {
+      document.body.appendChild(root);
+    }
+  }
+
+  function observePanelFront() {
+    if (panelFrontObserver || !document.body) {
+      return;
+    }
+    panelFrontObserver = new MutationObserver(() => {
+      bringPanelToFront();
+    });
+    panelFrontObserver.observe(document.body, { childList: true });
   }
 
   function createPanelRoot() {
@@ -3322,6 +3427,7 @@
             <button class="sffa-icon-btn" type="button" data-sffa-more data-sffa-tooltip="${escapeAttr(t("more"))}" aria-label="${escapeAttr(t("more"))}" aria-expanded="false">⋯</button>
             <div class="sffa-menu" data-sffa-menu>
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
+              <button class="sffa-menu-item" type="button" data-sffa-open-links-client aria-pressed="false"></button>
               <button class="sffa-menu-item" type="button" data-sffa-price-settings>${escapeHtml(t("priceSettings"))}</button>
               <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-raw>${escapeHtml(t("rawData"))}</button>
@@ -3330,21 +3436,27 @@
           </div>
         </header>
         <div class="sffa-body">
-          <div class="sffa-row">
-            <div class="sffa-list-wrap sffa-history-wrap" data-sffa-history-wrap>
-              <input class="sffa-input" data-sffa-target placeholder="${escapeAttr(t("targetPlaceholder"))}" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("analysisHistory"))}">
-              <div class="sffa-list-menu" role="listbox" data-sffa-history-menu></div>
+          <div class="sffa-row sffa-control-row">
+            <div class="sffa-control-primary">
+              <div class="sffa-list-wrap sffa-history-wrap" data-sffa-history-wrap>
+                <input class="sffa-input" data-sffa-target placeholder="${escapeAttr(t("targetPlaceholder"))}" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("analysisHistory"))}">
+                <div class="sffa-list-menu" role="listbox" data-sffa-history-menu></div>
+              </div>
+              <div class="sffa-control-status">
+                <div class="sffa-status-row">
+                  <div class="sffa-status" data-sffa-status></div>
+                  <button class="sffa-rate-btn" type="button" data-sffa-rate-continue hidden>${escapeHtml(t("continue"))}</button>
+                  <button class="sffa-rate-btn" type="button" data-sffa-rate-check hidden>${escapeHtml(t("rateCheck"))}</button>
+                </div>
+              </div>
             </div>
-            <button class="sffa-btn secondary" type="button" data-sffa-refresh>${escapeHtml(t("refreshFamily"))}</button>
-            <button class="sffa-btn" type="button" data-sffa-analyze>${escapeHtml(t("analyzeAccount"))}</button>
+            <div class="sffa-control-actions">
+              <button class="sffa-btn secondary" type="button" data-sffa-refresh>${escapeHtml(t("refreshFamily"))}</button>
+              <button class="sffa-btn" type="button" data-sffa-analyze>${escapeHtml(t("analyzeAccount"))}</button>
+            </div>
           </div>
           <div class="sffa-content">
             <div class="sffa-side">
-            <div class="sffa-status-row">
-              <div class="sffa-status" data-sffa-status></div>
-              <button class="sffa-rate-btn" type="button" data-sffa-rate-continue hidden>${escapeHtml(t("continue"))}</button>
-              <button class="sffa-rate-btn" type="button" data-sffa-rate-check hidden>${escapeHtml(t("rateCheck"))}</button>
-            </div>
             <div class="sffa-summary" data-sffa-summary></div>
             <div class="sffa-profile" data-sffa-profile></div>
             </div>
@@ -3378,7 +3490,7 @@
                 </div>
                 <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
                 <div class="sffa-copy-list-wrap" data-sffa-copy-list-wrap>
-                  <button class="sffa-tab sffa-copy-list-btn" type="button" data-sffa-copy-list-btn aria-expanded="false">⋯</button>
+                  <button class="sffa-tab sffa-copy-list-btn" type="button" data-sffa-copy-list-btn aria-expanded="false" aria-label="${escapeAttr(t("more"))}">⋯</button>
                   <div class="sffa-menu sffa-copy-list-menu" data-sffa-copy-list-menu>
                     <button class="sffa-menu-item" type="button" data-sffa-copy>${escapeHtml(t("copyReport"))}</button>
                     <button class="sffa-menu-item" type="button" data-sffa-copy-list>${escapeHtml(t("copyList"))}</button>
@@ -3559,6 +3671,7 @@
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
+      openLinksClientBtn: root.querySelector("[data-sffa-open-links-client]"),
       priceSettingsBtn: root.querySelector("[data-sffa-price-settings]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
       saveFamilyPosterBtn: root.querySelector("[data-sffa-save-family-poster]"),
@@ -3623,6 +3736,7 @@
     elements.refreshBtn.addEventListener("click", refreshFamilyLibrary);
     elements.analyzeBtn.addEventListener("click", analyzeTarget);
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
+    elements.openLinksClientBtn?.addEventListener("click", toggleOpenLinksInSteamClient);
     elements.priceSettingsBtn?.addEventListener("click", openPriceSettingsDialog);
     elements.copyBtn.addEventListener("click", copyReportSummary);
     elements.saveFamilyPosterBtn?.addEventListener("click", openFamilyPosterDialog);
@@ -4055,6 +4169,7 @@
     renderSummary(null);
     renderTargetProfile(null);
     renderAutoFamilyRefreshButton();
+    renderOpenLinksClientButton();
     renderStoreCacheButton();
     renderRateLimitControls();
     renderAnalysisHistoryMenu();
@@ -4062,6 +4177,7 @@
   }
 
   function openDialog() {
+    bringPanelToFront();
     const wasOpen = elements.root.classList.contains("is-open");
     elements.root.classList.add("is-open");
     lockPageScroll();
@@ -4088,6 +4204,7 @@
   }
 
   function renderLauncherVisibility() {
+    bringPanelToFront();
     if (!elements.launcherWrap) {
       return;
     }
@@ -4302,7 +4419,11 @@
 
   function toggleCopyListMenu(event) {
     event.stopPropagation();
+    closeMenu();
+    closeListMenu();
     closeSortMenu();
+    closeAnalysisHistoryMenu();
+    closeFamilyPosterSortMenu();
     const isOpen = elements.copyListWrap.classList.toggle("is-copy-list-open");
     elements.copyListBtn.setAttribute("aria-expanded", String(isOpen));
   }
@@ -4444,7 +4565,7 @@
     renderPriceSettingsDialog();
     renderFamilyPosterDialog();
     renderCompareDialogIfOpen();
-    [registerScriptMenuCommands, renderFamilyMeta, renderAutoFamilyRefreshButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
+    [registerScriptMenuCommands, renderFamilyMeta, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
     renderSummary(lastReport);
     renderTargetProfile(lastReport);
     [renderTabs, renderDetailsPreserveScroll, renderCurrentStatusText].forEach(fn => fn());
@@ -5094,6 +5215,17 @@
     if (state.autoFamilyRefreshEnabled) {
       maybeAutoRefreshFamilyLibrary(getSteamSession());
     }
+  }
+
+  function toggleOpenLinksInSteamClient() {
+    closeMenu();
+    state.openLinksInSteamClient = !state.openLinksInSteamClient;
+    saveState();
+    renderOpenLinksClientButton();
+    renderTargetProfile(lastReport);
+    renderDetailsPreserveScroll();
+    renderCompareDialogIfOpen();
+    setStatus(state.openLinksInSteamClient ? t("openLinksInClientEnabled") : t("openLinksInClientDisabled"), "ok");
   }
 
   function clearStoreCache() {
@@ -7652,7 +7784,7 @@
       ? `<img class="sffa-profile-avatar" src="${escapeAttr(profile.avatar)}" alt="">`
       : escapeHtml(getAvatarFallbackText(label));
     if (profile?.profileUrl) {
-      return `<a class="sffa-profile-avatar-link" href="${escapeAttr(profile.profileUrl)}" target="_blank" rel="noopener" aria-label="${escapeAttr(label)}">${avatar}</a>`;
+      return `<a class="sffa-profile-avatar-link" ${buildSteamLinkAttrs(profile.profileUrl)} aria-label="${escapeAttr(label)}">${avatar}</a>`;
     }
     return `<span class="sffa-profile-avatar-static">${avatar}</span>`;
   }
@@ -8089,9 +8221,10 @@
   function renderCompareUniqueGameHtml(game) {
     const priceClass = getComparePriceChipClass(game);
     const gameName = getGameDisplayName(game);
+    const gameUrl = `https://store.steampowered.com/app/${game.appid}/`;
     return `
       <div class="sffa-compare-card-game" data-sffa-cover-appid="${escapeAttr(game.appid)}">
-        <a class="sffa-compare-card-game-link" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener" aria-label="${escapeAttr(gameName)}" data-sffa-tooltip="${escapeAttr(gameName)}">
+        <a class="sffa-compare-card-game-link" ${buildSteamLinkAttrs(gameUrl)} aria-label="${escapeAttr(gameName)}" data-sffa-tooltip="${escapeAttr(gameName)}">
           <span class="sffa-compare-card-game-title">${escapeHtml(gameName)}</span>
           <span class="sffa-compare-card-game-price ${escapeAttr(priceClass)}">${escapeHtml(game.priceText)}</span>
         </a>
@@ -8290,6 +8423,16 @@
     const lastTime = state.familyLibrary?.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : t("noCache");
     elements.autoFamilyRefreshBtn.textContent = enabled ? t("autoRefreshClose") : t("autoRefreshOpen");
     setTooltipText(elements.autoFamilyRefreshBtn, t("autoRefreshTitle", { time: lastTime }));
+  }
+
+  function renderOpenLinksClientButton() {
+    if (!elements.openLinksClientBtn) {
+      return;
+    }
+    const enabled = Boolean(state.openLinksInSteamClient);
+    elements.openLinksClientBtn.textContent = enabled ? t("openLinksInClientOn") : t("openLinksInClientOff");
+    elements.openLinksClientBtn.classList.toggle("is-active", enabled);
+    elements.openLinksClientBtn.setAttribute("aria-pressed", String(enabled));
   }
 
   function metricHtml(label, value, title = "") {
@@ -8691,12 +8834,13 @@
   function renderDetailsCoverCard(tab, game) {
     const title = getGameLocalizedDisplayName(game);
     const originalName = getGameOriginalName(game);
+    const gameUrl = `https://store.steampowered.com/app/${game.appid}/`;
     const chip = getDetailsCoverChip(tab, game);
     const metaLines = getDetailsCoverMetaLines(tab, game).filter(Boolean);
     const priceText = formatOriginalPriceText(resolveGamePrice(game) || {});
     const priceAttr = needsCoverPriceTracking(tab) ? ` data-price-appid="${escapeAttr(game.appid)}"` : "";
     return `
-      <a class="sffa-cover-card" href="https://store.steampowered.com/app/${escapeAttr(game.appid)}/" target="_blank" rel="noopener"${priceAttr} aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(originalName)}">
+      <a class="sffa-cover-card" ${buildSteamLinkAttrs(gameUrl)}${priceAttr} aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(originalName)}">
         <span class="sffa-cover-card-media" data-sffa-cover-appid="${escapeAttr(game.appid)}">
           ${chip ? `<span class="sffa-cover-card-chip ${escapeAttr(chip.className)}">${escapeHtml(chip.text)}</span>` : ""}
           <span class="sffa-cover-card-title">${escapeHtml(title)}</span>
@@ -8720,12 +8864,13 @@
     const appid = String(game.appid || "");
     const title = getGameLocalizedDisplayName(game);
     const originalName = getGameOriginalName(game);
+    const gameUrl = `https://store.steampowered.com/app/${appid}/`;
     const price = resolveGamePrice(game) || {};
     const topTag = getDetailsPosterTopTag(tab, game);
     const ownerTags = getDetailsPosterOwnerTagItems(tab, game);
     const priceTag = renderPosterPriceTag(price);
     return `
-      <a class="sffa-poster-card" href="https://store.steampowered.com/app/${escapeAttr(appid)}/" target="_blank" rel="noopener" data-price-appid="${escapeAttr(appid)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-cover-kind="poster" aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(`ID ${appid || "-"}\n${originalName}`)}">
+      <a class="sffa-poster-card" ${buildSteamLinkAttrs(gameUrl)} data-price-appid="${escapeAttr(appid)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-cover-kind="poster" aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(`ID ${appid || "-"}\n${originalName}`)}">
         <span class="sffa-poster-top">
           <span class="sffa-poster-left-tags">${topTag}</span>
           <span class="sffa-poster-price">${priceTag}</span>
@@ -9036,9 +9181,10 @@
     const appid = String(game.appid || "");
     const displayName = getGameLocalizedDisplayName(game);
     const originalName = getGameOriginalName(game);
+    const gameUrl = `https://store.steampowered.com/app/${appid}/`;
     return buildCell(`
       <span class="sffa-game-name">
-        <a class="sffa-game-thumb" href="https://store.steampowered.com/app/${escapeAttr(appid)}/" target="_blank" rel="noopener" aria-label="${escapeAttr(displayName)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-tooltip="${escapeAttr(appid)}"></a>
+        <a class="sffa-game-thumb" ${buildSteamLinkAttrs(gameUrl)} aria-label="${escapeAttr(displayName)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-tooltip="${escapeAttr(appid)}"></a>
         <span class="sffa-game-name-text" data-sffa-tooltip="${escapeAttr(originalName)}">${escapeHtml(displayName)}</span>
       </span>
     `);
@@ -9492,7 +9638,7 @@
     if (isBusy) {
       closeMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.priceSettingsBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.openLinksClientBtn, elements.priceSettingsBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -9526,6 +9672,7 @@
         launcherVisible: saved.launcherVisible !== false,
         listViewMode: normalizeListViewMode(saved.listViewMode),
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
+        openLinksInSteamClient: Boolean(saved.openLinksInSteamClient),
         appLocaleMode,
         priceConfig,
         lastAutoFamilyRefreshAttemptAt: Number(saved.lastAutoFamilyRefreshAttemptAt || 0)
@@ -10516,5 +10663,35 @@
 
   function escapeAttr(value) {
     return escapeHtml(value);
+  }
+
+  function buildSteamLinkAttrs(url) {
+    const href = getSteamOpenUrl(url);
+    const targetAttrs = isSteamClientUrl(href) ? "" : ` target="_blank" rel="noopener"`;
+    return `href="${escapeAttr(href)}"${targetAttrs}`;
+  }
+
+  function getSteamOpenUrl(url) {
+    const normalized = String(url || "").trim();
+    if (!state.openLinksInSteamClient || !isSteamWebUrl(normalized)) {
+      return normalized;
+    }
+    return `steam://openurl/${encodeURI(normalized)}`;
+  }
+
+  function isSteamWebUrl(url) {
+    try {
+      const parsed = new URL(String(url || ""));
+      return parsed.protocol === "https:" && (
+        parsed.hostname === "store.steampowered.com" ||
+        parsed.hostname === "steamcommunity.com"
+      );
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function isSteamClientUrl(url) {
+    return String(url || "").startsWith("steam://");
   }
 })();

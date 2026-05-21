@@ -63,7 +63,7 @@ You can also install directly from GitHub:
 - The target account's game details must be public, otherwise the full library cannot be read.
 - Added value uses original prices in the current store region and does not use current discount prices.
 - Money is formatted according to the store region.
-- Free or zero-price games are not counted as added games. Unpriced, delisted, or region-unavailable games are shown as `N/A`.
+- Free or zero-price games are not counted as added games. Unpriced, delisted, or region-unavailable games are shown as `-`.
 - Results come from Steam pages and APIs. Different Steam interfaces may use different scopes, so the result should be treated as a reference only.
 - The script does not bypass Steam privacy restrictions and does not require you to manually enter a Steam Web API key.
 - The script runs locally in your browser and does not upload your Steam data to any third-party server.

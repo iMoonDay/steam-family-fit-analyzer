@@ -43,6 +43,8 @@
   const STORAGE_KEY = "steam_family_fit_analyzer_state_v1";
   // 商店条目缓存有效期，单位毫秒；默认 7 天。
   const STORE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  // 当前价缓存有效期，单位毫秒；默认 1 天。
+  const CURRENT_PRICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const STORE_CACHE_BUCKETS_KEY = "__buckets";
   // 原价读取每批 App 的数量；调大可减少请求轮次，调小可降低单批压力。
   const ORIGINAL_PRICE_BATCH_SIZE = 200;
@@ -51,8 +53,10 @@
   const ITAD_API_PAGE_URL = "https://isthereanydeal.com/apps/";
   const ITAD_STEAM_SHOP_ID = 61;
   const PRICE_MODE_ORIGINAL = "original";
+  const PRICE_MODE_CURRENT = "current";
   const PRICE_MODE_HISTORY_LOW = "historyLow";
   const PRICE_SOURCE_ORIGINAL = "original";
+  const PRICE_SOURCE_CURRENT = "current";
   const PRICE_SOURCE_ITAD_STORE_LOW = "itadStoreLow";
   // 家庭共享支持性检测每批 App 的数量；调大可更快，调小可更稳。
   const SHAREABILITY_BATCH_SIZE = 150;
@@ -181,8 +185,10 @@
       priceSettingsHint: "选择本次统计、排序、复制和展示使用的价格口径。",
       priceMode: "价格口径",
       priceModeOriginal: "原价",
+      priceModeCurrent: "当前价",
       priceModeHistoryLow: "史低",
       originalPrice: "原价",
+      currentPrice: "当前价",
       historyLowPrice: "史低",
       itadApiKey: "IsThereAnyDeal API Key",
       itadApiKeyPlaceholder: "填入 ITAD API Key 后史低生效",
@@ -409,8 +415,10 @@
       priceSettingsHint: "Choose the price basis used for statistics, sorting, copying, and display.",
       priceMode: "Price basis",
       priceModeOriginal: "Original",
+      priceModeCurrent: "Current",
       priceModeHistoryLow: "Historical low",
       originalPrice: "Original price",
+      currentPrice: "Current price",
       historyLowPrice: "Historical low",
       itadApiKey: "IsThereAnyDeal API Key",
       itadApiKeyPlaceholder: "Enter an ITAD API key to enable historical lows",
@@ -656,7 +664,7 @@
   }
 
   function normalizePriceMode(mode) {
-    return mode === PRICE_MODE_HISTORY_LOW ? PRICE_MODE_HISTORY_LOW : PRICE_MODE_ORIGINAL;
+    return [PRICE_MODE_ORIGINAL, PRICE_MODE_CURRENT, PRICE_MODE_HISTORY_LOW].includes(mode) ? mode : PRICE_MODE_ORIGINAL;
   }
 
   function normalizePriceConfig(config = {}) {
@@ -674,22 +682,36 @@
     return getPriceMode() === PRICE_MODE_HISTORY_LOW;
   }
 
+  function isCurrentPriceMode() {
+    return getPriceMode() === PRICE_MODE_CURRENT;
+  }
+
   function getItadApiKey() {
     return String(state.priceConfig?.itadApiKey || "").trim();
   }
 
   function getPriceLabel() {
-    return isHistoryLowPriceMode() ? t("historyLowPrice") : t("originalPrice");
+    if (isHistoryLowPriceMode()) {
+      return t("historyLowPrice");
+    }
+    return isCurrentPriceMode() ? t("currentPrice") : t("originalPrice");
   }
 
   function getPriceCacheKeyForMode(mode = getPriceMode()) {
-    return normalizePriceMode(mode) === PRICE_MODE_HISTORY_LOW ? PRICE_MODE_HISTORY_LOW : PRICE_MODE_ORIGINAL;
+    const normalizedMode = normalizePriceMode(mode);
+    return normalizedMode === PRICE_MODE_HISTORY_LOW
+      ? PRICE_MODE_HISTORY_LOW
+      : normalizedMode === PRICE_MODE_CURRENT
+        ? PRICE_MODE_CURRENT
+        : PRICE_MODE_ORIGINAL;
   }
 
   function getPriceCacheKeyForPrice(price) {
-    return (price?.source || PRICE_SOURCE_ORIGINAL) === PRICE_SOURCE_ITAD_STORE_LOW
-      ? PRICE_MODE_HISTORY_LOW
-      : PRICE_MODE_ORIGINAL;
+    const source = price?.source || PRICE_SOURCE_ORIGINAL;
+    if (source === PRICE_SOURCE_ITAD_STORE_LOW) {
+      return PRICE_MODE_HISTORY_LOW;
+    }
+    return source === PRICE_SOURCE_CURRENT ? PRICE_MODE_CURRENT : PRICE_MODE_ORIGINAL;
   }
 
   function getSavedAppLocaleMode() {
@@ -1505,18 +1527,40 @@
       }
       .sffa-profile {
         min-height: 0;
-        padding: 10px;
+        padding: 0;
         border: 1px solid rgba(255, 255, 255, 0.06);
         border-radius: 3px;
         background: #11161d;
         overflow: auto;
       }
-      .sffa-profile-head {
+      .sffa-profile-topbar {
+        position: sticky;
+        top: 0;
+        z-index: 1;
         display: flex;
-        gap: 10px;
+        justify-content: space-between;
+        gap: 8px;
         align-items: center;
+        min-height: 34px;
+        padding: 8px 10px;
         min-width: 0;
-        margin-bottom: 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(17, 22, 29, 0.96);
+      }
+      .sffa-profile-topbar span {
+        min-width: 0;
+        color: #9fb3c2;
+        font-size: 12px;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .sffa-profile-topbar-actions {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
       }
       .sffa-avatar {
         width: 48px;
@@ -1531,58 +1575,80 @@
         font-weight: 700;
         object-fit: cover;
       }
-      .sffa-profile-name {
-        min-width: 0;
-        color: #ffffff;
-        font-size: 14px;
-        font-weight: 700;
-        overflow-wrap: anywhere;
-      }
-      .sffa-profile-link {
-        display: inline-block;
-        margin-top: 4px;
-        color: #8fd1ff;
-        font-size: 12px;
-        text-decoration: none;
+      .sffa-account-list {
+        display: grid;
+        gap: 0;
       }
       .sffa-target-row {
         display: grid;
-        grid-template-columns: 18px minmax(0, 1fr);
-        gap: 8px;
-        align-items: start;
-        padding: 6px 0;
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        grid-template-columns: 18px 36px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        padding: 9px 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
         font-size: 12px;
+      }
+      .sffa-account-list .sffa-target-row:first-child {
+        border-top: 0;
       }
       .sffa-target-row input {
-        margin: 2px 0 0;
+        margin: 0;
       }
-      .sffa-target-row span {
-        color: #d8e4ee;
-        overflow-wrap: anywhere;
+      .sffa-target-row input:disabled {
+        opacity: 0.68;
       }
-      .sffa-profile-row {
+      .sffa-profile-avatar-link,
+      .sffa-profile-avatar-static {
+        width: 36px;
+        height: 36px;
         display: grid;
-        grid-template-columns: 72px minmax(0, 1fr);
-        gap: 8px;
-        padding: 5px 0;
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
-        font-size: 12px;
+        place-items: center;
+        border-radius: 3px;
+        overflow: hidden;
+        background: #223344;
+        color: #dbe8f3;
+        font-size: 13px;
+        font-weight: 700;
+        text-decoration: none;
       }
-      .sffa-profile-row span:first-child {
-        color: #9fb3c2;
+      .sffa-profile-avatar-link:hover {
+        filter: brightness(1.12);
       }
-      .sffa-profile-row span:last-child {
+      .sffa-profile-avatar {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .sffa-profile-account-text {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+      .sffa-profile-account-name {
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .sffa-profile-account-id {
         color: #d8e4ee;
-        overflow-wrap: anywhere;
+        font-size: 11px;
+        line-height: 1.25;
+        opacity: 0.78;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .sffa-compare-btn {
-        width: 48px;
-        height: 48px;
+        min-width: 42px;
+        min-height: 24px;
         flex: 0 0 auto;
         display: grid;
         place-items: center;
-        padding: 0;
+        padding: 3px 9px;
         border: 1px solid rgba(102, 192, 244, 0.34);
         border-radius: 3px;
         background: linear-gradient(180deg, #2a475e 0%, #1f3242 100%);
@@ -1591,7 +1657,7 @@
         font: inherit;
         font-size: 12px;
         font-weight: 700;
-        line-height: 1.1;
+        line-height: 1.2;
         letter-spacing: 0;
         text-align: center;
         transition: filter 0.12s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
@@ -1624,8 +1690,10 @@
         position: absolute;
         left: 50%;
         top: 50%;
-        width: min(1120px, calc(100vw - 28px));
-        height: min(840px, calc(100vh - 28px));
+        width: min(calc(var(--sffa-compare-columns, 1) * 328px + 24px), calc(100vw - 28px));
+        min-width: min(348px, calc(100vw - 28px));
+        max-width: calc(100vw - 28px);
+        max-height: calc(100vh - 28px);
         transform: translate(-50%, -50%) scale(0.985);
         display: flex;
         flex-direction: column;
@@ -1687,11 +1755,13 @@
       }
       .sffa-compare-summary {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(252px, 1fr));
+        grid-template-columns: repeat(var(--sffa-compare-columns, 1), minmax(252px, 320px));
         gap: 8px;
+        align-content: start;
+        justify-content: start;
         padding: 10px 12px 12px;
         min-height: 0;
-        flex: 1 1 auto;
+        flex: 0 1 auto;
         overflow: auto;
       }
       .sffa-compare-card {
@@ -1817,6 +1887,16 @@
         background: #223044;
         border-color: rgba(143, 209, 255, 0.34);
         box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+      }
+      .sffa-compare-price-range:disabled {
+        cursor: default;
+        opacity: 0.78;
+      }
+      .sffa-compare-price-range:disabled:hover {
+        transform: none;
+        background: #1a2230;
+        border-color: rgba(255, 255, 255, 0.06);
+        box-shadow: none;
       }
       .sffa-compare-price-range.is-active {
         background: linear-gradient(180deg, rgba(111, 201, 132, 0.24) 0%, rgba(31, 43, 54, 0.94) 100%);
@@ -2066,7 +2146,7 @@
       }
       .sffa-price-mode-toggle {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 4px;
         padding: 4px;
         border: 1px solid rgba(102, 192, 244, 0.26);
@@ -2815,7 +2895,10 @@
         }
         .sffa-compare-shell {
           width: calc(100vw - 16px);
-          height: calc(100vh - 16px);
+          min-width: 0;
+          max-width: calc(100vw - 16px);
+          max-height: calc(100vh - 16px);
+          --sffa-compare-columns: 1;
         }
         .sffa-compare-summary {
           grid-template-columns: 1fr;
@@ -2950,7 +3033,7 @@
       </section>
       <div class="sffa-compare-overlay" data-sffa-compare-overlay>
         <div class="sffa-compare-overlay-backdrop" data-sffa-compare-backdrop></div>
-        <section class="sffa-compare-shell" role="dialog" aria-modal="true" aria-label="${escapeAttr(t("compareTitle"))}">
+        <section class="sffa-compare-shell" role="dialog" aria-modal="true" aria-label="${escapeAttr(t("compareTitle"))}" data-sffa-compare-shell>
           <header class="sffa-compare-header">
             <div class="sffa-compare-title">
               <strong data-sffa-compare-title>${escapeHtml(t("compareTitle"))}</strong>
@@ -2978,6 +3061,7 @@
               <span class="sffa-price-field-label" data-sffa-price-mode-label>${escapeHtml(t("priceMode"))}</span>
               <span class="sffa-price-mode-toggle" data-sffa-price-mode-toggle>
                 <button class="sffa-price-mode-btn" type="button" data-sffa-price-mode-option="${PRICE_MODE_ORIGINAL}">${escapeHtml(t("priceModeOriginal"))}</button>
+                <button class="sffa-price-mode-btn" type="button" data-sffa-price-mode-option="${PRICE_MODE_CURRENT}">${escapeHtml(t("priceModeCurrent"))}</button>
                 <button class="sffa-price-mode-btn" type="button" data-sffa-price-mode-option="${PRICE_MODE_HISTORY_LOW}">${escapeHtml(t("priceModeHistoryLow"))}</button>
               </span>
             </label>
@@ -3119,6 +3203,7 @@
       rateCheckBtn: root.querySelector("[data-sffa-rate-check]"),
       compareOverlay: root.querySelector("[data-sffa-compare-overlay]"),
       compareBackdrop: root.querySelector("[data-sffa-compare-backdrop]"),
+      compareShell: root.querySelector("[data-sffa-compare-shell]"),
       compareCloseBtn: root.querySelector("[data-sffa-compare-close]"),
       compareTitle: root.querySelector("[data-sffa-compare-title]"),
       compareHint: root.querySelector("[data-sffa-compare-hint]"),
@@ -3776,7 +3861,7 @@
     normalizeNativeTooltipAttributes(elements.root);
     elements.listOptions.forEach(option => { option.textContent = getMainTabLabel(option.dataset.sffaListOption); });
     elements.viewModeButtons.forEach(button => { button.textContent = t(button.dataset.sffaViewMode === "cover" ? "viewCover" : "viewTable"); });
-    elements.priceModeButtons.forEach(button => { button.textContent = t(button.dataset.sffaPriceModeOption === PRICE_MODE_HISTORY_LOW ? "priceModeHistoryLow" : "priceModeOriginal"); });
+    elements.priceModeButtons.forEach(button => { button.textContent = getPriceModeOptionLabel(button.dataset.sffaPriceModeOption); });
     elements.root.querySelector("[data-tab='family']").textContent = t("tabs.family");
     elements.localeOptions.forEach(option => { option.textContent = getLocaleModeLabel(option.dataset.sffaLocaleOption); option.classList.toggle("is-active", normalizeAppLocaleMode(option.dataset.sffaLocaleOption) === appLocaleMode); });
     renderPriceSettingsDialog();
@@ -3888,6 +3973,14 @@
     if (elements.itadApiKeyInput) {
       elements.itadApiKeyInput.value = config.itadApiKey;
     }
+  }
+
+  function getPriceModeOptionLabel(mode) {
+    const normalizedMode = normalizePriceMode(mode);
+    if (normalizedMode === PRICE_MODE_HISTORY_LOW) {
+      return t("priceModeHistoryLow");
+    }
+    return normalizedMode === PRICE_MODE_CURRENT ? t("priceModeCurrent") : t("priceModeOriginal");
   }
 
   function selectPriceSettingsMode(mode) {
@@ -5547,8 +5640,7 @@
 
     shareabilityProgressUiState.dirty = false;
     shareabilityProgressUiState.lastRenderAt = Date.now();
-    refreshReportMetrics();
-    renderSummary(lastReport);
+    updateSummaryProgressMetric();
     setStatus(t("backgroundProgress", { percent: formatPercent(shareabilityFilterState.total ? shareabilityFilterState.processed / shareabilityFilterState.total : 0) }), "warn");
   }
 
@@ -5586,8 +5678,12 @@
       shareabilityFilterState.running = false;
       lastReport.filtering.running = false;
       setRawStep("done");
-      shareabilityProgressUiState.dirty = true;
-      flushShareabilityProgressRender();
+      if (shareabilityProgressUiState?.timer) {
+        window.clearTimeout(shareabilityProgressUiState.timer);
+        shareabilityProgressUiState.timer = 0;
+      }
+      refreshReportMetrics();
+      renderSummary(lastReport);
       renderDetailsPreserveScroll();
       startLazyOriginalPriceLoading();
       setStatus(t("completedAdded", { count: lastReport.metrics.newCount }), "ok");
@@ -5697,7 +5793,6 @@
       lastReport.games.new.sort(sortByName);
     }
     scheduleShareabilityProgressRender();
-    scheduleVisiblePriceLoads();
   }
 
   function getStoreItemContributionStatus(shareability) {
@@ -5899,7 +5994,7 @@
     if (isFreshStoreCacheEntry(cached) && cachedPrice) {
       applyOriginalPriceToGame(game, cachedPrice);
     } else {
-      game.price = { pending: true, source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : PRICE_SOURCE_ORIGINAL };
+      game.price = { pending: true, source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : isCurrentPriceMode() ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL };
       priceLoadState.pendingMap.set(appid, game);
     }
     renderStoreCacheButton();
@@ -5934,7 +6029,7 @@
   }
 
   function applyOriginalPriceToGame(game, price) {
-    game.price = price || (isHistoryLowPriceMode() ? normalizeHistoryLowPrice(null) : normalizeOriginalPrice(null));
+    game.price = price || (isHistoryLowPriceMode() ? normalizeHistoryLowPrice(null) : normalizeOriginalPrice(null, getPriceMode()));
   }
 
   async function fetchOriginalPrice(appid) {
@@ -5947,7 +6042,7 @@
     const priceData = await requestStoreJson(priceUrl, `prices.${appid}`);
     setRawData(`prices.${appid}`, priceData);
     cacheStoreCoverUrl(appid, extractStoreCoverUrlFromAppdetails(priceData?.[appid]));
-    return normalizeOriginalPrice(priceData?.[appid]);
+    return normalizeOriginalPrice(priceData?.[appid], getPriceMode());
   }
 
   async function fetchOriginalPrices(appids) {
@@ -5966,7 +6061,7 @@
       const item = priceData?.[appid];
       cacheStoreCoverUrl(appid, extractStoreCoverUrlFromAppdetails(item));
       if (hasPriceOverview(item)) {
-        prices.set(appid, normalizeOriginalPrice(item));
+        prices.set(appid, normalizeOriginalPrice(item, getPriceMode()));
         continue;
       }
 
@@ -5981,7 +6076,7 @@
           throw error;
         }
         setRawError(error);
-        prices.set(appid, normalizeOriginalPrice(null));
+        prices.set(appid, normalizeOriginalPrice(null, getPriceMode()));
       }
     }
 
@@ -6293,16 +6388,18 @@
             if (!game) {
               return;
             }
-            const price = prices.get(appid) || (isHistoryLowPriceMode() ? normalizeHistoryLowPrice(null) : normalizeOriginalPrice(null));
+            const price = prices.get(appid) || (isHistoryLowPriceMode() ? normalizeHistoryLowPrice(null) : normalizeOriginalPrice(null, getPriceMode()));
             cacheOriginalPrice(appid, price);
             applyOriginalPriceToGame(game, price);
             priceLoadState.pendingMap.delete(appid);
           });
           saveState();
-          refreshReportMetrics();
-          renderSummary(lastReport);
-          renderDetailsAfterPriceChange();
           renderStoreCacheButton();
+          if (!shareabilityFilterState.running && !lastReport?.filtering?.running) {
+            refreshReportMetrics();
+            renderSummary(lastReport);
+            renderDetailsAfterPriceChange();
+          }
         } catch (error) {
           if (isRateLimitError(error)) {
             restoreOriginalPriceQueueBatch(appids);
@@ -6318,14 +6415,16 @@
             game.price = {
               unavailable: true,
               updatedAt: Date.now(),
-              source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : PRICE_SOURCE_ORIGINAL
+              source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : isCurrentPriceMode() ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL
             };
             priceLoadState.pendingMap.delete(appid);
           });
           setRawError(error);
-          refreshReportMetrics();
-          renderSummary(lastReport);
-          renderDetailsAfterPriceChange();
+          if (!shareabilityFilterState.running && !lastReport?.filtering?.running) {
+            refreshReportMetrics();
+            renderSummary(lastReport);
+            renderDetailsAfterPriceChange();
+          }
         } finally {
           appids.forEach(appid => priceLoadState.loadingSet.delete(appid));
         }
@@ -6384,7 +6483,7 @@
   }
 
   function renderDetailsAfterPriceChange() {
-    if (currentTab === "all" || currentTab === "new" || currentTab === "relativeNew") {
+    if (getListViewMode() === "table" || currentTab === "new" || currentTab === "relativeNew") {
       renderDetailsPreserveScroll();
     }
     applyVisibleCoverImages();
@@ -6447,18 +6546,21 @@
     return Boolean(price && !price.pending && !price.unavailable);
   }
 
-  function normalizeOriginalPrice(item) {
+  function normalizeOriginalPrice(item, mode = getPriceMode()) {
     const now = Date.now();
+    const normalizedMode = normalizePriceMode(mode);
     const data = item?.success && item.data && !Array.isArray(item.data) ? item.data : null;
     const localizedName = data?.name || "";
     if (hasPriceOverview(item)) {
       const priceOverview = item.data.price_overview;
-      const initial = Number(priceOverview.initial ?? priceOverview.final ?? 0);
+      const initial = normalizedMode === PRICE_MODE_CURRENT
+        ? Number(priceOverview.final ?? priceOverview.initial ?? 0)
+        : Number(priceOverview.initial ?? priceOverview.final ?? 0);
       return {
         initial,
         currency: priceOverview.currency || getStoreCurrency(),
         localizedName,
-        source: PRICE_SOURCE_ORIGINAL,
+        source: normalizedMode === PRICE_MODE_CURRENT ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
         isFree: data?.is_free === true || initial <= 0,
         unavailable: false,
         updatedAt: now
@@ -6470,7 +6572,7 @@
         initial: 0,
         currency: getStoreCurrency(),
         localizedName,
-        source: PRICE_SOURCE_ORIGINAL,
+        source: normalizedMode === PRICE_MODE_CURRENT ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
         isFree: true,
         unavailable: false,
         updatedAt: now
@@ -6481,25 +6583,28 @@
       initial: null,
       currency: getStoreCurrency(),
       localizedName,
-      source: PRICE_SOURCE_ORIGINAL,
+      source: normalizedMode === PRICE_MODE_CURRENT ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
       isFree: false,
       unavailable: true,
       updatedAt: now
     };
   }
 
-  function normalizeStoreItemOriginalPrice(item) {
+  function normalizeStoreItemOriginalPrice(item, mode = getPriceMode()) {
     const now = Date.now();
+    const normalizedMode = normalizePriceMode(mode);
     const localizedName = item?.name || "";
     const purchaseOption = item?.best_purchase_option;
-    const initial = purchaseOption?.original_price_in_cents ?? purchaseOption?.final_price_in_cents;
+    const initial = normalizedMode === PRICE_MODE_CURRENT
+      ? purchaseOption?.final_price_in_cents ?? purchaseOption?.original_price_in_cents
+      : purchaseOption?.original_price_in_cents ?? purchaseOption?.final_price_in_cents;
     if (initial != null && initial !== "") {
       const cents = Number(initial);
       return {
         initial: cents,
         currency: getStoreCurrency(),
         localizedName,
-        source: PRICE_SOURCE_ORIGINAL,
+        source: normalizedMode === PRICE_MODE_CURRENT ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
         isFree: cents <= 0,
         unavailable: false,
         updatedAt: now
@@ -6839,7 +6944,7 @@
       filteringTotal: 0
     };
 
-    const targetLabel = report?.target?.displayName || t("noSummary");
+    const targetMetric = createTargetAccountSummaryMetric(report);
     const breakdown = report?.targetBreakdown || null;
     const filterValue = metrics.filteringTotal
       ? `${metrics.filteringProcessed || 0}/${metrics.filteringTotal}`
@@ -6850,8 +6955,8 @@
     const duplicatedGamesMetric = createSummaryMetric(breakdown?.overlapCount, value => `${value}`, metrics.overlapCount);
     const overlapRateMetric = createSummaryMetric(breakdown?.overlapRate, value => formatPercent(value), metrics.overlapRate);
     elements.summary.innerHTML = [
-      metricHtml(t("targetAccount"), escapeHtml(targetLabel)),
-      metricHtml(t("progress"), filterValue),
+      metricHtml(t("targetAccount"), targetMetric.value, targetMetric.title),
+      metricHtml(t("progress"), `<b data-sffa-summary-progress>${escapeHtml(filterValue)}</b>`),
       metricHtml(t("tabs.family"), `${metrics.familyCount}`),
       metricHtml(t("totalGames"), totalGamesMetric.value, totalGamesMetric.title),
       metricHtml(t("addedGames"), addedGamesMetric.value, addedGamesMetric.title),
@@ -6859,6 +6964,20 @@
       metricHtml(t("duplicatedGames"), duplicatedGamesMetric.value, duplicatedGamesMetric.title),
       metricHtml(t("overlapRate"), overlapRateMetric.value, overlapRateMetric.title)
     ].join("");
+  }
+
+  function createTargetAccountSummaryMetric(report) {
+    const targets = Array.isArray(report?.target?.targets) ? report.target.targets : [];
+    if (targets.length > 1) {
+      return {
+        value: escapeHtml(t("targetAccountCount", { count: targets.length })),
+        title: targets.map(getTargetProfileDisplayName).join("\n")
+      };
+    }
+    return {
+      value: escapeHtml(report?.target?.displayName || t("noSummary")),
+      title: ""
+    };
   }
 
   function createSummaryMetric(splitMetric, formatter, fallbackValue) {
@@ -6899,49 +7018,48 @@
 
     const target = report.target || {};
     const targets = Array.isArray(target.targets) ? target.targets : [];
-    if (targets.length > 1) {
-      const rows = targets.map((profile, index) => {
-        const name = getTargetProfileDisplayName(profile);
-        const checked = profile.selected === false ? "" : " checked";
-        const nameHtml = profile.profileUrl
-          ? `<a class="sffa-profile-link" href="${escapeAttr(profile.profileUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
-          : escapeHtml(name);
-        return `
-          <div class="sffa-target-row">
-            <input type="checkbox" data-sffa-target-toggle value="${escapeAttr(profile.steamid64 || "")}"${checked}>
-            <span>${nameHtml} · ${escapeHtml(profile.steamid64 || "-")}</span>
-          </div>
-        `;
-      }).join("");
-      elements.profile.innerHTML = `
-        <div class="sffa-profile-head">
-          <button class="sffa-compare-btn" type="button" data-sffa-open-compare data-sffa-tooltip="${escapeAttr(t("compare"))}" aria-label="${escapeAttr(t("compare"))}">${escapeHtml(t("compare"))}</button>
-          <div>
-            <div class="sffa-profile-name">${escapeHtml(target.displayName || t("targetAccountCount", { count: targets.length }))}</div>
-          </div>
-        </div>
-        <div class="sffa-profile-row"><span>${escapeHtml(t("targetAccount"))}</span><span>${escapeHtml(t("targetAccountCount", { count: targets.length }))}</span></div>
-        ${rows}
-        <div class="sffa-profile-row"><span>${escapeHtml(t("time"))}</span><span>${formatDateTime(report.generatedAt)}</span></div>
-      `;
-      return;
-    }
-
-    const avatar = target.avatar
-      ? `<img class="sffa-avatar" src="${escapeAttr(target.avatar)}" alt="">`
-      : `<div class="sffa-avatar"></div>`;
+    const accountRows = targets.length > 1
+      ? targets.map(profile => renderTargetAccountRow(profile, true)).join("")
+      : renderTargetAccountRow(target, false);
+    const count = targets.length > 1 ? targets.length : 1;
+    const compareHtml = `<button class="sffa-compare-btn" type="button" data-sffa-open-compare aria-label="${escapeAttr(t("compare"))}">${escapeHtml(t("compare"))}</button>`;
     elements.profile.innerHTML = `
-      <div class="sffa-profile-head">
-        ${avatar}
-        <div>
-          <div class="sffa-profile-name">${escapeHtml(target.displayName || target.steamid64 || t("unknownAccount"))}</div>
-          <a class="sffa-profile-link" href="${escapeAttr(target.profileUrl || "#")}" target="_blank" rel="noopener">${escapeHtml(t("openProfile"))}</a>
+      <div class="sffa-profile-topbar">
+        <span>${escapeHtml(formatDateTime(report.generatedAt))}</span>
+        <div class="sffa-profile-topbar-actions">
+          <span>${escapeHtml(t("targetAccountCount", { count }))}</span>
+          ${compareHtml}
         </div>
       </div>
-      <div class="sffa-profile-row"><span>SteamID</span><span>${escapeHtml(target.steamid64 || "-")}</span></div>
-      <div class="sffa-profile-row"><span>${escapeHtml(t("time"))}</span><span>${formatDateTime(report.generatedAt)}</span></div>
-      <div class="sffa-profile-row"><span>${escapeHtml(t("link"))}</span><span>${escapeHtml(target.profileUrl || "-")}</span></div>
+      <div class="sffa-account-list">${accountRows}</div>
     `;
+  }
+
+  function renderTargetAccountRow(profile, selectable) {
+    const name = getTargetProfileDisplayName(profile);
+    const steamid64 = String(profile?.steamid64 || "");
+    const checked = profile?.selected === false ? "" : " checked";
+    const disabled = selectable ? "" : " disabled";
+    return `
+      <div class="sffa-target-row">
+        <input type="checkbox" data-sffa-target-toggle value="${escapeAttr(steamid64)}"${checked}${disabled}>
+        ${renderProfileAvatarLinkHtml(profile, name)}
+        <div class="sffa-profile-account-text">
+          <div class="sffa-profile-account-name">${escapeHtml(name)}</div>
+          <div class="sffa-profile-account-id">${escapeHtml(steamid64 || "-")}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderProfileAvatarLinkHtml(profile, label) {
+    const avatar = profile?.avatar
+      ? `<img class="sffa-profile-avatar" src="${escapeAttr(profile.avatar)}" alt="">`
+      : escapeHtml(getAvatarFallbackText(label));
+    if (profile?.profileUrl) {
+      return `<a class="sffa-profile-avatar-link" href="${escapeAttr(profile.profileUrl)}" target="_blank" rel="noopener" aria-label="${escapeAttr(label)}">${avatar}</a>`;
+    }
+    return `<span class="sffa-profile-avatar-static">${avatar}</span>`;
   }
 
   function handleTargetSelectionChange(event) {
@@ -6980,7 +7098,7 @@
   }
 
   function openCompareDialog() {
-    if (!lastReport || !isMultiTargetReport(lastReport)) {
+    if (!lastReport) {
       setStatus(t("noSummary"), "warn");
       return;
     }
@@ -7023,9 +7141,10 @@
       return;
     }
 
-    if (!report || !isMultiTargetReport(report)) {
+    if (!report) {
       elements.compareTitle.textContent = t("compareTitle");
       elements.compareHint.textContent = t("compareHint", { count: Array.isArray(report?.target?.targets) ? report.target.targets.length : 0 });
+      updateCompareColumnCount(1);
       elements.compareSummary.innerHTML = "";
       elements.compareBody.innerHTML = `<div class="sffa-compare-empty">${escapeHtml(t("compareNoData"))}</div>`;
       return;
@@ -7033,6 +7152,7 @@
 
     elements.compareTitle.textContent = t("compareTitle");
     if (report?.filtering?.running) {
+      updateCompareColumnCount(Array.isArray(report?.target?.targets) && report.target.targets.length ? report.target.targets.length : 1);
       elements.compareHint.textContent = t("compareLoadingHint");
       elements.compareSummary.innerHTML = renderCompareLoadingHtml(report);
       elements.compareBody.innerHTML = "";
@@ -7040,9 +7160,15 @@
     }
 
     const compare = buildCompareView(report);
+    updateCompareColumnCount(compare.targets.length);
     elements.compareHint.textContent = t("compareHint", { count: compare.targets.length });
     elements.compareSummary.innerHTML = compare.targets.map(target => renderCompareCardHtml(target, compare)).join("");
     elements.compareBody.innerHTML = "";
+  }
+
+  function updateCompareColumnCount(count) {
+    const columns = Math.max(1, Math.min(3, Number(count || 1)));
+    elements.compareShell?.style.setProperty("--sffa-compare-columns", String(columns));
   }
 
   function renderCompareLoadingHtml(report) {
@@ -7097,7 +7223,7 @@
       if (!appid) {
         return;
       }
-      const owners = Array.from(new Set((game.targetOwners || []).map(String).filter(steamid => activeIdSet.has(steamid))));
+      const owners = getCompareGameOwners(game, activeTargets, activeIdSet);
       if (!owners.length) {
         return;
       }
@@ -7143,6 +7269,15 @@
     };
   }
 
+  function getCompareGameOwners(game, activeTargets, activeIdSet) {
+    const owners = Array.from(new Set((game.targetOwners || []).map(String).filter(steamid => activeIdSet.has(steamid))));
+    if (owners.length || activeTargets.length !== 1) {
+      return owners;
+    }
+    const onlySteamId = String(activeTargets[0]?.steamid64 || "");
+    return onlySteamId ? [onlySteamId] : [];
+  }
+
   function buildCompareTargetStats(target, games, targetTotal) {
     const steamid64 = String(target?.steamid64 || "");
     const ownedGames = games.filter(game => game.owners.includes(steamid64));
@@ -7178,6 +7313,7 @@
 
   function renderCompareCardHtml(target, compare) {
     const stats = compare.targetStats.find(item => item.steamid64 === target.steamid64) || buildCompareTargetStats(target, [], compare.targets.length);
+    const showGameList = compare.targets.length > 1;
     const uniqueBest = compare.statMax.unique > 0;
     const addedBest = compare.statMax.added > 0;
     const addedValueBest = compare.statMax.addedValue > 0;
@@ -7193,7 +7329,7 @@
       metricCardHtml(`${t("compareUniqueAdded")}/${t("compareAdded")}`, `${stats.uniqueAddedCount}/${stats.addedCount}`, addedBest && stats.uniqueAddedCount === compare.statMax.added, false, t("compareUniqueAddedTip")),
       metricCardHtml(t("addedValue"), formatMoney(Number(stats.addedValue || 0)), addedValueBest && stats.addedValue === compare.statMax.addedValue),
       metricCardHtml(t("compareAverageValue"), formatMoney(Number(stats.qualityValue || 0)), averageValueBest && stats.qualityValue === compare.statMax.averageValue),
-      renderComparePriceRangeCards(stats, selectedRange)
+      renderComparePriceRangeCards(stats, selectedRange, { disabled: !showGameList })
     ].join("");
 
     const statusHtml = stats.selected ? "" : `<span class="sffa-compare-card-status">${escapeHtml(t("compareExcluded"))}</span>`;
@@ -7218,7 +7354,7 @@
         <div class="sffa-compare-card-stats">
           ${html}
         </div>
-        <div class="sffa-compare-card-games">
+        ${showGameList ? `<div class="sffa-compare-card-games">
           <div class="sffa-compare-card-games-head">
             <strong>${escapeHtml(t("compareUniqueAdded"))}</strong>
             <span>${escapeHtml(gamesCountText)}</span>
@@ -7226,19 +7362,20 @@
           <div class="sffa-compare-card-games-list">
             ${uniqueGamesHtml}
           </div>
-        </div>
+        </div>` : ""}
       </section>
     `;
   }
 
-  function renderComparePriceRangeCards(stats, selectedRange) {
+  function renderComparePriceRangeCards(stats, selectedRange, options = {}) {
+    const disabled = Boolean(options.disabled);
     const counts = getComparePriceRangeCounts(stats.uniqueNewGames || []);
     return `
       <div class="sffa-compare-price-ranges">
         ${COMPARE_PRICE_RANGES.map(range => {
       const active = selectedRange === range.key;
       return `
-            <button class="sffa-compare-price-range${active ? " is-active" : ""}" type="button" data-sffa-compare-range="${escapeAttr(range.key)}" data-sffa-compare-target="${escapeAttr(stats.steamid64)}" aria-pressed="${active ? "true" : "false"}">
+            <button class="sffa-compare-price-range${active ? " is-active" : ""}" type="button" data-sffa-compare-range="${escapeAttr(range.key)}" data-sffa-compare-target="${escapeAttr(stats.steamid64)}" aria-pressed="${active ? "true" : "false"}"${disabled ? " disabled" : ""}>
               <span>${escapeHtml(range.label)}</span>
               <strong>${escapeHtml(String(counts[range.key] || 0))}</strong>
             </button>
@@ -7502,7 +7639,7 @@
       return t("pending");
     }
     if (price?.unavailable || status === "unsupported") {
-      return "N/A";
+      return "-";
     }
     if (price && (typeof price.initial === "number" || price.isFree === true)) {
       return formatOriginalPriceText(price);
@@ -7563,6 +7700,21 @@
   function metricHtml(label, value, title = "") {
     const titleAttr = title ? ` data-sffa-tooltip="${escapeAttr(title)}"` : "";
     return `<div class="sffa-metric"${titleAttr}><span>${label}</span><strong>${value}</strong></div>`;
+  }
+
+  function updateSummaryProgressMetric() {
+    if (!lastReport) {
+      return;
+    }
+    const total = lastReport.filtering?.total || 0;
+    const processed = lastReport.filtering?.processed || 0;
+    lastReport.metrics.filteringProcessed = processed;
+    lastReport.metrics.filteringTotal = total;
+    const progressValue = total ? `${processed}/${total}` : "0/0";
+    const progressNode = elements.summary?.querySelector("[data-sffa-summary-progress]");
+    if (progressNode) {
+      progressNode.textContent = progressValue;
+    }
   }
 
   function renderTabs() {
@@ -7684,12 +7836,13 @@
   function buildCurrentListCopyTable(rows) {
     if (currentTab === "family") {
       return {
-        headers: ["AppID", t("game"), t("owners"), t("acquiredAt")],
+        headers: ["AppID", t("game"), t("owners"), t("acquiredAt"), getPriceLabel()],
         rows: rows.map(game => [
           game.appid,
           getGameDisplayName(game),
           formatOwners(game.owners || []) || "-",
-          formatFamilyAcquireTime(game.time)
+          formatFamilyAcquireTime(game.time),
+          formatOriginalPriceText(resolveGamePrice(game) || {})
         ])
       };
     }
@@ -7724,28 +7877,31 @@
     }
     if (currentTab === "overlap") {
       return {
-        headers: ["AppID", t("game"), t("owners")],
+        headers: ["AppID", t("game"), t("owners"), getPriceLabel()],
         rows: rows.map(game => [
           game.appid,
           getGameDisplayName(game),
-          formatOwners(game.owners || []) || "-"
+          formatOwners(game.owners || []) || "-",
+          formatOriginalPriceText(resolveGamePrice(game) || {})
         ])
       };
     }
     const includeTargetOwners = isMultiTargetReport();
     return {
-      headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), t("status")] : ["AppID", t("game"), t("status")],
+      headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), t("status"), getPriceLabel()] : ["AppID", t("game"), t("status"), getPriceLabel()],
       rows: rows.map(game => includeTargetOwners
         ? [
           game.appid,
           getGameDisplayName(game),
           formatTargetOwners(game.targetOwners || []),
-          getGameListLabel(game.appid)
+          getGameListLabel(game.appid),
+          formatOriginalPriceText(resolveGamePrice(game) || {})
         ]
         : [
           game.appid,
           getGameDisplayName(game),
-          getGameListLabel(game.appid)
+          getGameListLabel(game.appid),
+          formatOriginalPriceText(resolveGamePrice(game) || {})
         ])
     };
   }
@@ -7774,6 +7930,7 @@
         elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(sourceRows.length ? t("noMatches") : t("noFamilyRefresh"))}</div>`;
         return;
       }
+      prepareOriginalPricesForMissingRows(rows);
       elements.tableWrap.innerHTML = buildDetailsView("family", rows);
       applyVisibleCoverImages();
       scheduleVisibleCoverLoads();
@@ -7788,7 +7945,7 @@
 
     const sourceRows = getReportRowsForCurrentSelection(currentTab);
     const rows = getSortedRows(currentTab, filterRowsBySearchQuery(sourceRows));
-    if (currentTab === "relativeNew") {
+    if (["all", "new", "relativeNew", "overlap"].includes(currentTab) && !lastReport.filtering?.running) {
       prepareOriginalPricesForMissingRows(rows);
     }
     if (rows.length === 0) {
@@ -8046,24 +8203,28 @@
 
   function buildAllGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(t("status"), "status", statusCell, "width: 110px;")]);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(t("status"), "status", statusCell, "width: 110px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
   }
 
   function buildFamilyLibraryTable(rows) {
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(t("acquiredAt"), "time", timeCell, "width: 130px;")]);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(t("acquiredAt"), "time", timeCell, "width: 130px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
   }
 
   function buildRelativeNewTable(rows) {
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), col(t("owners"), "owners", ownersCell, "width: 160px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
   }
 
   function buildNewGamesTable(rows) {
     const includeTargetOwners = isMultiTargetReport();
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], game => ` data-price-appid="${escapeAttr(game.appid)}"`);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell, "width: 150px;"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
   }
 
   function buildOverlapTable(rows) {
-    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell, "width: calc((100% - 82px) / 2);"), col(t("owners"), "owners", ownersCell, "width: calc((100% - 82px) / 2);")]);
+    return buildGameTable(rows, [col("AppID", "appid", appLinkCell, "width: 82px;"), col(t("game"), "name", nameCell, "width: calc((100% - 82px - 110px) / 2);"), col(t("owners"), "owners", ownersCell, "width: calc((100% - 82px - 110px) / 2);"), col(getPriceLabel(), "price", priceCell, "width: 110px;")], priceRowAttrs);
+  }
+
+  function priceRowAttrs(game) {
+    return ` data-price-appid="${escapeAttr(game.appid)}"`;
   }
 
   function col(label, key, cell, style = "") {
@@ -8157,10 +8318,17 @@
     if (cachedPrice) {
       return cachedPrice;
     }
-    if (!isHistoryLowPriceMode()) {
-      return normalizeStoreItemOriginalPrice(entry?.storeItem) || null;
+    if (!isHistoryLowPriceMode() && isFreshStoreItemPriceFallback(entry)) {
+      return normalizeStoreItemOriginalPrice(entry?.storeItem, getPriceMode()) || null;
     }
     return null;
+  }
+
+  function isFreshStoreItemPriceFallback(entry) {
+    return Boolean(
+      entry?.storeItem &&
+      Date.now() - Number(entry.updatedAt || 0) < getPriceCacheTtl(getPriceMode())
+    );
   }
 
   function normalizeGameName(name) {
@@ -8850,10 +9018,10 @@
       ? entry.prices
       : {};
     Object.entries(sourcePrices).forEach(([key, price]) => {
-      if (!isFreshAnyPriceCacheEntry(price)) {
+      if (!isFreshAnyPriceCacheEntry(price, key)) {
         return;
       }
-      const cacheKey = key === PRICE_MODE_ORIGINAL || key === PRICE_MODE_HISTORY_LOW
+      const cacheKey = key === PRICE_MODE_ORIGINAL || key === PRICE_MODE_CURRENT || key === PRICE_MODE_HISTORY_LOW
         ? key
         : getPriceCacheKeyForPrice(price);
       normalized[cacheKey] = price;
@@ -8870,13 +9038,14 @@
   }
 
   function hasFreshCachedPrice(entry) {
-    return Object.values(normalizeCachedPrices(entry)).some(price => isFreshAnyPriceCacheEntry(price));
+    return Object.entries(normalizeCachedPrices(entry)).some(([key, price]) => isFreshAnyPriceCacheEntry(price, key));
   }
 
   function getAnyCachedPriceLocalizedName(entry) {
     const prices = normalizeCachedPrices(entry);
     return entry?.localizedName ||
       prices.original?.localizedName ||
+      prices.current?.localizedName ||
       prices.historyLow?.localizedName ||
       "";
   }
@@ -8888,13 +9057,17 @@
     );
   }
 
-  function isFreshAnyPriceCacheEntry(entry) {
+  function isFreshAnyPriceCacheEntry(entry, mode = getPriceCacheKeyForPrice(entry)) {
     return Boolean(
       entry &&
       (typeof entry.initial === "number" || entry.unavailable === true) &&
       Object.prototype.hasOwnProperty.call(entry, "localizedName") &&
-      Date.now() - Number(entry.updatedAt || 0) < STORE_CACHE_TTL_MS
+      Date.now() - Number(entry.updatedAt || 0) < getPriceCacheTtl(mode)
     );
+  }
+
+  function getPriceCacheTtl(mode) {
+    return normalizePriceMode(mode) === PRICE_MODE_CURRENT ? CURRENT_PRICE_CACHE_TTL_MS : STORE_CACHE_TTL_MS;
   }
 
   function isPriceEntryForCurrentMode(entry) {
@@ -8902,9 +9075,10 @@
       return true;
     }
     const source = entry?.source || PRICE_SOURCE_ORIGINAL;
-    return isHistoryLowPriceMode()
-      ? source === PRICE_SOURCE_ITAD_STORE_LOW
-      : source === PRICE_SOURCE_ORIGINAL;
+    if (isHistoryLowPriceMode()) {
+      return source === PRICE_SOURCE_ITAD_STORE_LOW;
+    }
+    return isCurrentPriceMode() ? source === PRICE_SOURCE_CURRENT : source === PRICE_SOURCE_ORIGINAL;
   }
 
   function cacheOriginalPrice(appid, price) {
@@ -8927,12 +9101,17 @@
       return;
     }
     const coverUrl = extractStoreCoverUrlFromStoreItem(item);
-    const price = normalizeStoreItemOriginalPrice(item);
+    const originalPrice = normalizeStoreItemOriginalPrice(item, PRICE_MODE_ORIGINAL);
+    const currentPrice = normalizeStoreItemOriginalPrice(item, PRICE_MODE_CURRENT);
+    const prices = {
+      ...(originalPrice ? { [PRICE_MODE_ORIGINAL]: originalPrice } : {}),
+      ...(currentPrice ? { [PRICE_MODE_CURRENT]: currentPrice } : {})
+    };
     setStoreCacheEntry(appid, mergeStoreCacheEntry(getStoreCacheEntry(appid), {
       context: STORE_CACHE_CONTEXT,
-      localizedName: item.name || price?.localizedName || "",
+      localizedName: item.name || originalPrice?.localizedName || currentPrice?.localizedName || "",
       ...(coverUrl ? { coverUrl, coverVerified: true } : {}),
-      ...(price ? { prices: { [PRICE_MODE_ORIGINAL]: price } } : {}),
+      ...(Object.keys(prices).length ? { prices } : {}),
       storeItem: item,
       updatedAt: Date.now()
     }));
@@ -9236,7 +9415,7 @@
       return "-";
     }
     if (price.unavailable) {
-      return "N/A";
+      return "-";
     }
     return formatMoney(Number(price.initial || 0), price.currency);
   }
@@ -9249,7 +9428,7 @@
       return "-";
     }
     if (price.unavailable) {
-      return "N/A";
+      return "-";
     }
     return formatMoney(Number(price.initial || 0), price.currency);
   }

@@ -4,3 +4,5 @@
 .codex/
 .playwright*/
 .trae/
+
+dev-loader.user.js

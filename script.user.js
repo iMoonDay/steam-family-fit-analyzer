@@ -156,6 +156,7 @@
       languageEnglish: "English",
       targetPlaceholder: "SteamID64、好友码、主页链接或自定义 ID，多个用空格分隔",
       analysisHistory: "分析历史",
+      deleteHistory: "删除历史记录",
       refreshFamily: "刷新家庭库",
       analyzeAccount: "分析账号",
       continue: "继续",
@@ -387,6 +388,7 @@
       languageEnglish: "English",
       targetPlaceholder: "SteamID64, friend code, profile URL, or custom ID. Separate multiple with spaces",
       analysisHistory: "Analysis history",
+      deleteHistory: "Delete history item",
       refreshFamily: "Refresh family library",
       analyzeAccount: "Analyze account",
       continue: "Continue",
@@ -1356,6 +1358,10 @@
         grid-template-rows: auto auto minmax(0, 1fr);
         gap: 8px;
         overflow: hidden;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+        background: rgba(17, 22, 29, 0.82);
       }
       .sffa-main {
         min-width: 0;
@@ -1408,6 +1414,17 @@
         min-height: 44px;
         padding: 6px 10px;
       }
+      .sffa-history-option {
+        position: relative;
+      }
+      .sffa-history-option .sffa-list-option {
+        width: 100%;
+        min-width: 0;
+        padding-right: 40px;
+      }
+      .sffa-history-option:hover .sffa-list-option {
+        background: rgba(102, 192, 244, 0.14);
+      }
       .sffa-history-option-main {
         display: block;
         overflow: hidden;
@@ -1421,6 +1438,30 @@
         text-overflow: ellipsis;
         color: #8fa6b8;
         font-size: 11px;
+      }
+      .sffa-history-delete {
+        position: absolute;
+        right: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 30px;
+        min-height: 30px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 3px;
+        background: transparent;
+        color: #8fa6b8;
+        cursor: pointer;
+      }
+      .sffa-history-delete:hover {
+        color: #ffb6c2;
+        background: rgba(255, 128, 151, 0.12);
+      }
+      .sffa-history-delete svg {
+        width: 14px;
+        height: 14px;
       }
       .sffa-btn {
         height: 36px;
@@ -1506,8 +1547,8 @@
         min-height: 44px;
         padding: 7px 8px;
         border-radius: 3px;
-        background: #1f2b36;
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: transparent;
+        border: 0;
       }
       .sffa-metric[title],
       .sffa-metric[data-sffa-tooltip] {
@@ -1530,9 +1571,9 @@
       .sffa-profile {
         min-height: 0;
         padding: 0;
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        border: 0;
         border-radius: 3px;
-        background: #11161d;
+        background: transparent;
         overflow: auto;
       }
       .sffa-profile-topbar {
@@ -1546,8 +1587,8 @@
         min-height: 34px;
         padding: 8px 10px;
         min-width: 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        background: rgba(17, 22, 29, 0.96);
+        border-bottom: 0;
+        background: transparent;
       }
       .sffa-profile-topbar span {
         min-width: 0;
@@ -3378,8 +3419,7 @@
     elements.profile.addEventListener("change", handleTargetSelectionChange);
     elements.profile.addEventListener("click", handleProfileActionClick);
     elements.historyMenu?.addEventListener("click", handleAnalysisHistoryClick);
-    elements.targetInput.addEventListener("focus", openAnalysisHistoryMenu);
-    elements.targetInput.addEventListener("click", openAnalysisHistoryMenu);
+    elements.targetInput.addEventListener("click", handleAnalysisHistoryInputClick);
     elements.targetInput.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         closeAnalysisHistoryMenu();
@@ -3796,12 +3836,27 @@
     elements.targetInput?.setAttribute("aria-expanded", "true");
   }
 
+  function handleAnalysisHistoryInputClick(event) {
+    if (!event.isTrusted || event.button !== 0 || event.target !== elements.targetInput) {
+      return;
+    }
+    openAnalysisHistoryMenu();
+  }
+
   function closeAnalysisHistoryMenu() {
     elements.historyWrap?.classList.remove("is-open");
     elements.targetInput?.setAttribute("aria-expanded", "false");
   }
 
   function handleAnalysisHistoryClick(event) {
+    const deleteButton = event.target?.closest?.("[data-sffa-history-delete]");
+    if (deleteButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteAnalysisHistoryEntry(deleteButton.dataset.sffaHistoryDelete || "");
+      return;
+    }
+
     const option = event.target?.closest?.("[data-sffa-history-option]");
     if (!option) {
       return;
@@ -3815,6 +3870,28 @@
     elements.targetInput.value = inputValue;
     closeAnalysisHistoryMenu();
     analyzeTarget();
+  }
+
+  function deleteAnalysisHistoryEntry(inputValue) {
+    const normalizedInput = String(inputValue || "").trim();
+    if (!normalizedInput) {
+      return;
+    }
+
+    const saved = loadAnalysisInputHistory();
+    const nextEntries = saved.entries.filter(entry => entry.inputValue !== normalizedInput);
+    if (nextEntries.length === saved.entries.length) {
+      return;
+    }
+
+    const nextHistory = {
+      ...saved,
+      entries: nextEntries,
+      lastInputValue: saved.lastInputValue === normalizedInput ? "" : saved.lastInputValue,
+      updatedAt: Date.now()
+    };
+    saveAnalysisInputHistory(nextHistory);
+    renderAnalysisHistoryMenu(nextHistory);
   }
 
   function toggleCopyListMenu(event) {
@@ -6151,24 +6228,7 @@
     for (const appid of uniqueAppids) {
       const item = priceData?.[appid];
       cacheStoreCoverUrl(appid, extractStoreCoverUrlFromAppdetails(item));
-      if (hasPriceOverview(item)) {
-        prices.set(appid, normalizeOriginalPrice(item, getPriceMode()));
-        continue;
-      }
-
-      try {
-        const fallbackPrice = await fetchOriginalPrice(appid);
-        prices.set(appid, {
-          ...fallbackPrice,
-          localizedName: ""
-        });
-      } catch (error) {
-        if (isRateLimitError(error)) {
-          throw error;
-        }
-        setRawError(error);
-        prices.set(appid, normalizeOriginalPrice(null, getPriceMode()));
-      }
+      prices.set(appid, normalizeOriginalPrice(item, getPriceMode()));
     }
 
     return prices;
@@ -9095,10 +9155,18 @@
   function renderAnalysisHistoryOptionHtml(entry) {
     const label = entry.displayName || entry.targets.map(target => target.displayName).filter(Boolean).join(" + ") || entry.inputValue;
     return `
-      <button class="sffa-list-option" type="button" role="option" data-sffa-history-option="${escapeAttr(entry.inputValue)}" data-sffa-tooltip="${escapeAttr(entry.inputValue)}">
-        <span class="sffa-history-option-main">${escapeHtml(label)}</span>
-        <span class="sffa-history-option-sub">${escapeHtml(entry.inputValue)}</span>
-      </button>
+      <div class="sffa-history-option">
+        <button class="sffa-list-option" type="button" role="option" data-sffa-history-option="${escapeAttr(entry.inputValue)}" data-sffa-tooltip="${escapeAttr(entry.inputValue)}">
+          <span class="sffa-history-option-main">${escapeHtml(label)}</span>
+          <span class="sffa-history-option-sub">${escapeHtml(entry.inputValue)}</span>
+        </button>
+        <button class="sffa-history-delete" type="button" data-sffa-history-delete="${escapeAttr(entry.inputValue)}" data-sffa-tooltip="${escapeAttr(t("deleteHistory"))}" aria-label="${escapeAttr(t("deleteHistory"))}">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M9 4h6l1 2h4v2H4V6h4l1-2Z" fill="currentColor"></path>
+            <path d="M6 10h12l-1 10H7L6 10Zm4 2v6h2v-6h-2Zm4 0v6h2v-6h-2Z" fill="currentColor"></path>
+          </svg>
+        </button>
+      </div>
     `;
   }
 

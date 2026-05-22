@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.0
+// @version      0.2.1
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -1606,6 +1606,7 @@
       }
       .sffa-history-wrap .sffa-input {
         width: 100%;
+        padding-right: 30px;
       }
       .sffa-history-wrap .sffa-list-menu {
         top: 42px;
@@ -3309,7 +3310,8 @@
         opacity: 0;
         pointer-events: none;
       }
-      .sffa-search-wrap.has-value .sffa-search-clear {
+      .sffa-search-wrap.has-value .sffa-search-clear,
+      .sffa-history-wrap.has-value .sffa-search-clear {
         opacity: 1;
         pointer-events: auto;
       }
@@ -3726,6 +3728,13 @@
         overflow-wrap: anywhere;
         word-break: break-word;
       }
+      .sffa-table-tag[data-sffa-rule-filter-kind] {
+        cursor: pointer;
+      }
+      .sffa-table-tag[data-sffa-rule-filter-kind]:hover {
+        color: #ffffff;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+      }
       .sffa-table-tag.is-tone-0 { background: rgba(102, 192, 244, 0.18); color: #9cdbff; }
       .sffa-table-tag.is-tone-1 { background: rgba(111, 201, 132, 0.18); color: #a8efb5; }
       .sffa-table-tag.is-tone-2 { background: rgba(225, 170, 92, 0.18); color: #ffd28f; }
@@ -3975,6 +3984,11 @@
             <div class="sffa-control-primary">
               <div class="sffa-list-wrap sffa-history-wrap" data-sffa-history-wrap>
                 <input class="sffa-input" data-sffa-target placeholder="${escapeAttr(t("targetPlaceholder"))}" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("analysisHistory"))}">
+                <button class="sffa-search-clear" type="button" data-sffa-target-clear data-sffa-tooltip="${escapeAttr(t("clear"))}" aria-label="${escapeAttr(t("clear"))}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  </svg>
+                </button>
                 <div class="sffa-list-menu" role="listbox" data-sffa-history-menu></div>
               </div>
               <div class="sffa-control-status">
@@ -4212,6 +4226,7 @@
       historyWrap: root.querySelector("[data-sffa-history-wrap]"),
       historyMenu: root.querySelector("[data-sffa-history-menu]"),
       targetInput: root.querySelector("[data-sffa-target]"),
+      targetClearBtn: root.querySelector("[data-sffa-target-clear]"),
       listWrap: root.querySelector("[data-sffa-list-wrap]"),
       listSelect: root.querySelector("[data-sffa-list-select]"),
       listOptions: Array.from(root.querySelectorAll("[data-sffa-list-option]")),
@@ -4342,16 +4357,27 @@
     elements.compareSummary?.addEventListener("scroll", () => scheduleVisibleCoverLoads());
     elements.globalCompareBody?.addEventListener("click", handleGlobalCompareClick);
     elements.tableWrap.addEventListener("scroll", handleDetailsScroll, true);
+    elements.tableWrap.addEventListener("click", handleTableFilterTagClick);
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.profile.addEventListener("change", handleTargetSelectionChange);
     elements.profile.addEventListener("click", handleProfileActionClick);
     elements.historyMenu?.addEventListener("click", handleAnalysisHistoryClick);
     elements.targetInput.addEventListener("click", handleAnalysisHistoryInputClick);
+    elements.targetInput.addEventListener("input", renderTargetClearButton);
     elements.targetInput.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         closeAnalysisHistoryMenu();
         analyzeTarget();
       }
+    });
+    elements.targetClearBtn?.addEventListener("click", () => {
+      if (!elements.targetInput.value) {
+        return;
+      }
+      elements.targetInput.value = "";
+      closeAnalysisHistoryMenu();
+      renderTargetClearButton();
+      elements.targetInput.focus();
     });
     elements.listSelect.addEventListener("click", toggleListMenu);
     elements.listOptions.forEach(option => {
@@ -5008,6 +5034,7 @@
     const steamid = getSteamCommunityProfileSteamId();
     if (steamid) {
       elements.targetInput.value = steamid;
+      renderTargetClearButton();
     }
   }
 
@@ -5234,6 +5261,7 @@
     }
 
     elements.targetInput.value = inputValue;
+    renderTargetClearButton();
     closeAnalysisHistoryMenu();
     analyzeTarget();
   }
@@ -5355,7 +5383,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.targetClearBtn, "title", t("clear")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => {
       if (!element) {
         return;
@@ -5388,7 +5416,7 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.targetClearBtn, "aria-label", t("clear")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
@@ -9906,6 +9934,7 @@
     normalizeRuleFilterForCurrentTab();
     renderSortControl();
     renderRuleFilterControl();
+    renderTargetClearButton();
     renderSearchClearButton();
     if (elements.reloadCoversBtn) {
       elements.reloadCoversBtn.hidden = false;
@@ -10039,9 +10068,18 @@
   }
 
   function setRuleFilterValue(kind, value) {
+    const nextValue = String(value || "all");
+    if (!isRuleFilterMultiSelectKind(kind)) {
+      ruleFilterState = {
+        ...ruleFilterState,
+        [kind]: kind === "time" && isRuleFilterDateValue(nextValue) && getRuleFilterValue(kind) === nextValue ? "all" : nextValue
+      };
+      return;
+    }
+
     ruleFilterState = {
       ...ruleFilterState,
-      [kind]: isRuleFilterMultiSelectKind(kind) ? toggleMultiRuleFilterValue(kind, value) : String(value || "all")
+      [kind]: toggleMultiRuleFilterValue(kind, nextValue)
     };
   }
 
@@ -10150,14 +10188,44 @@
   }
 
   function getRuleFilterTimeOptions() {
+    const selectedDateValue = getRuleFilterValue("time");
+    const selectedDateOption = isRuleFilterDateValue(selectedDateValue)
+      ? [{ value: selectedDateValue, label: getRuleFilterDateLabel(selectedDateValue) }]
+      : [];
     return [
       { value: "all", label: t("ruleFilterAll") },
+      ...selectedDateOption,
       { value: "recent", label: t("ruleFilterTimeRecent") },
       { value: "week", label: t("ruleFilterTimeWeek") },
       { value: "month", label: t("ruleFilterTimeMonth") },
       { value: "year", label: t("ruleFilterTimeYear") },
       { value: "twoYears", label: t("ruleFilterTimeTwoYears") }
     ];
+  }
+
+  function isRuleFilterDateValue(value) {
+    return /^date:\d{4}-\d{1,2}-\d{1,2}$/.test(String(value || ""));
+  }
+
+  function getRuleFilterDateKeyFromValue(value) {
+    return String(value || "").replace(/^date:/, "");
+  }
+
+  function getRuleFilterDateLabel(value) {
+    const [year, month, day] = getRuleFilterDateKeyFromValue(value).split("-").map(number => Number(number));
+    if (!year || !month || !day) {
+      return String(value || "");
+    }
+    return new Date(year, month - 1, day).toLocaleDateString(getNumberLocale(), {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+  }
+
+  function getRuleFilterDateValue(timestamp) {
+    const dateKey = getFamilyAcquireDateKey(timestamp);
+    return dateKey ? `date:${dateKey}` : "";
   }
 
   function getRuleFilterOwnerItems(tab = currentTab) {
@@ -10257,6 +10325,10 @@
     elements.searchWrap.classList.toggle("has-value", Boolean(elements.searchInput.value));
   }
 
+  function renderTargetClearButton() {
+    elements.historyWrap?.classList.toggle("has-value", Boolean(elements.targetInput?.value));
+  }
+
   function scheduleSearchRender() {
     if (searchRenderTimer) {
       window.clearTimeout(searchRenderTimer);
@@ -10348,6 +10420,30 @@
           formatOriginalPriceText(resolveGamePrice(game) || {})
         ])
     };
+  }
+
+  function handleTableFilterTagClick(event) {
+    if (getListViewMode() !== "table") {
+      return;
+    }
+
+    const tag = event.target.closest("[data-sffa-rule-filter-kind][data-sffa-rule-filter-value]");
+    if (!tag || !elements.tableWrap.contains(tag) || elements.ruleFilterMenu?.contains(tag)) {
+      return;
+    }
+
+    const kind = String(tag.dataset.sffaRuleFilterKind || "");
+    if (!["status", "price", "owner", "time"].includes(kind) || !isRuleFilterKindApplicable(kind)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setRuleFilterValue(kind, tag.dataset.sffaRuleFilterValue || "all");
+    closeRuleFilterMenu();
+    renderRuleFilterControl();
+    renderDetailsPreserveScroll();
+    scheduleAnalysisHistorySave();
   }
 
   function handleTableHeaderClick(event) {
@@ -10851,7 +10947,11 @@
   }
 
   function getFamilyAcquireDateKey(timestamp) {
-    const date = new Date(Number(timestamp || 0) * 1000);
+    const seconds = Number(timestamp || 0);
+    if (!seconds) {
+      return "";
+    }
+    const date = new Date(seconds * 1000);
     return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
   }
 
@@ -10910,6 +11010,9 @@
     const acquiredSeconds = Number(game?.time || 0);
     if (!acquiredSeconds) {
       return false;
+    }
+    if (isRuleFilterDateValue(filter)) {
+      return getFamilyAcquireDateKey(acquiredSeconds) === getRuleFilterDateKeyFromValue(filter);
     }
     const rangeDays = {
       week: 7,
@@ -11183,16 +11286,16 @@
     if (!items.length) {
       return "-";
     }
-    return `<span class="sffa-table-tags">${items.map(item => `<span class="sffa-table-tag is-tone-${getTagTone(item)}">${escapeHtml(item.label)}</span>`).join("")}</span>`;
+    return `<span class="sffa-table-tags">${items.map(item => `<span class="sffa-table-tag is-tone-${getTagTone(item)}"${buildRuleFilterTagAttrs("owner", item.id)}>${escapeHtml(item.label)}</span>`).join("")}</span>`;
   }
 
   function renderTableStatusTag(status, content) {
-    return `<span class="sffa-table-tags"><span class="sffa-table-tag is-status-${escapeAttr(getCompareStatusClass(status))}">${content}</span></span>`;
+    return `<span class="sffa-table-tags"><span class="sffa-table-tag is-status-${escapeAttr(getCompareStatusClass(status))}"${buildRuleFilterTagAttrs("status", status || "pending")}>${content}</span></span>`;
   }
 
   function renderTablePriceTag(price, content) {
     const className = getTablePriceTagClass(price);
-    return `<span class="sffa-table-tags"><span class="sffa-table-tag ${escapeAttr(className)}">${content}</span></span>`;
+    return `<span class="sffa-table-tags"><span class="sffa-table-tag ${escapeAttr(className)}"${buildRuleFilterTagAttrs("price", getPriceRuleFilterValue(price))}>${content}</span></span>`;
   }
 
   function renderTableTimeTag(timestamp) {
@@ -11201,7 +11304,28 @@
       return "-";
     }
     const style = getMonthTagStyle(timestamp);
-    return `<span class="sffa-table-tags"><span class="sffa-table-tag" style="${escapeAttr(style)}">${escapeHtml(text)}</span></span>`;
+    return `<span class="sffa-table-tags"><span class="sffa-table-tag"${buildRuleFilterTagAttrs("time", getRuleFilterDateValue(timestamp))} style="${escapeAttr(style)}">${escapeHtml(text)}</span></span>`;
+  }
+
+  function buildRuleFilterTagAttrs(kind, value) {
+    const normalizedValue = String(value || "");
+    if (!normalizedValue) {
+      return "";
+    }
+    return ` data-sffa-rule-filter-kind="${escapeAttr(kind)}" data-sffa-rule-filter-value="${escapeAttr(normalizedValue)}"`;
+  }
+
+  function getPriceRuleFilterValue(price) {
+    if (price?.pending) {
+      return "";
+    }
+    if (price?.isFree || (price?.initial != null && Number(price.initial || 0) <= 0 && !price?.unavailable)) {
+      return "free";
+    }
+    if (!price || price.unavailable || price.initial == null) {
+      return "none";
+    }
+    return getGamePriceRangeKey(price);
   }
 
   function getTablePriceTagClass(price) {
@@ -11706,9 +11830,11 @@
   function restoreSavedInputs(saved) {
     if (elements.targetInput && saved.inputValue != null) {
       elements.targetInput.value = String(saved.inputValue || "");
+      renderTargetClearButton();
     }
     if (elements.searchInput && saved.searchValue != null) {
       elements.searchInput.value = String(saved.searchValue || "");
+      renderSearchClearButton();
     }
   }
 

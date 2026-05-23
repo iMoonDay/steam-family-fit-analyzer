@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.1
+// @version      0.2.2
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -1031,6 +1031,24 @@
     injectStyles();
     mountPanel({ deferView: true });
     registerScriptMenuCommands();
+    openDialogFromQuickOpenUrl();
+  }
+
+  function openDialogFromQuickOpenUrl() {
+    if (!isQuickOpenUrl()) {
+      return;
+    }
+    window.setTimeout(openDialog, 0);
+  }
+
+  function isQuickOpenUrl() {
+    const searchParams = new URLSearchParams(location.search);
+    if (searchParams.get("sffa") === "open") {
+      return true;
+    }
+    const hashText = String(location.hash || "").replace(/^#/, "");
+    const hashParams = new URLSearchParams(hashText);
+    return hashParams.get("sffa") === "open";
   }
 
   async function initializeRuntime() {
@@ -6004,7 +6022,6 @@
   }
 
   function renderInitialAnalysisResult(report) {
-    currentTab = "all";
     renderTabs();
     renderSummary(report);
     renderTargetProfile(report);
@@ -7446,6 +7463,26 @@
       lastReport.games.new.sort(sortByName);
     }
     scheduleShareabilityProgressRender();
+    if (shouldRerenderDetailsAfterShareabilityBatch(sortNewGames)) {
+      renderDetailsPreserveScroll();
+    }
+  }
+
+  function shouldRerenderDetailsAfterShareabilityBatch(sortNewGames) {
+    const normalizedTab = normalizeMainTab(currentTab);
+    if (normalizedTab === "all") {
+      return hasEffectiveSortForTab("all") || getActiveRuleFilterCount() > 0;
+    }
+    if (sortNewGames && normalizedTab === "new") {
+      return hasEffectiveSortForTab("new") || getActiveRuleFilterCount() > 0;
+    }
+    return false;
+  }
+
+  function hasEffectiveSortForTab(tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    const sort = tableSortByTab[normalizedTab];
+    return Boolean(sort?.key && isSortAvailableForTab(sort, normalizedTab));
   }
 
   function getStoreItemContributionStatus(shareability) {

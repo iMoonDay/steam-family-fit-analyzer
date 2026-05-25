@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.2
+// @version      0.2.3
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -99,7 +99,7 @@
     { key: "veryHigh", max: Infinity }
   ]);
   const TAG_TONE_COUNT = 20;
-  const REPORT_LIST_TABS = Object.freeze(["all", "new", "relativeNew", "overlap"]);
+  const REPORT_LIST_TABS = Object.freeze(["all", "new", "familyNew", "relativeNew", "overlap"]);
   const STEAM_LANGUAGE_ALIASES = parseI18nEntries("english=english|en=english|en-us=english|en-gb=english|schinese=schinese|zh-cn=schinese|zh-hans=schinese|tchinese=tchinese|zh-tw=tchinese|zh-hk=tchinese|japanese=japanese|ja=japanese|ja-jp=japanese|koreana=koreana|ko=koreana|ko-kr=koreana|german=german|de=german|de-de=german|french=french|fr=french|fr-fr=french|italian=italian|it=italian|spanish=spanish|es=spanish|es-es=spanish|brazilian=brazilian|pt-br=brazilian|russian=russian|ru=russian");
   const STORE_ITEM_ASSET_BASE_URL = "https://shared.fastly.steamstatic.com/store_item_assets/";
   const FAMILY_POSTER_SORT_MODES = Object.freeze([
@@ -170,7 +170,8 @@
       tabs: {
         all: "全部",
         family: "家庭库",
-        new: "新增",
+        new: "账户新增",
+        familyNew: "家庭新增",
         relativeNew: "相对新增",
         overlap: "重复",
         search: "搜索"
@@ -251,7 +252,7 @@
       compareQualityHigh: "高",
       compareQualityVeryHigh: "超高",
       compareUniqueTip: "独占/总游戏：该账号单独拥有的游戏数 / 该账号总游戏数。",
-      compareUniqueAddedTip: "独有新增/新增：该账号单独拥有且对家庭库有新增价值的游戏数 / 该账号带来的新增游戏数。",
+      compareUniqueAddedTip: "独有新增/新增：该账号单独拥有且不在家庭库中的游戏数 / 该账号不在家庭库中的游戏数。",
       comparePriceDistribution: "价格分布：¥0-¥48 {low} 款，¥48-¥98 {mid} 款，¥98-¥198 {high} 款，¥198+ {top} 款",
       compareStructure: "结构：独占 {unique} 款，共享 {shared} 款",
       compareTotal: "总游戏",
@@ -346,7 +347,7 @@
       searchEmpty: "输入关键词搜索",
       noMatches: "没有匹配游戏",
       unsupported: "不可共享",
-      noAddedValue: "不计入新增",
+      noAddedValue: "无价值",
       pending: "统计中",
       requestTooFast: "请求过快，请稍后再试",
       continueStats: "继续统计...",
@@ -443,7 +444,8 @@
       tabs: {
         all: "All",
         family: "Family library",
-        new: "Added",
+        new: "Account added",
+        familyNew: "Family added",
         relativeNew: "Relative added",
         overlap: "Duplicates",
         search: "Search"
@@ -524,7 +526,7 @@
       compareQualityHigh: "High",
       compareQualityVeryHigh: "Very high",
       compareUniqueTip: "Exclusive/total: games owned only by this account / total games on this account.",
-      compareUniqueAddedTip: "Exclusive added/added: games owned only by this account that add value to the family library / all added games from this account.",
+      compareUniqueAddedTip: "Exclusive added/added: games owned only by this account and missing from the family library / all games from this account that are missing from the family library.",
       comparePriceDistribution: "Price distribution: ¥0-¥48 {low} games, ¥48-¥98 {mid} games, ¥98-¥198 {high} games, ¥198+ {top} games",
       compareStructure: "Structure: {unique} exclusive games, {shared} shared games",
       compareTotal: "Total",
@@ -619,7 +621,7 @@
       searchEmpty: "Enter keywords to search",
       noMatches: "No matching games",
       unsupported: "Not shareable",
-      noAddedValue: "Not counted",
+      noAddedValue: "No value",
       pending: "Processing",
       requestTooFast: "Too many requests, please try again later",
       continueStats: "Continuing...",
@@ -4034,6 +4036,7 @@
                   <div class="sffa-list-menu" role="listbox" data-sffa-list-menu>
                     <button class="sffa-list-option is-active" type="button" role="option" data-sffa-list-option="all" aria-selected="true">${escapeHtml(t("tabs.all"))}</button>
                     <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="new" aria-selected="false">${escapeHtml(t("tabs.new"))}</button>
+                    <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="familyNew" aria-selected="false">${escapeHtml(t("tabs.familyNew"))}</button>
                     <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="relativeNew" aria-selected="false">${escapeHtml(t("tabs.relativeNew"))}</button>
                     <button class="sffa-list-option" type="button" role="option" data-sffa-list-option="overlap" aria-selected="false">${escapeHtml(t("tabs.overlap"))}</button>
                   </div>
@@ -5473,7 +5476,7 @@
         setStatus(t("backgroundProgress", { percent: formatPercent((filtering.processed || 0) / filtering.total) }), "warn");
         return;
       }
-      setStatus(t("completedAdded", { count: lastReport.games.new?.length || 0 }), "ok");
+      setStatus(t("completedAdded", { count: getReportFamilyNewGames(lastReport).length }), "ok");
       return;
     }
 
@@ -5648,8 +5651,8 @@
   function refreshPricesAfterPriceConfigChange() {
     priceLoadState = createPriceLoadState();
     renderPriceQuickToggle();
-    if (lastReport?.games?.new) {
-      prepareOriginalPrices(lastReport.games.new);
+    if (lastReport?.games) {
+      prepareOriginalPrices(getReportFamilyNewGames(lastReport));
       refreshReportMetrics();
       renderSummary(lastReport);
     }
@@ -5841,7 +5844,7 @@
   function getListPosterSortModesForTab(tab = currentTab) {
     const normalizedTab = normalizeMainTab(tab);
     const modes = [...LIST_POSTER_BASE_SORT_MODES];
-    if (normalizedTab === "all") {
+    if (normalizedTab === "all" || normalizedTab === "familyNew") {
       if (isMultiTargetReport()) {
         modes.push("targetOwnersAsc", "targetOwnersDesc");
       }
@@ -7427,7 +7430,7 @@
     }
 
     const currentStatus = lastReport.classificationById[appid]?.status;
-    if (currentStatus === "overlap" || currentStatus === "noValue") {
+    if (currentStatus === "overlap" || currentStatus === "unsupported" || currentStatus === "noValue") {
       return false;
     }
 
@@ -7435,6 +7438,9 @@
     lastReport.classificationById[appid] = { status };
 
     if (status === "new") {
+      if (isAlreadyOwnedGameInReport(appid, lastReport)) {
+        return false;
+      }
       const shareabilityPrice = getCurrentCachedPrice(shareability);
       const newGame = {
         ...game,
@@ -7476,6 +7482,9 @@
     if (sortNewGames && normalizedTab === "new") {
       return hasEffectiveSortForTab("new") || getActiveRuleFilterCount() > 0;
     }
+    if (normalizedTab === "familyNew") {
+      return true;
+    }
     return false;
   }
 
@@ -7497,7 +7506,7 @@
       return;
     }
 
-    ["all", "new", "overlap"].forEach(listName => {
+    ["all", "new", "familyNew", "alreadyOwned", "overlap"].forEach(listName => {
       (lastReport.games[listName] || []).forEach(game => {
         if (String(game.appid) === String(appid)) {
           game.localizedName = localizedName;
@@ -8169,7 +8178,7 @@
   }
 
   function renderDetailsAfterPriceChange() {
-    if (getListViewMode() === "table" || currentTab === "new" || currentTab === "relativeNew") {
+    if (getListViewMode() === "table" || currentTab === "new" || currentTab === "familyNew" || currentTab === "relativeNew") {
       renderDetailsPreserveScroll();
     }
     applyVisibleCoverImages();
@@ -8183,14 +8192,14 @@
     }
     pruneZeroValueAddedGames();
     const allGames = (lastReport.games.all || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
-    const newGames = (lastReport.games.new || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+    const familyNewGames = getReportFamilyNewGames(lastReport).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
     const overlapGames = (lastReport.games.overlap || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
-    const pricedGames = newGames.filter(game => isCountablePrice(resolveGamePrice(game)));
-    const unpricedGames = newGames.filter(game => resolveGamePrice(game)?.unavailable);
+    const pricedGames = familyNewGames.filter(game => isCountablePrice(resolveGamePrice(game)));
+    const unpricedGames = familyNewGames.filter(game => resolveGamePrice(game)?.unavailable);
     lastReport.metrics.targetCount = allGames.length;
-    lastReport.metrics.newCount = newGames.length;
+    lastReport.metrics.newCount = familyNewGames.length;
     lastReport.metrics.overlapCount = overlapGames.length;
-    lastReport.metrics.overlapRate = lastReport.metrics.familyCount > 0 ? overlapGames.length / lastReport.metrics.familyCount : 0;
+    lastReport.metrics.overlapRate = lastReport.metrics.targetCount > 0 ? overlapGames.length / lastReport.metrics.targetCount : 0;
     lastReport.metrics.initialValue = pricedGames.reduce((sum, game) => sum + Number(resolveGamePrice(game)?.initial || 0), 0);
     lastReport.metrics.unpricedCount = unpricedGames.length;
     lastReport.metrics.filteringProcessed = lastReport.filtering?.processed || 0;
@@ -8437,9 +8446,10 @@
     const newGames = comparison.newGames;
     const allGames = (comparison.allGames || targetProfile.games || []).slice().sort(sortByName);
     const pendingNewGames = comparison.pendingNewGames || [];
-    const unpricedGames = newGames.filter(game => resolveGamePrice(game)?.unavailable);
-    const pricedGames = newGames.filter(game => isCountablePrice(resolveGamePrice(game)));
-    const initialValue = pricedGames.reduce((sum, game) => sum + Number(resolveGamePrice(game)?.initial || 0), 0);
+    const familyNewGames = [...pendingNewGames, ...(comparison.alreadyOwnedGames || [])];
+    const familyNewPricedGames = familyNewGames.filter(game => isCountablePrice(resolveGamePrice(game)));
+    const familyNewUnpricedGames = familyNewGames.filter(game => resolveGamePrice(game)?.unavailable);
+    const familyInitialValue = familyNewPricedGames.reduce((sum, game) => sum + Number(resolveGamePrice(game)?.initial || 0), 0);
     const targetCount = allGames.length;
     const rawTargetCount = targetProfile.rawGameCount || targetCount;
     const familyCount = state.familyLibrary.appidSet.length;
@@ -8453,7 +8463,7 @@
       classificationById[String(game.appid)] = { status: "overlap" };
     });
     (comparison.alreadyOwnedGames || []).forEach(game => {
-      classificationById[String(game.appid)] = { status: "noValue" };
+      classificationById[String(game.appid)] = { status: "pending" };
     });
     newGames.forEach(game => {
       classificationById[String(game.appid)] = { status: "new" };
@@ -8472,21 +8482,23 @@
         rawTargetCount,
         filteredUnsupportedCount: targetProfile.filteredUnsupportedCount || 0,
         familyCount,
-        newCount: newGames.length,
+        newCount: familyNewGames.length,
         overlapCount,
-        overlapRate: familyCount > 0 ? overlapCount / familyCount : 0,
+        overlapRate: targetCount > 0 ? overlapCount / targetCount : 0,
         familyOnlyCount: comparison.familyOnlyCount,
-        initialValue,
-        unpricedCount: unpricedGames.length,
+        initialValue: familyInitialValue,
+        unpricedCount: familyNewUnpricedGames.length,
         filteringProcessed: 0,
         filteringTotal: targetCount
       },
-      targetBreakdown: buildTargetBreakdown(targetProfile, comparison, newGames),
+      targetBreakdown: buildTargetBreakdown(targetProfile, comparison, familyNewGames),
       games: {
         all: allGames,
         new: newGames,
+        familyNew: familyNewGames,
+        alreadyOwned: comparison.alreadyOwnedGames || [],
         overlap: comparison.overlapGames,
-        unpriced: unpricedGames
+        unpriced: familyNewUnpricedGames
       },
       classificationById,
       filtering: {
@@ -8541,9 +8553,9 @@
       overlapRate: buildSplitMetric(
         targetRows.map(row => ({
           label: row.label,
-          value: state.familyLibrary.appidSet.length > 0 ? row.overlapCount / state.familyLibrary.appidSet.length : 0
+          value: row.targetCount > 0 ? row.overlapCount / row.targetCount : 0
         })),
-        state.familyLibrary.appidSet.length > 0 ? overlapGameIds.size / state.familyLibrary.appidSet.length : 0,
+        allGameIds.size > 0 ? overlapGameIds.size / allGameIds.size : 0,
         targetRows.reduce((sum, row) => sum + row.overlapCount, 0) !== overlapGameIds.size
       )
     };
@@ -8566,7 +8578,7 @@
         allGames: report.games?.all || [],
         overlapGames: report.games?.overlap || []
       },
-      report.games?.new || []
+      getReportFamilyNewGames(report)
     );
   }
 
@@ -8971,7 +8983,7 @@
     const activeIdSet = new Set(activeTargets.map(target => String(target?.steamid64 || "")).filter(Boolean));
     const allGames = Array.isArray(report?.games?.all) ? report.games.all : [];
     const familySet = new Set(state.familyLibrary.appidSet.map(String));
-    const newIdSet = new Set((report?.games?.new || []).map(game => String(game.appid)));
+    const familyNewIdSet = new Set(getReportFamilyNewGames(report).map(game => String(game.appid)));
     const overlapIdSet = new Set((report?.games?.overlap || []).map(game => String(game.appid)));
     const gameById = new Map();
 
@@ -8993,7 +9005,8 @@
     });
 
     const games = Array.from(gameById.values()).map(game => {
-      const status = getCompareGameStatus(report, game.appid, familySet, newIdSet, overlapIdSet);
+      const isFamilyNew = familyNewIdSet.has(String(game.appid));
+      const status = getCompareGameStatus(report, game.appid, familySet, familyNewIdSet, overlapIdSet);
       const price = resolveCompareGamePrice(game);
       const groupKey = game.ownerCount === 1
         ? "exclusive"
@@ -9004,6 +9017,7 @@
         ...game,
         price,
         status,
+        isFamilyNew,
         groupKey,
         statusLabel: getCompareStatusLabel(status),
         priceText: getCompareGamePriceText(price, status),
@@ -9473,7 +9487,7 @@
     const ownedGames = games.filter(game => game.owners.includes(steamid64));
     const uniqueGames = ownedGames.filter(game => game.ownerCount === 1);
     const sharedGames = ownedGames.filter(game => game.ownerCount > 1);
-    const newGames = ownedGames.filter(game => game.status === "new");
+    const newGames = ownedGames.filter(game => game.isFamilyNew);
     const uniqueNewGames = newGames.filter(game => game.ownerCount === 1).sort(compareUniqueNewGames);
     const addedValue = newGames
       .map(game => resolveCompareGamePrice(game))
@@ -9731,11 +9745,17 @@
     if (game?.price?.pending) {
       return "is-pending";
     }
+    if (game?.status === "unsupported") {
+      return "is-unsupported";
+    }
+    if (game?.status === "noValue") {
+      return "is-no-value";
+    }
     if (game?.price?.unavailable) {
-      return game?.status === "unsupported" ? "is-unsupported" : "is-no-value";
+      return "is-no-value";
     }
     if (typeof game?.price?.initial === "number") {
-      return game?.status === "new" ? "is-new" : "is-overlap";
+      return game?.isFamilyNew || game?.status === "new" ? "is-new" : "is-overlap";
     }
     return "is-no-value";
   }
@@ -9994,6 +10014,13 @@
       options.push(priceOption);
       return options;
     }
+    if (normalizedTab === "familyNew") {
+      const options = [nameOption, idOption, col(t("status"), "status"), priceOption];
+      if (isMultiTargetReport()) {
+        options.push(col(t("targetOwners"), "targetOwners"));
+      }
+      return options;
+    }
     if (normalizedTab === "relativeNew" || normalizedTab === "overlap") {
       return [nameOption, idOption, col(t("owners"), "owners"), priceOption];
     }
@@ -10189,7 +10216,7 @@
   function isRuleFilterKindApplicable(kind, tab = currentTab) {
     const normalizedTab = normalizeMainTab(tab);
     if (kind === "status") {
-      return normalizedTab === "all";
+      return normalizedTab === "all" || normalizedTab === "familyNew";
     }
     if (kind === "time") {
       return normalizedTab === "family";
@@ -10267,7 +10294,7 @@
 
   function getRuleFilterOwnerItems(tab = currentTab) {
     const normalizedTab = normalizeMainTab(tab);
-    const useTargetOwners = normalizedTab === "all" || normalizedTab === "new";
+    const useTargetOwners = normalizedTab === "all" || normalizedTab === "new" || normalizedTab === "familyNew";
     const idSet = new Set();
     const sourceRows = getRuleFilterOwnerSourceRows(normalizedTab);
     sourceRows.forEach(game => {
@@ -10336,6 +10363,7 @@
     return {
       all: t("tabs.all"),
       new: t("tabs.new"),
+      familyNew: t("tabs.familyNew"),
       relativeNew: t("tabs.relativeNew"),
       overlap: t("tabs.overlap")
     }[tab] || t("tabs.all");
@@ -10348,6 +10376,9 @@
   function getReportListCount(tab) {
     if (!lastReport) {
       return 0;
+    }
+    if (tab === "familyNew") {
+      return getFamilyNewRowsForCurrentSelection(lastReport).length;
     }
     if (tab === "relativeNew") {
       return getRelativeNewRowsForCurrentSelection(lastReport).length;
@@ -10399,8 +10430,25 @@
         ])
       };
     }
-    if (currentTab === "new") {
+    if (currentTab === "new" || currentTab === "familyNew") {
       const includeTargetOwners = isMultiTargetReport();
+      if (currentTab === "new") {
+        return {
+          headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), getPriceLabel()] : ["AppID", t("game"), getPriceLabel()],
+          rows: rows.map(game => includeTargetOwners
+            ? [
+              game.appid,
+              getGameDisplayName(game),
+              formatTargetOwners(game.targetOwners || []),
+              formatOriginalPriceText(resolveGamePrice(game) || {})
+            ]
+            : [
+              game.appid,
+              getGameDisplayName(game),
+              formatOriginalPriceText(resolveGamePrice(game) || {})
+            ])
+        };
+      }
       return {
         headers: includeTargetOwners ? ["AppID", t("game"), t("targetOwners"), getPriceLabel()] : ["AppID", t("game"), getPriceLabel()],
         rows: rows.map(game => includeTargetOwners
@@ -10630,7 +10678,7 @@
 
   function scheduleDetailsPricePreparation(tab, rows, renderToken) {
     const normalizedTab = normalizeMainTab(tab);
-    if (normalizedTab !== "family" && (!["all", "new", "relativeNew", "overlap"].includes(normalizedTab) || lastReport?.filtering?.running)) {
+    if (normalizedTab !== "family" && (!["all", "new", "familyNew", "relativeNew", "overlap"].includes(normalizedTab) || lastReport?.filtering?.running)) {
       return;
     }
     scheduleDetailsRenderChunk(() => {
@@ -10744,6 +10792,9 @@
     if (tab === "family") {
       return buildFamilyLibraryTable(rows);
     }
+    if (tab === "familyNew") {
+      return buildFamilyNewTable(rows);
+    }
     if (tab === "relativeNew") {
       return buildRelativeNewTable(rows);
     }
@@ -10833,7 +10884,7 @@
   }
 
   function getDetailsPosterOwnerTagItems(tab, game) {
-    if (tab === "all" || tab === "new") {
+    if (tab === "all" || tab === "new" || tab === "familyNew") {
       return getTargetOwnerTagItems(game.targetOwners || []);
     }
     return getOwnerTagItems(game.owners || [], state.familyInfo?.steamIdtoName || {});
@@ -10896,10 +10947,41 @@
   }
 
   function getReportRowsForCurrentSelection(tab) {
+    if (tab === "familyNew") {
+      return getFamilyNewRowsForCurrentSelection(lastReport);
+    }
     if (tab === "relativeNew") {
       return getRelativeNewRowsForCurrentSelection(lastReport);
     }
     return (lastReport.games[tab] || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+  }
+
+  function getFamilyNewRowsForCurrentSelection(report = lastReport) {
+    if (!report) {
+      return [];
+    }
+    return getReportFamilyNewGames(report).filter(game => isGameIncludedBySelectedTargets(game, report));
+  }
+
+  function isAlreadyOwnedGameInReport(appid, report = lastReport) {
+    const normalizedAppid = String(appid || "");
+    if (!normalizedAppid) {
+      return false;
+    }
+    return (report?.games?.alreadyOwned || []).some(game => String(game?.appid || "") === normalizedAppid);
+  }
+
+  function getReportFamilyNewGames(report = lastReport) {
+    if (!report) {
+      return [];
+    }
+    const games = Array.isArray(report.games?.familyNew)
+      ? report.games.familyNew
+      : [
+        ...(report.games?.new || []),
+        ...(report.games?.alreadyOwned || [])
+      ];
+    return games.filter(game => report?.classificationById?.[String(game?.appid || "")]?.status !== "unsupported");
   }
 
   function getRelativeNewRowsForCurrentSelection(report = lastReport) {
@@ -11031,7 +11113,7 @@
     if (ownerFilters.includes("all") || !isRuleFilterKindApplicable("owner", tab)) {
       return true;
     }
-    const owners = tab === "all" || tab === "new" ? game.targetOwners || [] : game.owners || [];
+    const owners = tab === "all" || tab === "new" || tab === "familyNew" ? game.targetOwners || [] : game.owners || [];
     const ownerSet = new Set(owners.map(String));
     return ownerFilters.some(owner => ownerSet.has(owner));
   }
@@ -11211,6 +11293,11 @@
     return buildGameTable(rows, columns, rowAttrs);
   }
 
+  function buildFamilyNewTable(rows) {
+    const { columns, rowAttrs } = getDetailsTableConfig("familyNew");
+    return buildGameTable(rows, columns, rowAttrs);
+  }
+
   function buildOverlapTable(rows) {
     const { columns, rowAttrs } = getDetailsTableConfig("overlap");
     return buildGameTable(rows, columns, rowAttrs);
@@ -11222,6 +11309,12 @@
     if (normalizedTab === "all") {
       return {
         columns: applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(t("status"), "status", statusCell), col(getPriceLabel(), "price", priceCell)]),
+        rowAttrs: priceRowAttrs
+      };
+    }
+    if (normalizedTab === "familyNew") {
+      return {
+        columns: applyGameTableColumnWidths([col(t("game"), "name", nameCell), includeTargetOwners && col(t("targetOwners"), "targetOwners", targetOwnersCell), col(getPriceLabel(), "price", priceCell)]),
         rowAttrs: priceRowAttrs
       };
     }
@@ -11851,8 +11944,8 @@
     currentTab = normalizeMainTab(saved.currentTab);
     tableSortByTab = saved.tableSortByTab || {};
     comparePriceRangeByTarget = {};
-    if (Array.isArray(lastReport?.games?.new)) {
-      prepareOriginalPrices(lastReport.games.new);
+    if (lastReport?.games) {
+      prepareOriginalPrices(getReportFamilyNewGames(lastReport));
     }
   }
 
@@ -12778,6 +12871,7 @@
       all: t("tabs.all"),
       family: t("tabs.family"),
       new: t("tabs.new"),
+      familyNew: t("tabs.familyNew"),
       relativeNew: t("tabs.relativeNew"),
       overlap: t("tabs.overlap"),
       search: t("tabs.search")

@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.4
+// @version      0.2.5
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -1148,6 +1148,19 @@
         transition: opacity 0.08s ease, transform 0.08s ease, visibility 0.08s ease;
         z-index: 2147483647;
       }
+      .sffa-tooltip.is-gallery {
+        width: min(246px, calc(100vw - 24px));
+        max-width: min(246px, calc(100vw - 24px));
+        padding: 0;
+        border: 0;
+        background: transparent !important;
+        box-shadow: none;
+        overflow: visible;
+        white-space: normal;
+      }
+      .sffa-tooltip.is-gallery::after {
+        display: none;
+      }
       .sffa-tooltip::after {
         content: "";
         position: absolute;
@@ -1177,6 +1190,31 @@
       .sffa-tooltip.is-pairs {
         min-width: 168px;
         white-space: normal;
+      }
+      .sffa-tooltip-gallery {
+        display: grid;
+        gap: 0;
+      }
+      .sffa-tooltip-gallery-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 230px));
+        justify-content: center;
+        gap: 0;
+      }
+      .sffa-tooltip-cover {
+        position: relative;
+        width: 230px;
+        aspect-ratio: 460 / 215;
+        min-width: 0;
+        border-radius: 0;
+        overflow: hidden;
+        border: 0;
+        background-color: #16202b;
+        background-image: linear-gradient(180deg, rgba(9, 13, 19, 0.08) 0%, rgba(9, 13, 19, 0.74) 100%), var(--sffa-cover, none);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 100% 100%, contain;
+        box-shadow: none;
       }
       .sffa-tooltip-pairs {
         display: grid;
@@ -4700,6 +4738,10 @@
     renderTooltipContent(tooltipBox, text, target);
     tooltipBox.hidden = false;
     tooltipBox.classList.add("is-visible");
+    applyVisibleCoverImages();
+    if (tooltipBox.classList.contains("is-gallery")) {
+      scheduleVisibleCoverLoads();
+    }
     tooltipSizeCache = {
       width: tooltipBox.offsetWidth,
       height: tooltipBox.offsetHeight
@@ -4708,8 +4750,30 @@
   }
 
   function renderTooltipContent(tooltipBox, text, target) {
+    const gallery = isGlobalCompareGalleryTooltipTarget(target) ? parseGlobalCompareGalleryTooltip(target) : null;
     const pairs = isMetricTooltipTarget(target) ? parseTooltipPairs(text) : null;
+    tooltipBox.classList.toggle("is-gallery", Boolean(gallery));
     tooltipBox.classList.toggle("is-pairs", Boolean(pairs));
+    if (gallery) {
+      tooltipBox.replaceChildren();
+      const wrap = document.createElement("div");
+      wrap.className = "sffa-tooltip-gallery";
+      const grid = document.createElement("div");
+      grid.className = "sffa-tooltip-gallery-grid";
+      gallery.games.forEach(game => {
+        const item = document.createElement("div");
+        item.className = "sffa-tooltip-cover";
+        item.dataset.sffaCoverAppid = String(game.appid || "");
+        if (game.name) {
+          item.dataset.sffaTooltip = String(game.name);
+        }
+        grid.append(item);
+      });
+      wrap.append(grid);
+
+      tooltipBox.append(wrap);
+      return;
+    }
     if (!pairs) {
       tooltipBox.textContent = text;
       return;
@@ -4734,6 +4798,43 @@
       wrap.append(row);
     });
     tooltipBox.append(wrap);
+  }
+
+  function isGlobalCompareGalleryTooltipTarget(target) {
+    return Boolean(target?.dataset?.sffaTooltipKind === "global-compare-gallery");
+  }
+
+  function parseGlobalCompareGalleryTooltip(target) {
+    const title = String(target?.dataset?.sffaTooltipTitle || "").trim();
+    const meta = String(target?.dataset?.sffaTooltipMeta || "").trim();
+    const foot = String(target?.dataset?.sffaTooltipFoot || "").trim();
+    const games = parseGlobalCompareGalleryGames(target?.dataset?.sffaTooltipGames || "");
+    if (!games.length) {
+      return null;
+    }
+    return {
+      title,
+      meta,
+      foot,
+      games
+    };
+  }
+
+  function parseGlobalCompareGalleryGames(value) {
+    try {
+      const parsed = JSON.parse(String(value || "[]"));
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed
+        .map(game => ({
+          appid: String(game?.appid || ""),
+          name: String(game?.name || "").trim()
+        }))
+        .filter(game => /^\d+$/.test(game.appid));
+    } catch (error) {
+      return [];
+    }
   }
 
   function isMetricTooltipTarget(target) {
@@ -6726,11 +6827,14 @@
     if (isCompareDialogOpen()) {
       getVisibleAppidsFromContainer(elements.compareSummary, ".sffa-compare-card-game-link").forEach(appid => appids.add(appid));
     }
+    if (elements.tooltipBox && !elements.tooltipBox.hidden) {
+      getVisibleAppidsFromContainer(elements.tooltipBox, ".sffa-tooltip-cover[data-sffa-cover-appid]").forEach(appid => appids.add(appid));
+    }
     return Array.from(appids);
   }
 
   function shouldProcessVisibleCovers() {
-    return getListViewMode() === "cover" || getListViewMode() === "poster" || getListViewMode() === "table" || isCompareDialogOpen();
+    return getListViewMode() === "cover" || getListViewMode() === "poster" || getListViewMode() === "table" || isCompareDialogOpen() || Boolean(elements.tooltipBox && !elements.tooltipBox.hidden);
   }
 
   function getVisibleAppidsFromContainer(container, selector) {
@@ -7959,6 +8063,9 @@
     if (isCompareDialogOpen()) {
       applyVisibleCoverImagesInContainer(elements.compareSummary, ".sffa-compare-card-game[data-sffa-cover-appid]");
     }
+    if (elements.tooltipBox && !elements.tooltipBox.hidden) {
+      applyVisibleCoverImagesInContainer(elements.tooltipBox, ".sffa-tooltip-cover[data-sffa-cover-appid]");
+    }
   }
 
   function applyVisibleCoverImagesInContainer(container, selector) {
@@ -8249,6 +8356,7 @@
     lastReport.targetBreakdown = buildTargetBreakdownFromReport(lastReport);
     renderTabs();
     renderCompareDialogIfOpen();
+    renderGlobalCompareDialogIfOpen();
     scheduleAnalysisHistorySave();
   }
 
@@ -9131,10 +9239,15 @@
 
     targetAccounts.forEach(target => {
       const steamid64 = String(target?.steamid64 || "");
-      (target?.gameAppids || []).forEach(appid => addGlobalGameOwner(gameOwnersById, appid, steamid64));
+      (target?.gameAppids || [])
+        .filter(appid => isGlobalCompareTargetGameCountable(report, appid))
+        .forEach(appid => addGlobalGameOwner(gameOwnersById, appid, steamid64));
     });
     (report?.games?.all || []).forEach(game => {
       const appid = String(game?.appid || "");
+      if (!isGlobalCompareTargetGameCountable(report, appid)) {
+        return;
+      }
       registerGlobalCompareGame(gameById, game);
       const owners = (game?.targetOwners || [])
         .map(String)
@@ -9232,6 +9345,11 @@
       ? report.target.targets
       : [report?.target].filter(Boolean);
     return targets.filter(target => target?.selected !== false && String(target?.steamid64 || ""));
+  }
+
+  function isGlobalCompareTargetGameCountable(report, appid) {
+    const status = report?.classificationById?.[String(appid || "")]?.status;
+    return status !== "unsupported";
   }
 
   function registerGlobalCompareGame(gameById, game) {
@@ -9479,7 +9597,7 @@
     });
     const games = Array.isArray(detail.games) ? detail.games : [];
     const gamesHtml = games.length
-      ? games.map(renderGlobalContributionDetailGameHtml).join("")
+      ? games.map(game => renderGlobalContributionDetailGameHtml(game, detail)).join("")
       : `<div class="sffa-global-empty">${escapeHtml(t("globalCompareDetailEmpty"))}</div>`;
     return `
       <section class="sffa-global-detail">
@@ -9494,13 +9612,17 @@
     `;
   }
 
-  function renderGlobalContributionDetailGameHtml(game) {
+  function renderGlobalContributionDetailGameHtml(game, detail) {
     const appid = String(game?.appid || "");
     const name = getGameLocalizedDisplayName(game);
     const originalName = getGameOriginalName(game);
     const gameUrl = `https://store.steampowered.com/app/${appid}/`;
+    const tooltipPayload = JSON.stringify([{
+      appid,
+      name: name || originalName || `App ${appid}`
+    }]);
     return `
-      <a class="sffa-global-detail-game" ${buildSteamLinkAttrs(gameUrl)} data-sffa-tooltip="${escapeAttr(`ID ${appid || "-"}\n${originalName}`)}">
+      <a class="sffa-global-detail-game" ${buildSteamLinkAttrs(gameUrl)} data-sffa-tooltip="${escapeAttr(name)}" data-sffa-tooltip-kind="global-compare-gallery" data-sffa-tooltip-title="${escapeAttr(name || originalName || `App ${appid}`)}" data-sffa-tooltip-meta="1/1" data-sffa-tooltip-games="${escapeAttr(tooltipPayload)}">
         <strong>${escapeHtml(name)}</strong>
       </a>
     `;

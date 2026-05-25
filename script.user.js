@@ -182,10 +182,12 @@
       ruleFilterStatus: "状态",
       ruleFilterPrice: "价格",
       ruleFilterOwner: "账号",
+      ruleFilterTag: "标签",
       ruleFilterTime: "入库时间",
       ruleFilterAll: "全部",
       ruleFilterNoPrice: "无价格",
       ruleFilterFree: "免费/0",
+      ownedTag: "已拥有",
       ruleFilterTimeRecent: "最近",
       ruleFilterTimeWeek: "一周内",
       ruleFilterTimeMonth: "一个月内",
@@ -456,10 +458,12 @@
       ruleFilterStatus: "Status",
       ruleFilterPrice: "Price",
       ruleFilterOwner: "Account",
+      ruleFilterTag: "Tag",
       ruleFilterTime: "Acquired",
       ruleFilterAll: "All",
       ruleFilterNoPrice: "No price",
       ruleFilterFree: "Free/0",
+      ownedTag: "Owned",
       ruleFilterTimeRecent: "Recent",
       ruleFilterTimeWeek: "Past week",
       ruleFilterTimeMonth: "Past month",
@@ -3442,6 +3446,20 @@
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
         overflow-wrap: anywhere;
       }
+      .sffa-cover-card-title-row,
+      .sffa-poster-title-row {
+        width: 100%;
+        max-width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+      }
+      .sffa-cover-card-title-row .sffa-cover-card-title,
+      .sffa-poster-title-row .sffa-poster-title {
+        flex: 1 1 auto;
+      }
       .sffa-cover-card-chip {
         position: absolute;
         top: 10px;
@@ -3702,7 +3720,7 @@
         transform: translateY(-1px);
       }
       .sffa-game-name-text {
-        display: block;
+        display: inline;
         justify-self: start;
         width: fit-content;
         max-width: 100%;
@@ -3710,6 +3728,13 @@
         white-space: normal;
         overflow-wrap: anywhere;
         word-break: break-word;
+      }
+      .sffa-game-name-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
       }
       .sffa-spinner {
         width: 14px;
@@ -3768,6 +3793,20 @@
       .sffa-table-tag.is-tone-10 { background: rgba(126, 238, 164, 0.16); color: #b8f8ca; }
       .sffa-table-tag.is-tone-11 { background: rgba(240, 132, 226, 0.16); color: #f6b8ee; }
       .sffa-table-tag.is-tone-12 { background: rgba(114, 229, 255, 0.16); color: #b8f2ff; }
+      .sffa-table-tag.is-game-name-tag {
+        min-height: 20px;
+        padding: 0 7px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #cbd7e1;
+        font-size: 10px;
+      }
+      .sffa-cover-card-title-row .sffa-table-tag.is-game-name-tag,
+      .sffa-poster-title-row .sffa-table-tag.is-game-name-tag {
+        flex: 0 0 auto;
+        min-height: 18px;
+        color: #f2f6fa;
+        background: rgba(12, 18, 26, 0.62);
+      }
       .sffa-table-tag.is-tone-13 { background: rgba(205, 222, 96, 0.16); color: #edf69a; }
       .sffa-table-tag.is-tone-14 { background: rgba(255, 112, 112, 0.16); color: #ffb0b0; }
       .sffa-table-tag.is-tone-15 { background: rgba(166, 142, 255, 0.18); color: #cec2ff; }
@@ -5848,6 +5887,8 @@
       if (isMultiTargetReport()) {
         modes.push("targetOwnersAsc", "targetOwnersDesc");
       }
+    }
+    if (normalizedTab === "all") {
       modes.push("statusAsc", "statusDesc");
     } else if (normalizedTab === "new") {
       if (isMultiTargetReport()) {
@@ -10015,7 +10056,7 @@
       return options;
     }
     if (normalizedTab === "familyNew") {
-      const options = [nameOption, idOption, col(t("status"), "status"), priceOption];
+      const options = [nameOption, idOption, priceOption];
       if (isMultiTargetReport()) {
         options.push(col(t("targetOwners"), "targetOwners"));
       }
@@ -10072,6 +10113,7 @@
       status: ["all"],
       price: ["all"],
       owner: ["all"],
+      tag: ["all"],
       time: "all"
     };
   }
@@ -10089,6 +10131,7 @@
       isRuleFilterKindApplicable("status") && renderRuleFilterGroup("status", t("ruleFilterStatus"), getRuleFilterStatusOptions()),
       isRuleFilterKindApplicable("price") && renderRuleFilterGroup("price", t("ruleFilterPrice"), getRuleFilterPriceOptions()),
       isRuleFilterKindApplicable("owner") && renderRuleFilterGroup("owner", t("ruleFilterOwner"), getRuleFilterOwnerOptions()),
+      isRuleFilterKindApplicable("tag") && renderRuleFilterGroup("tag", t("ruleFilterTag"), getRuleFilterTagOptions()),
       isRuleFilterKindApplicable("time") && renderRuleFilterGroup("time", t("ruleFilterTime"), getRuleFilterTimeOptions()),
       `<div class="sffa-rule-filter-group"><button class="sffa-list-option" type="button" role="menuitem" data-sffa-rule-filter-clear>${escapeHtml(t("ruleFilterClear"))}</button></div>`
     ].filter(Boolean).join("");
@@ -10194,7 +10237,7 @@
   }
 
   function getActiveRuleFilterCount() {
-    return ["status", "price", "owner", "time"].reduce((count, kind) => {
+    return ["status", "price", "owner", "tag", "time"].reduce((count, kind) => {
       if (!isRuleFilterKindApplicable(kind)) {
         return count;
       }
@@ -10216,6 +10259,9 @@
   function isRuleFilterKindApplicable(kind, tab = currentTab) {
     const normalizedTab = normalizeMainTab(tab);
     if (kind === "status") {
+      return normalizedTab === "all";
+    }
+    if (kind === "tag") {
       return normalizedTab === "all" || normalizedTab === "familyNew";
     }
     if (kind === "time") {
@@ -10248,6 +10294,13 @@
     return [
       { value: "all", label: t("ruleFilterAll") },
       ...getRuleFilterOwnerItems().map(item => ({ value: item.id, label: item.label }))
+    ];
+  }
+
+  function getRuleFilterTagOptions() {
+    return [
+      { value: "all", label: t("ruleFilterAll") },
+      { value: "owned", label: t("ownedTag") }
     ];
   }
 
@@ -10518,7 +10571,7 @@
     }
 
     const kind = String(tag.dataset.sffaRuleFilterKind || "");
-    if (!["status", "price", "owner", "time"].includes(kind) || !isRuleFilterKindApplicable(kind)) {
+    if (!["status", "price", "owner", "tag", "time"].includes(kind) || !isRuleFilterKindApplicable(kind)) {
       return;
     }
 
@@ -10583,7 +10636,7 @@
       return;
     }
     const kind = String(option.dataset.sffaRuleFilterKind || "");
-    if (!["status", "price", "owner", "time"].includes(kind)) {
+    if (!["status", "price", "owner", "tag", "time"].includes(kind)) {
       return;
     }
     setRuleFilterValue(kind, option.dataset.sffaRuleFilterValue || "all");
@@ -10828,11 +10881,15 @@
     const metaLines = getDetailsCoverMetaLines(tab, game).filter(Boolean);
     const priceText = formatOriginalPriceText(resolveGamePrice(game) || {});
     const priceAttr = needsCoverPriceTracking(tab) ? ` data-price-appid="${escapeAttr(game.appid)}"` : "";
+    const nameTags = renderGameNameTags(game);
     return `
       <a class="sffa-cover-card" ${buildSteamLinkAttrs(gameUrl)}${priceAttr} aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(originalName)}">
         <span class="sffa-cover-card-media" data-sffa-cover-appid="${escapeAttr(game.appid)}">
           ${chip ? `<span class="sffa-cover-card-chip ${escapeAttr(chip.className)}">${escapeHtml(chip.text)}</span>` : ""}
-          <span class="sffa-cover-card-title">${escapeHtml(title)}</span>
+          <span class="sffa-cover-card-title-row">
+            <span class="sffa-cover-card-title">${escapeHtml(title)}</span>
+            ${nameTags}
+          </span>
         </span>
         <span class="sffa-cover-card-body">
           <span class="sffa-cover-card-id-row">
@@ -10858,6 +10915,7 @@
     const topTag = getDetailsPosterTopTag(tab, game);
     const ownerTags = getDetailsPosterOwnerTagItems(tab, game);
     const priceTag = renderPosterPriceTag(price);
+    const nameTags = renderGameNameTags(game);
     return `
       <a class="sffa-poster-card" ${buildSteamLinkAttrs(gameUrl)} data-price-appid="${escapeAttr(appid)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-cover-kind="poster" aria-label="${escapeAttr(title)}" data-sffa-tooltip="${escapeAttr(`ID ${appid || "-"}\n${originalName}`)}">
         <span class="sffa-poster-top">
@@ -10865,7 +10923,10 @@
           <span class="sffa-poster-price">${priceTag}</span>
         </span>
         <span class="sffa-poster-bottom">
-          <span class="sffa-poster-title">${escapeHtml(title)}</span>
+          <span class="sffa-poster-title-row">
+            <span class="sffa-poster-title">${escapeHtml(title)}</span>
+            ${nameTags}
+          </span>
           <span class="sffa-poster-owner-tags">${renderPosterOwnerTags(ownerTags)}</span>
         </span>
       </a>
@@ -10969,6 +11030,15 @@
       return false;
     }
     return (report?.games?.alreadyOwned || []).some(game => String(game?.appid || "") === normalizedAppid);
+  }
+
+  function isShareableAlreadyOwnedGameInReport(appid, report = lastReport) {
+    const normalizedAppid = String(appid || "");
+    if (!normalizedAppid || !isAlreadyOwnedGameInReport(normalizedAppid, report)) {
+      return false;
+    }
+    const status = report?.classificationById?.[normalizedAppid]?.status;
+    return status === "new" || status === "noValue";
   }
 
   function getReportFamilyNewGames(report = lastReport) {
@@ -11078,6 +11148,7 @@
     return isGameMatchedByStatusFilter(tab, game)
       && isGameMatchedByPriceFilter(game)
       && isGameMatchedByOwnerFilter(tab, game)
+      && isGameMatchedByTagFilter(tab, game)
       && isGameMatchedByTimeFilter(tab, game, context);
   }
 
@@ -11116,6 +11187,19 @@
     const owners = tab === "all" || tab === "new" || tab === "familyNew" ? game.targetOwners || [] : game.owners || [];
     const ownerSet = new Set(owners.map(String));
     return ownerFilters.some(owner => ownerSet.has(owner));
+  }
+
+  function isGameMatchedByTagFilter(tab, game) {
+    const tagFilters = getRuleFilterValues("tag");
+    if (tagFilters.includes("all") || !isRuleFilterKindApplicable("tag", tab)) {
+      return true;
+    }
+    const tagSet = new Set(getGameRuleFilterTags(game));
+    return tagFilters.some(tag => tagSet.has(tag));
+  }
+
+  function getGameRuleFilterTags(game) {
+    return isShareableAlreadyOwnedGameInReport(game?.appid) ? ["owned"] : [];
   }
 
   function isGameMatchedByTimeFilter(tab, game, context) {
@@ -11384,12 +11468,23 @@
     const displayName = getGameLocalizedDisplayName(game);
     const originalName = getGameOriginalName(game);
     const gameUrl = `https://store.steampowered.com/app/${appid}/`;
+    const nameTags = renderGameNameTags(game);
     return buildCell(`
       <span class="sffa-game-name">
         <a class="sffa-game-thumb" ${buildSteamLinkAttrs(gameUrl)} aria-label="${escapeAttr(displayName)}" data-sffa-cover-appid="${escapeAttr(appid)}" data-sffa-tooltip="${escapeAttr(appid)}"></a>
-        <span class="sffa-game-name-text" data-sffa-tooltip="${escapeAttr(originalName)}">${escapeHtml(displayName)}</span>
+        <span class="sffa-game-name-line">
+          <span class="sffa-game-name-text" data-sffa-tooltip="${escapeAttr(originalName)}">${escapeHtml(displayName)}</span>
+          ${nameTags}
+        </span>
       </span>
     `);
+  }
+
+  function renderGameNameTags(game) {
+    if (!isRuleFilterKindApplicable("tag") || !isShareableAlreadyOwnedGameInReport(game?.appid)) {
+      return "";
+    }
+    return `<span class="sffa-table-tag is-game-name-tag"${buildRuleFilterTagAttrs("tag", "owned")}>${escapeHtml(t("ownedTag"))}</span>`;
   }
 
   function ownersCell(game) {

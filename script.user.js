@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.5
+// @version      0.2.6
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -167,6 +167,7 @@
       analyzeAccount: "分析账号",
       continue: "继续",
       rateCheck: "限流检测",
+      account: "账号",
       tabs: {
         all: "全部",
         family: "家庭库",
@@ -182,17 +183,32 @@
       ruleFilterStatus: "状态",
       ruleFilterPrice: "价格",
       ruleFilterOwner: "账号",
+      ruleFilterOwnerModeAnyShort: "任一",
+      ruleFilterOwnerModeAnyTip: "任一所选账号拥有",
+      ruleFilterOwnerModeAllShort: "均有",
+      ruleFilterOwnerModeAllTip: "所选账号均拥有",
+      ruleFilterOwnerModeExactShort: "仅选",
+      ruleFilterOwnerModeExactTip: "仅所选账号拥有",
       ruleFilterTag: "标签",
       ruleFilterTime: "入库时间",
+      ruleFilterTimeInvertShort: "非",
+      ruleFilterTimeInvertTip: "反选当前入库时间筛选，仅在非全部时生效",
+      ruleFilterTimeCustom: "自定义",
+      ruleFilterTimeCustomStart: "开始日期",
+      ruleFilterTimeCustomEnd: "结束日期",
       ruleFilterAll: "全部",
       ruleFilterNoPrice: "无价格",
       ruleFilterFree: "免费/0",
+      ruleFilterPriceCustom: "自定义",
+      ruleFilterPriceCustomMin: "最低价格",
+      ruleFilterPriceCustomMax: "最高价格",
       ownedTag: "已拥有",
       ruleFilterTimeRecent: "最近",
       ruleFilterTimeWeek: "一周内",
       ruleFilterTimeMonth: "一个月内",
       ruleFilterTimeYear: "一年内",
       ruleFilterTimeTwoYears: "两年内",
+      ruleFilterTimeYears: "{count}年内",
       copyList: "复制列表",
       originalName: "原名",
       initialEmpty: "输入账号后分析",
@@ -443,6 +459,7 @@
       analyzeAccount: "Analyze account",
       continue: "Continue",
       rateCheck: "Check rate limit",
+      account: "Account",
       tabs: {
         all: "All",
         family: "Family library",
@@ -458,17 +475,32 @@
       ruleFilterStatus: "Status",
       ruleFilterPrice: "Price",
       ruleFilterOwner: "Account",
+      ruleFilterOwnerModeAnyShort: "Any",
+      ruleFilterOwnerModeAnyTip: "Any selected account owns",
+      ruleFilterOwnerModeAllShort: "All",
+      ruleFilterOwnerModeAllTip: "All selected accounts own",
+      ruleFilterOwnerModeExactShort: "Only",
+      ruleFilterOwnerModeExactTip: "Only selected accounts own",
       ruleFilterTag: "Tag",
       ruleFilterTime: "Acquired",
+      ruleFilterTimeInvertShort: "Not",
+      ruleFilterTimeInvertTip: "Invert the current acquired-time filter. Only applies when not All.",
+      ruleFilterTimeCustom: "Custom",
+      ruleFilterTimeCustomStart: "Start date",
+      ruleFilterTimeCustomEnd: "End date",
       ruleFilterAll: "All",
       ruleFilterNoPrice: "No price",
       ruleFilterFree: "Free/0",
+      ruleFilterPriceCustom: "Custom",
+      ruleFilterPriceCustomMin: "Min price",
+      ruleFilterPriceCustomMax: "Max price",
       ownedTag: "Owned",
       ruleFilterTimeRecent: "Recent",
       ruleFilterTimeWeek: "Past week",
       ruleFilterTimeMonth: "Past month",
       ruleFilterTimeYear: "Past year",
       ruleFilterTimeTwoYears: "Past 2 years",
+      ruleFilterTimeYears: "Past {count} years",
       copyList: "Copy list",
       originalName: "Original name",
       initialEmpty: "Enter an account to analyze",
@@ -1668,7 +1700,40 @@
       }
       .sffa-history-wrap .sffa-input {
         width: 100%;
-        padding-right: 30px;
+        padding-right: 68px;
+      }
+      .sffa-history-wrap .sffa-search-clear {
+        right: 34px;
+      }
+      .sffa-target-analyze {
+        position: absolute;
+        top: 50%;
+        right: 4px;
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        transform: translateY(-50%);
+        border: 1px solid rgba(102, 192, 244, 0.28);
+        border-radius: 3px;
+        background: linear-gradient(180deg, #2a475e 0%, #1b2838 100%);
+        color: #ffffff;
+        cursor: pointer;
+        transition: filter 0.12s ease, box-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+      }
+      .sffa-target-analyze:hover:not(:disabled) {
+        filter: brightness(1.08);
+        box-shadow: 0 0 0 1px rgba(143, 209, 255, 0.2) inset;
+      }
+      .sffa-target-analyze:disabled {
+        cursor: wait;
+        opacity: 0.58;
+      }
+      .sffa-target-analyze svg {
+        width: 15px;
+        height: 15px;
+        display: block;
       }
       .sffa-history-wrap .sffa-list-menu {
         top: 42px;
@@ -3159,6 +3224,16 @@
         font-weight: 700;
         line-height: 1.4;
       }
+      .sffa-rule-filter-title-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 0 2px;
+      }
+      .sffa-rule-filter-title-row .sffa-rule-filter-title {
+        padding: 0;
+      }
       .sffa-rule-filter-options {
         display: flex;
         flex-wrap: wrap;
@@ -3234,6 +3309,86 @@
         background: rgba(102, 192, 244, 0.28);
         border-color: rgba(143, 209, 255, 0.46);
         color: #ffffff;
+      }
+      .sffa-rule-filter-owner-mode {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 2px;
+        border: 1px solid rgba(102, 192, 244, 0.18);
+        border-radius: 999px;
+        background: #101820;
+      }
+      .sffa-rule-filter-owner-mode-btn {
+        height: 20px;
+        min-width: 30px;
+        padding: 0 7px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #9fb3c2;
+        cursor: pointer;
+        font: inherit;
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .sffa-rule-filter-owner-mode-btn:hover {
+        color: #dbe8f3;
+      }
+      .sffa-rule-filter-owner-mode-btn.is-active {
+        background: #66c0f4;
+        color: #071018;
+        font-weight: 700;
+      }
+      .sffa-rule-filter-time-invert {
+        height: 20px;
+        min-width: 32px;
+        padding: 0 8px;
+        border: 1px solid rgba(102, 192, 244, 0.18);
+        border-radius: 999px;
+        background: #101820;
+        color: #9fb3c2;
+        cursor: pointer;
+        font: inherit;
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .sffa-rule-filter-time-invert:hover {
+        color: #dbe8f3;
+        border-color: rgba(143, 209, 255, 0.34);
+      }
+      .sffa-rule-filter-time-invert.is-active {
+        background: #66c0f4;
+        border-color: #66c0f4;
+        color: #071018;
+        font-weight: 700;
+      }
+      .sffa-rule-filter-custom-range {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .sffa-rule-filter-date-input {
+        width: 116px;
+        height: 26px;
+        padding: 0 6px;
+        border: 1px solid rgba(102, 192, 244, 0.2);
+        border-radius: 999px;
+        background: rgba(16, 24, 32, 0.96);
+        color: #dbe8f3;
+        font: inherit;
+        font-size: 11px;
+        color-scheme: dark;
+      }
+      .sffa-rule-filter-date-input:focus {
+        outline: none;
+        border-color: rgba(143, 209, 255, 0.58);
+        box-shadow: 0 0 0 2px rgba(102, 192, 244, 0.12);
+      }
+      .sffa-rule-filter-price-input {
+        width: 86px;
       }
       .sffa-tab {
         flex: 0 0 auto;
@@ -4086,6 +4241,12 @@
                     <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   </svg>
                 </button>
+                <button class="sffa-target-analyze" type="button" data-sffa-analyze data-sffa-tooltip="${escapeAttr(t("analyzeAccount"))}" aria-label="${escapeAttr(t("analyzeAccount"))}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                    <path d="M10.4 10.4 14 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                  </svg>
+                </button>
                 <div class="sffa-list-menu" role="listbox" data-sffa-history-menu></div>
               </div>
               <div class="sffa-control-status">
@@ -4098,7 +4259,6 @@
             </div>
             <div class="sffa-control-actions">
               <button class="sffa-btn secondary" type="button" data-sffa-refresh>${escapeHtml(t("refreshFamily"))}</button>
-              <button class="sffa-btn" type="button" data-sffa-analyze>${escapeHtml(t("analyzeAccount"))}</button>
             </div>
           </div>
           <div class="sffa-content">
@@ -4487,6 +4647,7 @@
     elements.sortMenu?.addEventListener("click", handleSortMenuClick);
     elements.ruleFilterSelect?.addEventListener("click", toggleRuleFilterMenu);
     elements.ruleFilterMenu?.addEventListener("click", handleRuleFilterMenuClick);
+    elements.ruleFilterMenu?.addEventListener("change", handleRuleFilterMenuChange);
     elements.searchInput.addEventListener("input", () => {
       renderSearchClearButton();
       scheduleSearchRender();
@@ -4838,7 +4999,12 @@
   }
 
   function isMetricTooltipTarget(target) {
-    return Boolean(target?.classList?.contains("sffa-metric") || target?.classList?.contains("sffa-compare-stat"));
+    return Boolean(
+      target?.classList?.contains("sffa-metric") ||
+      target?.classList?.contains("sffa-compare-stat") ||
+      target?.classList?.contains("sffa-global-segment") ||
+      target?.classList?.contains("sffa-global-x-label")
+    );
   }
 
   function parseTooltipPairs(text) {
@@ -5544,7 +5710,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.targetClearBtn, "title", t("clear")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "textContent", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.targetClearBtn, "title", t("clear")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "title", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => {
       if (!element) {
         return;
@@ -5577,7 +5743,7 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.targetClearBtn, "aria-label", t("clear")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.targetClearBtn, "aria-label", t("clear")], [elements.analyzeBtn, "aria-label", t("analyzeAccount")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
@@ -6248,7 +6414,7 @@
       return;
     }
 
-    const names = rows.map(game => getGameDisplayName(game));
+    const names = rows.map(game => getGameLocalizedDisplayName(game));
     try {
       await navigator.clipboard.writeText(names.join("\n"));
       setStatus(t("copiedGames"), "ok");
@@ -7286,6 +7452,11 @@
       return false;
     }
     return (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid));
+  }
+
+  function isGameCountedInTargetMetrics(report, game) {
+    const status = report?.classificationById?.[String(game?.appid || "")]?.status;
+    return status !== "unsupported";
   }
 
   function getTargetProfileDisplayName(profile) {
@@ -8339,7 +8510,9 @@
       return;
     }
     pruneZeroValueAddedGames();
-    const allGames = (lastReport.games.all || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+    const allGames = (lastReport.games.all || [])
+      .filter(game => isGameIncludedBySelectedTargets(game, lastReport))
+      .filter(game => isGameCountedInTargetMetrics(lastReport, game));
     const familyNewGames = getReportFamilyNewGames(lastReport).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
     const overlapGames = (lastReport.games.overlap || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
     const pricedGames = familyNewGames.filter(game => isCountablePrice(resolveGamePrice(game)));
@@ -8659,7 +8832,7 @@
     };
   }
 
-  function buildTargetBreakdown(targetProfile, comparison, currentNewGames = []) {
+  function buildTargetBreakdown(targetProfile, comparison, currentNewGames = [], options = {}) {
     const targets = Array.isArray(targetProfile.targets) ? targetProfile.targets : [];
     const selectedTargets = targets.filter(target => target.selected !== false);
     if (selectedTargets.length <= 1) {
@@ -8667,17 +8840,22 @@
     }
 
     const familySet = new Set(state.familyLibrary.appidSet.map(String));
+    const targetMetricAppidSet = options.targetMetricAppidSet instanceof Set ? options.targetMetricAppidSet : null;
+    const isTargetMetricAppid = appid => !targetMetricAppidSet || targetMetricAppidSet.has(String(appid));
     const selectedIds = new Set(selectedTargets.map(target => String(target.steamid64 || "")));
     const allGames = (comparison.allGames || targetProfile.games || [])
+      .filter(game => isTargetMetricAppid(game.appid))
       .filter(game => (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid)));
     const overlapGames = (comparison.overlapGames || [])
+      .filter(game => isTargetMetricAppid(game.appid))
       .filter(game => (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid)));
     const allGameIds = new Set(allGames.map(game => String(game.appid)));
     const overlapGameIds = new Set(overlapGames.map(game => String(game.appid)));
     const newGames = (currentNewGames || [])
       .filter(game => (game.targetOwners || []).map(String).some(steamid => selectedIds.has(steamid)));
     const targetRows = selectedTargets.map(target => {
-      const gameIds = Array.from(new Set((target.gameAppids || []).map(String)));
+      const gameIds = Array.from(new Set((target.gameAppids || []).map(String)))
+        .filter(isTargetMetricAppid);
       const steamid64 = String(target.steamid64 || "");
       const targetNewGames = newGames.filter(game => (game.targetOwners || []).map(String).includes(steamid64));
       const pricedNewGames = targetNewGames.filter(game => isCountablePrice(resolveGamePrice(game)));
@@ -8718,16 +8896,19 @@
       return null;
     }
 
+    const targetMetricGames = (report.games?.all || []).filter(game => isGameCountedInTargetMetrics(report, game));
+    const targetMetricAppidSet = new Set(targetMetricGames.map(game => String(game.appid)));
     return buildTargetBreakdown(
       {
         targets,
-        games: report.games?.all || []
+        games: targetMetricGames
       },
       {
-        allGames: report.games?.all || [],
+        allGames: targetMetricGames,
         overlapGames: report.games?.overlap || []
       },
-      getReportFamilyNewGames(report)
+      getReportFamilyNewGames(report),
+      { targetMetricAppidSet }
     );
   }
 
@@ -9581,7 +9762,7 @@
 
   function formatGlobalContributionTooltip(row, buckets) {
     const lines = [
-      row.displayName || row.steamid64 || "-",
+      `${t("account")}\t${row.displayName || row.steamid64 || "-"}`,
       `${t("globalCompareTotal")}\t${Number(row.total || 0)}`
     ];
     buckets.forEach(bucket => {
@@ -9629,11 +9810,18 @@
   }
 
   function formatGlobalContributionSegmentTooltip(row, bucket, value) {
+    const priceRangeLines = formatGlobalContributionPriceRangeTooltipLines(row.bucketGames?.[bucket.key] || []);
     const lines = [
-      row.displayName || row.steamid64 || "-",
-      `${bucket.label}\t${Number(value || 0)}`
+      `${t("account")}\t${row.displayName || row.steamid64 || "-"}`,
+      `${bucket.label}\t${Number(value || 0)}`,
+      ...priceRangeLines
     ];
     return lines.join("\n");
+  }
+
+  function formatGlobalContributionPriceRangeTooltipLines(games) {
+    const counts = getComparePriceRangeCounts(games || []);
+    return COMPARE_PRICE_RANGES.map(range => `${range.label}\t${Number(counts[range.key] || 0)}`);
   }
 
   function getCompareGameOwners(game, activeTargets, activeIdSet) {
@@ -10234,9 +10422,15 @@
     return {
       status: ["all"],
       price: ["all"],
+      priceCustomMin: "",
+      priceCustomMax: "",
       owner: ["all"],
+      ownerMatchMode: "any",
       tag: ["all"],
-      time: "all"
+      time: "all",
+      timeInverted: false,
+      timeCustomStart: "",
+      timeCustomEnd: ""
     };
   }
 
@@ -10251,10 +10445,10 @@
     elements.ruleFilterSelect.classList.toggle("is-active", hasActiveFilters);
     elements.ruleFilterMenu.innerHTML = [
       isRuleFilterKindApplicable("status") && renderRuleFilterGroup("status", t("ruleFilterStatus"), getRuleFilterStatusOptions()),
-      isRuleFilterKindApplicable("price") && renderRuleFilterGroup("price", t("ruleFilterPrice"), getRuleFilterPriceOptions()),
-      isRuleFilterKindApplicable("owner") && renderRuleFilterGroup("owner", t("ruleFilterOwner"), getRuleFilterOwnerOptions()),
+      isRuleFilterKindApplicable("price") && renderRuleFilterPriceGroup(),
+      isRuleFilterKindApplicable("owner") && renderRuleFilterOwnerGroup(),
       isRuleFilterKindApplicable("tag") && renderRuleFilterGroup("tag", t("ruleFilterTag"), getRuleFilterTagOptions()),
-      isRuleFilterKindApplicable("time") && renderRuleFilterGroup("time", t("ruleFilterTime"), getRuleFilterTimeOptions()),
+      isRuleFilterKindApplicable("time") && renderRuleFilterTimeGroup(),
       `<div class="sffa-rule-filter-group"><button class="sffa-list-option" type="button" role="menuitem" data-sffa-rule-filter-clear>${escapeHtml(t("ruleFilterClear"))}</button></div>`
     ].filter(Boolean).join("");
   }
@@ -10264,25 +10458,129 @@
       <div class="sffa-rule-filter-group">
         <div class="sffa-rule-filter-title">${escapeHtml(label)}</div>
         <div class="sffa-rule-filter-options">
-        ${options.map(option => {
-      const active = isRuleFilterOptionActive(kind, option.value);
-      const role = isRuleFilterMultiSelectKind(kind) ? "menuitemcheckbox" : "menuitemradio";
-      return `
-          <button class="sffa-list-option sffa-rule-filter-option${active ? " is-active" : ""}" type="button" role="${role}" data-sffa-rule-filter-kind="${escapeAttr(kind)}" data-sffa-rule-filter-value="${escapeAttr(option.value)}" aria-checked="${active ? "true" : "false"}">
-            <span>${escapeHtml(option.label)}</span>
-          </button>
-        `;
-    }).join("")}
+        ${options.map(option => renderRuleFilterOption(kind, option)).join("")}
         </div>
       </div>
     `;
+  }
+
+  function renderRuleFilterPriceGroup() {
+    return `
+      <div class="sffa-rule-filter-group">
+        <div class="sffa-rule-filter-title">${escapeHtml(t("ruleFilterPrice"))}</div>
+        <div class="sffa-rule-filter-options">
+          ${getRuleFilterPriceOptions().map(option => renderRuleFilterPriceOption(option)).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRuleFilterPriceOption(option) {
+    if (option.value !== "custom") {
+      return renderRuleFilterOption("price", option);
+    }
+    const active = isRuleFilterOptionActive("price", option.value);
+    const minValue = getRuleFilterCustomPriceMin();
+    const maxValue = getRuleFilterCustomPriceMax();
+    return `
+          ${renderRuleFilterOption("price", option)}
+          ${active ? `<span class="sffa-rule-filter-custom-range">
+            <input class="sffa-rule-filter-date-input sffa-rule-filter-price-input" type="number" min="0" step="1" inputmode="decimal" value="${escapeAttr(minValue)}" data-sffa-rule-filter-custom-price="min" data-sffa-tooltip="${escapeAttr(t("ruleFilterPriceCustomMin"))}" aria-label="${escapeAttr(t("ruleFilterPriceCustomMin"))}">
+            <input class="sffa-rule-filter-date-input sffa-rule-filter-price-input" type="number" min="0" step="1" inputmode="decimal" value="${escapeAttr(maxValue)}" data-sffa-rule-filter-custom-price="max" data-sffa-tooltip="${escapeAttr(t("ruleFilterPriceCustomMax"))}" aria-label="${escapeAttr(t("ruleFilterPriceCustomMax"))}">
+          </span>` : ""}
+        `;
+  }
+
+  function renderRuleFilterOwnerGroup() {
+    const options = getRuleFilterOwnerOptions();
+    const [allOption, ...ownerOptions] = options;
+    return `
+      <div class="sffa-rule-filter-group">
+        <div class="sffa-rule-filter-title-row">
+          <div class="sffa-rule-filter-title">${escapeHtml(t("ruleFilterOwner"))}</div>
+          ${renderRuleFilterOwnerModeSwitch()}
+        </div>
+        <div class="sffa-rule-filter-options">
+          ${allOption ? renderRuleFilterOption("owner", allOption) : ""}
+          ${ownerOptions.map(option => renderRuleFilterOption("owner", option)).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRuleFilterOwnerModeSwitch() {
+    const currentMode = getOwnerMatchMode();
+    const options = [
+      { value: "any", label: t("ruleFilterOwnerModeAnyShort"), tip: t("ruleFilterOwnerModeAnyTip") },
+      { value: "all", label: t("ruleFilterOwnerModeAllShort"), tip: t("ruleFilterOwnerModeAllTip") },
+      { value: "exact", label: t("ruleFilterOwnerModeExactShort"), tip: t("ruleFilterOwnerModeExactTip") }
+    ];
+    return `
+          <div class="sffa-rule-filter-owner-mode" role="group" aria-label="${escapeAttr(t("ruleFilterOwner"))}">
+            ${options.map(option => {
+      const active = currentMode === option.value;
+      return `<button class="sffa-rule-filter-owner-mode-btn${active ? " is-active" : ""}" type="button" data-sffa-rule-filter-owner-mode="${escapeAttr(option.value)}" aria-pressed="${active ? "true" : "false"}" data-sffa-tooltip="${escapeAttr(option.tip)}" aria-label="${escapeAttr(option.tip)}">${escapeHtml(option.label)}</button>`;
+    }).join("")}
+          </div>
+        `;
+  }
+
+  function renderRuleFilterTimeGroup() {
+    return `
+      <div class="sffa-rule-filter-group">
+        <div class="sffa-rule-filter-title-row">
+          <div class="sffa-rule-filter-title">${escapeHtml(t("ruleFilterTime"))}</div>
+          ${renderRuleFilterTimeInvertToggle()}
+        </div>
+        <div class="sffa-rule-filter-options">
+          ${getRuleFilterTimeOptions().map(option => renderRuleFilterTimeOption(option)).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRuleFilterTimeInvertToggle() {
+    const active = isTimeInvertFilterEnabled();
+    return `
+          <button class="sffa-rule-filter-time-invert${active ? " is-active" : ""}" type="button" data-sffa-rule-filter-time-invert aria-pressed="${active ? "true" : "false"}" data-sffa-tooltip="${escapeAttr(t("ruleFilterTimeInvertTip"))}" aria-label="${escapeAttr(t("ruleFilterTimeInvertTip"))}">
+            ${escapeHtml(t("ruleFilterTimeInvertShort"))}
+          </button>
+        `;
+  }
+
+  function renderRuleFilterTimeOption(option) {
+    if (option.value !== "custom") {
+      return renderRuleFilterOption("time", option);
+    }
+    const active = isRuleFilterOptionActive("time", option.value);
+    const startValue = getRuleFilterCustomTimeStart();
+    const endValue = getRuleFilterCustomTimeEnd();
+    return `
+          ${renderRuleFilterOption("time", option)}
+          ${active ? `<span class="sffa-rule-filter-custom-range">
+            <input class="sffa-rule-filter-date-input" type="date" value="${escapeAttr(startValue)}"${endValue ? ` max="${escapeAttr(endValue)}"` : ""} data-sffa-rule-filter-custom-time="start" data-sffa-tooltip="${escapeAttr(t("ruleFilterTimeCustomStart"))}" aria-label="${escapeAttr(t("ruleFilterTimeCustomStart"))}">
+            <input class="sffa-rule-filter-date-input" type="date" value="${escapeAttr(endValue)}"${startValue ? ` min="${escapeAttr(startValue)}"` : ""} data-sffa-rule-filter-custom-time="end" data-sffa-tooltip="${escapeAttr(t("ruleFilterTimeCustomEnd"))}" aria-label="${escapeAttr(t("ruleFilterTimeCustomEnd"))}">
+          </span>` : ""}
+        `;
+  }
+
+  function renderRuleFilterOption(kind, option, overrides = {}) {
+    const active = overrides.active != null ? Boolean(overrides.active) : isRuleFilterOptionActive(kind, option.value);
+    const role = isRuleFilterMultiSelectKind(kind) ? "menuitemcheckbox" : "menuitemradio";
+    const attrs = overrides.attrs ? ` ${overrides.attrs}` : "";
+    return `
+          <button class="sffa-list-option sffa-rule-filter-option${active ? " is-active" : ""}" type="button" role="${role}" data-sffa-rule-filter-kind="${escapeAttr(kind)}" data-sffa-rule-filter-value="${escapeAttr(option.value)}"${attrs} aria-checked="${active ? "true" : "false"}">
+            <span>${escapeHtml(option.label)}</span>
+          </button>
+        `;
   }
 
   function getRuleFilterValue(kind) {
     if (isRuleFilterMultiSelectKind(kind)) {
       return getRuleFilterValues(kind)[0] || "all";
     }
-    return String(ruleFilterState?.[kind] || "all");
+    const value = String(ruleFilterState?.[kind] || "all");
+    return kind === "time" ? normalizeRuleFilterTimeValue(value) : value;
   }
 
   function getRuleFilterValues(kind) {
@@ -10301,7 +10599,7 @@
     if (!isRuleFilterMultiSelectKind(kind)) {
       ruleFilterState = {
         ...ruleFilterState,
-        [kind]: kind === "time" && isRuleFilterDateValue(nextValue) && getRuleFilterValue(kind) === nextValue ? "all" : nextValue
+        [kind]: kind === "time" && isToggleableTimeFilterValue(nextValue) && getRuleFilterValue(kind) === nextValue ? "all" : nextValue
       };
       return;
     }
@@ -10309,6 +10607,36 @@
     ruleFilterState = {
       ...ruleFilterState,
       [kind]: toggleMultiRuleFilterValue(kind, nextValue)
+    };
+  }
+
+  function setOwnerMatchMode(mode) {
+    ruleFilterState = {
+      ...ruleFilterState,
+      ownerMatchMode: normalizeOwnerMatchMode(mode)
+    };
+  }
+
+  function toggleTimeInvertFilter() {
+    ruleFilterState = {
+      ...ruleFilterState,
+      timeInverted: !isTimeInvertFilterEnabled()
+    };
+  }
+
+  function setCustomTimeFilterValue(part, value) {
+    const key = part === "end" ? "timeCustomEnd" : "timeCustomStart";
+    ruleFilterState = {
+      ...ruleFilterState,
+      [key]: normalizeRuleFilterCustomDateValue(value)
+    };
+  }
+
+  function setCustomPriceFilterValue(part, value) {
+    const key = part === "max" ? "priceCustomMax" : "priceCustomMin";
+    ruleFilterState = {
+      ...ruleFilterState,
+      [key]: normalizeRuleFilterCustomPriceValue(value)
     };
   }
 
@@ -10343,6 +10671,37 @@
     return kind !== "time";
   }
 
+  function normalizeOwnerMatchMode(mode) {
+    return ["any", "all", "exact"].includes(mode) ? mode : "any";
+  }
+
+  function getOwnerMatchMode() {
+    if (ruleFilterState?.ownerMatchMode != null) {
+      return normalizeOwnerMatchMode(String(ruleFilterState.ownerMatchMode || "any"));
+    }
+    return ruleFilterState?.ownerOnlySelected ? "all" : "any";
+  }
+
+  function isOwnerStrictFilterActive(tab = currentTab) {
+    return Boolean(
+      getOwnerMatchMode() !== "any" &&
+      isRuleFilterKindApplicable("owner", tab) &&
+      !getRuleFilterValues("owner").includes("all")
+    );
+  }
+
+  function isTimeInvertFilterEnabled() {
+    return Boolean(ruleFilterState?.timeInverted);
+  }
+
+  function isTimeInvertFilterActive(tab = currentTab) {
+    return Boolean(
+      isTimeInvertFilterEnabled() &&
+      isRuleFilterKindApplicable("time", tab) &&
+      getRuleFilterValue("time") !== "all"
+    );
+  }
+
   function normalizeRuleFilterForCurrentTab() {
     const ownerValues = getRuleFilterValues("owner");
     if (ownerValues.includes("all")) {
@@ -10359,7 +10718,7 @@
   }
 
   function getActiveRuleFilterCount() {
-    return ["status", "price", "owner", "tag", "time"].reduce((count, kind) => {
+    const optionCount = ["status", "price", "owner", "tag", "time"].reduce((count, kind) => {
       if (!isRuleFilterKindApplicable(kind)) {
         return count;
       }
@@ -10368,6 +10727,9 @@
       }
       return getRuleFilterValue(kind) === "all" ? count : count + 1;
     }, 0);
+    return optionCount
+      + (isOwnerStrictFilterActive() ? 1 : 0)
+      + (isTimeInvertFilterActive() ? 1 : 0);
   }
 
   function getCurrentRuleFilteredRowCount() {
@@ -10408,7 +10770,8 @@
       { value: "all", label: t("ruleFilterAll") },
       { value: "none", label: t("ruleFilterNoPrice") },
       { value: "free", label: t("ruleFilterFree") },
-      ...COMPARE_PRICE_RANGES.map(range => ({ value: range.key, label: range.label }))
+      ...COMPARE_PRICE_RANGES.map(range => ({ value: range.key, label: range.label })),
+      { value: "custom", label: t("ruleFilterPriceCustom") }
     ];
   }
 
@@ -10438,8 +10801,99 @@
       { value: "week", label: t("ruleFilterTimeWeek") },
       { value: "month", label: t("ruleFilterTimeMonth") },
       { value: "year", label: t("ruleFilterTimeYear") },
-      { value: "twoYears", label: t("ruleFilterTimeTwoYears") }
+      ...getRuleFilterDynamicYearOptions(),
+      { value: "custom", label: t("ruleFilterTimeCustom") }
     ];
+  }
+
+  function getRuleFilterDynamicYearOptions() {
+    const oldestAgeYears = getOldestFamilyAcquireAgeYears();
+    const options = [];
+    for (let year = 2; year < oldestAgeYears; year += 1) {
+      options.push({
+        value: `years:${year}`,
+        label: t("ruleFilterTimeYears", { count: year })
+      });
+    }
+    return options;
+  }
+
+  function getOldestFamilyAcquireAgeYears() {
+    const timestamps = getFamilyLibraryRows()
+      .map(game => Number(game?.time || 0))
+      .filter(timestamp => timestamp > 0);
+    if (!timestamps.length) {
+      return 0;
+    }
+    const oldestTimestamp = Math.min(...timestamps);
+    const yearMs = 365 * 24 * 60 * 60 * 1000;
+    return Math.max(0, Math.floor((Date.now() - oldestTimestamp * 1000) / yearMs));
+  }
+
+  function normalizeRuleFilterTimeValue(value) {
+    const text = String(value || "all");
+    return text === "twoYears" ? "years:2" : text;
+  }
+
+  function isToggleableTimeFilterValue(value) {
+    return isRuleFilterDateValue(value) || value === "custom";
+  }
+
+  function normalizeRuleFilterCustomDateValue(value) {
+    const text = String(value || "").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+  }
+
+  function getRuleFilterCustomTimeStart() {
+    return normalizeRuleFilterCustomDateValue(ruleFilterState?.timeCustomStart);
+  }
+
+  function getRuleFilterCustomTimeEnd() {
+    return normalizeRuleFilterCustomDateValue(ruleFilterState?.timeCustomEnd);
+  }
+
+  function getRuleFilterCustomTimeBounds() {
+    const start = getRuleFilterCustomTimeStart();
+    const end = getRuleFilterCustomTimeEnd();
+    return {
+      startMs: start ? new Date(`${start}T00:00:00`).getTime() : null,
+      endMs: end ? new Date(`${end}T23:59:59.999`).getTime() : null
+    };
+  }
+
+  function normalizeRuleFilterCustomPriceValue(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    const number = Number(text);
+    return Number.isFinite(number) && number >= 0 ? text : "";
+  }
+
+  function getRuleFilterCustomPriceMin() {
+    return normalizeRuleFilterCustomPriceValue(ruleFilterState?.priceCustomMin);
+  }
+
+  function getRuleFilterCustomPriceMax() {
+    return normalizeRuleFilterCustomPriceValue(ruleFilterState?.priceCustomMax);
+  }
+
+  function getRuleFilterCustomPriceBounds() {
+    const min = getRuleFilterCustomPriceMin();
+    const max = getRuleFilterCustomPriceMax();
+    return {
+      minCents: min ? Math.round(Number(min) * 100) : null,
+      maxCents: max ? Math.round(Number(max) * 100) : null
+    };
+  }
+
+  function getRuleFilterYearRangeDays(value) {
+    const match = /^years:(\d+)$/.exec(String(value || ""));
+    if (!match) {
+      return 0;
+    }
+    const years = Number(match[1] || 0);
+    return years > 0 ? years * 365 : 0;
   }
 
   function isRuleFilterDateValue(value) {
@@ -10598,7 +11052,7 @@
         headers: ["AppID", t("game"), t("owners"), t("acquiredAt"), getPriceLabel()],
         rows: rows.map(game => [
           game.appid,
-          getGameDisplayName(game),
+          getGameLocalizedDisplayName(game),
           formatOwners(game.owners || []) || "-",
           formatFamilyAcquireTime(game.time),
           formatOriginalPriceText(resolveGamePrice(game) || {})
@@ -10613,7 +11067,7 @@
           rows: rows.map(game => includeTargetOwners
             ? [
               game.appid,
-              getGameDisplayName(game),
+              getGameLocalizedDisplayName(game),
               formatTargetOwners(game.targetOwners || []),
               formatOriginalPriceText(resolveGamePrice(game) || {})
             ]
@@ -10629,7 +11083,7 @@
         rows: rows.map(game => includeTargetOwners
           ? [
             game.appid,
-            getGameDisplayName(game),
+            getGameLocalizedDisplayName(game),
             formatTargetOwners(game.targetOwners || []),
             formatOriginalPriceText(resolveGamePrice(game) || {})
           ]
@@ -10645,7 +11099,7 @@
         headers: ["AppID", t("game"), t("owners"), getPriceLabel()],
         rows: rows.map(game => [
           game.appid,
-          getGameDisplayName(game),
+          getGameLocalizedDisplayName(game),
           formatOwners(game.owners || []) || "-",
           formatOriginalPriceText(resolveGamePrice(game) || {})
         ])
@@ -10656,7 +11110,7 @@
         headers: ["AppID", t("game"), t("owners"), getPriceLabel()],
         rows: rows.map(game => [
           game.appid,
-          getGameDisplayName(game),
+          getGameLocalizedDisplayName(game),
           formatOwners(game.owners || []) || "-",
           formatOriginalPriceText(resolveGamePrice(game) || {})
         ])
@@ -10753,6 +11207,24 @@
       return;
     }
 
+    const ownerModeButton = event.target.closest("[data-sffa-rule-filter-owner-mode]");
+    if (ownerModeButton && elements.ruleFilterMenu?.contains(ownerModeButton)) {
+      setOwnerMatchMode(ownerModeButton.dataset.sffaRuleFilterOwnerMode || "any");
+      renderRuleFilterControl();
+      renderDetailsPreserveScroll();
+      scheduleAnalysisHistorySave();
+      return;
+    }
+
+    const timeInvertButton = event.target.closest("[data-sffa-rule-filter-time-invert]");
+    if (timeInvertButton && elements.ruleFilterMenu?.contains(timeInvertButton)) {
+      toggleTimeInvertFilter();
+      renderRuleFilterControl();
+      renderDetailsPreserveScroll();
+      scheduleAnalysisHistorySave();
+      return;
+    }
+
     const option = event.target.closest("[data-sffa-rule-filter-kind][data-sffa-rule-filter-value]");
     if (!option || !elements.ruleFilterMenu?.contains(option)) {
       return;
@@ -10765,6 +11237,25 @@
     renderRuleFilterControl();
     renderDetailsPreserveScroll();
     scheduleAnalysisHistorySave();
+  }
+
+  function handleRuleFilterMenuChange(event) {
+    const timeInput = event.target.closest("[data-sffa-rule-filter-custom-time]");
+    if (timeInput && elements.ruleFilterMenu?.contains(timeInput)) {
+      setCustomTimeFilterValue(timeInput.dataset.sffaRuleFilterCustomTime, timeInput.value);
+      renderRuleFilterControl();
+      renderDetailsPreserveScroll();
+      scheduleAnalysisHistorySave();
+      return;
+    }
+
+    const priceInput = event.target.closest("[data-sffa-rule-filter-custom-price]");
+    if (priceInput && elements.ruleFilterMenu?.contains(priceInput)) {
+      setCustomPriceFilterValue(priceInput.dataset.sffaRuleFilterCustomPrice, priceInput.value);
+      renderRuleFilterControl();
+      renderDetailsPreserveScroll();
+      scheduleAnalysisHistorySave();
+    }
   }
 
   function handleDetailsScroll(event) {
@@ -11298,7 +11789,28 @@
     if (filter === "free") {
       return Boolean(price.isFree || (Number(price.initial || 0) <= 0 && price.initial != null && !price.unavailable));
     }
+    if (filter === "custom") {
+      return isGameMatchedByCustomPriceFilter(price);
+    }
     return getGamePriceRangeKey(price) === filter;
+  }
+
+  function isGameMatchedByCustomPriceFilter(price) {
+    if (!price || price.pending || price.unavailable || price.initial == null) {
+      return false;
+    }
+    const { minCents, maxCents } = getRuleFilterCustomPriceBounds();
+    if (minCents == null && maxCents == null) {
+      return true;
+    }
+    const cents = Number(price.initial || 0);
+    if (minCents != null && cents < minCents) {
+      return false;
+    }
+    if (maxCents != null && cents > maxCents) {
+      return false;
+    }
+    return true;
   }
 
   function isGameMatchedByOwnerFilter(tab, game) {
@@ -11308,7 +11820,21 @@
     }
     const owners = tab === "all" || tab === "new" || tab === "familyNew" ? game.targetOwners || [] : game.owners || [];
     const ownerSet = new Set(owners.map(String));
-    return ownerFilters.some(owner => ownerSet.has(owner));
+    if (!ownerFilters.some(owner => ownerSet.has(owner))) {
+      return false;
+    }
+    const ownerMatchMode = getOwnerMatchMode();
+    if (ownerMatchMode === "any" || !isOwnerStrictFilterActive(tab)) {
+      return true;
+    }
+    const selectedOwnerSet = new Set(ownerFilters.map(String));
+    if (!Array.from(selectedOwnerSet).every(owner => ownerSet.has(owner))) {
+      return false;
+    }
+    if (ownerMatchMode !== "exact") {
+      return true;
+    }
+    return ownerSet.size === selectedOwnerSet.size;
   }
 
   function isGameMatchedByTagFilter(tab, game) {
@@ -11329,27 +11855,50 @@
     if (filter === "all" || !isRuleFilterKindApplicable("time", tab)) {
       return true;
     }
+    const inverted = isTimeInvertFilterActive(tab);
+    let matched = true;
     if (filter === "recent") {
-      return Boolean(context?.recentFamilyAppids?.has(String(game?.appid || "")));
+      matched = Boolean(context?.recentFamilyAppids?.has(String(game?.appid || "")));
+      return inverted ? !matched : matched;
     }
     const acquiredSeconds = Number(game?.time || 0);
     if (!acquiredSeconds) {
       return false;
     }
     if (isRuleFilterDateValue(filter)) {
-      return getFamilyAcquireDateKey(acquiredSeconds) === getRuleFilterDateKeyFromValue(filter);
+      matched = getFamilyAcquireDateKey(acquiredSeconds) === getRuleFilterDateKeyFromValue(filter);
+      return inverted ? !matched : matched;
+    }
+    if (filter === "custom") {
+      matched = isGameMatchedByCustomTimeFilter(acquiredSeconds);
+      return inverted ? !matched : matched;
     }
     const rangeDays = {
       week: 7,
       month: 31,
-      year: 365,
-      twoYears: 365 * 2
-    }[filter];
+      year: 365
+    }[filter] || getRuleFilterYearRangeDays(filter);
     if (!rangeDays) {
       return true;
     }
     const ageMs = Date.now() - acquiredSeconds * 1000;
-    return ageMs >= 0 && ageMs <= rangeDays * 24 * 60 * 60 * 1000;
+    matched = ageMs >= 0 && ageMs <= rangeDays * 24 * 60 * 60 * 1000;
+    return inverted ? !matched : matched;
+  }
+
+  function isGameMatchedByCustomTimeFilter(acquiredSeconds) {
+    const { startMs, endMs } = getRuleFilterCustomTimeBounds();
+    if (startMs == null && endMs == null) {
+      return true;
+    }
+    const acquiredMs = Number(acquiredSeconds || 0) * 1000;
+    if (startMs != null && acquiredMs < startMs) {
+      return false;
+    }
+    if (endMs != null && acquiredMs > endMs) {
+      return false;
+    }
+    return true;
   }
 
   function getGameStatusKey(game) {

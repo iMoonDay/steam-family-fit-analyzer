@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.6
+// @version      0.2.7
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -189,6 +189,8 @@
       ruleFilterOwnerModeAllTip: "所选账号均拥有",
       ruleFilterOwnerModeExactShort: "仅选",
       ruleFilterOwnerModeExactTip: "仅所选账号拥有",
+      ruleFilterShareCount: "拥有人数",
+      ruleFilterShareCountOption: "{count}个",
       ruleFilterTag: "标签",
       ruleFilterTime: "入库时间",
       ruleFilterTimeInvertShort: "非",
@@ -343,6 +345,10 @@
       noCache: "无缓存",
       targetAccount: "目标账号",
       targetAccountCount: "{count} 个账号",
+      familyLibraryValue: "家庭库价值",
+      familyFilteredValue: "当前筛选价值",
+      familyMemberCount: "成员数",
+      familyUpdatedAt: "更新时间",
       targetOwners: "拥有者",
       deduped: "去重",
       progress: "统计进度",
@@ -481,6 +487,8 @@
       ruleFilterOwnerModeAllTip: "All selected accounts own",
       ruleFilterOwnerModeExactShort: "Only",
       ruleFilterOwnerModeExactTip: "Only selected accounts own",
+      ruleFilterShareCount: "Owner count",
+      ruleFilterShareCountOption: "{count}",
       ruleFilterTag: "Tag",
       ruleFilterTime: "Acquired",
       ruleFilterTimeInvertShort: "Not",
@@ -635,6 +643,10 @@
       noCache: "No cache",
       targetAccount: "Target account",
       targetAccountCount: "{count} accounts",
+      familyLibraryValue: "Family value",
+      familyFilteredValue: "Filtered value",
+      familyMemberCount: "Members",
+      familyUpdatedAt: "Updated",
       targetOwners: "Owners",
       deduped: "deduped",
       progress: "Progress",
@@ -1914,6 +1926,59 @@
         background: transparent;
         overflow: auto;
       }
+      .sffa-summary.is-family-summary {
+        grid-template-columns: 1fr;
+        gap: 2px;
+      }
+      .sffa-family-data-list {
+        display: grid;
+        gap: 0;
+      }
+      .sffa-family-data-row {
+        min-width: 0;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        font-size: 12px;
+        line-height: 1.25;
+      }
+      .sffa-family-data-row:first-child {
+        border-top: 0;
+      }
+      .sffa-family-data-row span {
+        color: #9fb3c2;
+      }
+      .sffa-family-data-row strong {
+        min-width: 0;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        text-align: right;
+        overflow-wrap: anywhere;
+      }
+      .sffa-profile.is-family-contribution {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        padding-top: 8px;
+      }
+      .sffa-family-contribution-head {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: #b8c7d3;
+        font-size: 12px;
+        line-height: 1.25;
+      }
+      .sffa-family-contribution-head strong {
+        color: #ffffff;
+        font-size: 13px;
+      }
       .sffa-profile-topbar {
         position: sticky;
         top: 0;
@@ -2626,6 +2691,59 @@
         color: #9fb3c2;
         font-size: 13px;
         text-align: center;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-legend {
+        justify-content: flex-start;
+        gap: 6px 8px;
+        font-size: 11px;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-legend-swatch {
+        width: 14px;
+        height: 7px;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-content {
+        display: block;
+        overflow: hidden;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-chart {
+        overflow: auto hidden;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-chart-grid {
+        min-width: max(100%, calc(var(--sffa-global-account-count, 1) * 42px + 34px));
+        grid-template-columns: 26px minmax(0, 1fr);
+        gap: 6px;
+        min-height: 190px;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-y-axis {
+        height: 145px;
+        margin-top: 6px;
+        font-size: 10px;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-plot {
+        height: 174px;
+        padding: 6px 0 24px;
+        background:
+          linear-gradient(to top, rgba(255, 255, 255, 0.055) 1px, transparent 1px) 0 6px / 100% 36px repeat-y,
+          linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.01));
+      }
+      .sffa-profile.is-family-contribution .sffa-global-bars {
+        grid-template-columns: repeat(var(--sffa-global-account-count, 1), minmax(34px, 1fr));
+        gap: 5px;
+        height: 145px;
+        padding: 0 6px;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-bar-wrap {
+        grid-template-rows: minmax(0, 1fr) 20px;
+        gap: 5px;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-bar-shell {
+        width: min(100%, 28px);
+      }
+      .sffa-profile.is-family-contribution .sffa-global-x-label {
+        font-size: 10px;
+      }
+      .sffa-profile.is-family-contribution .sffa-global-empty {
+        padding: 18px 0;
       }
       .sffa-global-detail {
         display: grid;
@@ -4659,6 +4777,7 @@
       elements.searchInput.value = "";
       cancelSearchRender();
       renderSearchClearButton();
+      renderSidePanel(lastReport);
       renderDetails();
       scheduleAnalysisHistorySave();
       elements.searchInput.focus();
@@ -4675,6 +4794,7 @@
         closeSortMenu();
         currentTab = tab.dataset.tab;
         renderTabs();
+        renderSidePanel(lastReport);
         renderDetails();
         scheduleAnalysisHistorySave();
       });
@@ -5104,8 +5224,7 @@
   }
 
   function initializePanelView() {
-    renderSummary(null);
-    renderTargetProfile(null);
+    renderSidePanel(null);
     renderAutoFamilyRefreshButton();
     renderOpenLinksClientButton();
     renderStoreCacheButton();
@@ -5766,8 +5885,7 @@
     renderCompareDialogIfOpen();
     renderGlobalCompareDialogIfOpen();
     [registerScriptMenuCommands, renderFamilyMeta, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
-    renderSummary(lastReport);
-    renderTargetProfile(lastReport);
+    renderSidePanel(lastReport);
     [renderTabs, renderDetailsPreserveScroll, renderCurrentStatusText].forEach(fn => fn());
   }
 
@@ -5960,8 +6078,8 @@
     if (lastReport?.games) {
       prepareOriginalPrices(getReportFamilyNewGames(lastReport));
       refreshReportMetrics();
-      renderSummary(lastReport);
     }
+    renderSidePanel(lastReport);
     renderTabs();
     renderDetailsPreserveScroll();
     scheduleVisiblePriceLoads();
@@ -6190,6 +6308,10 @@
       const familyLibrary = await updateFamilyLibraryCache(session);
       renderFamilyMeta();
       renderAutoFamilyRefreshButton();
+      renderSidePanel(lastReport);
+      if (currentTab === "family") {
+        renderDetailsPreserveScroll();
+      }
       setStatus(t("refreshedCount", { count: familyLibrary.appidSet.length }), "ok");
     } catch (error) {
       setStatus(error.message, "err");
@@ -6244,6 +6366,10 @@
       resetRawData("auto-refresh-family-library");
       const familyLibrary = await updateFamilyLibraryCache(session);
       renderFamilyMeta();
+      renderSidePanel(lastReport);
+      if (currentTab === "family") {
+        renderDetailsPreserveScroll();
+      }
       setStatus(t("autoRefreshedCount", { count: familyLibrary.appidSet.length }), "ok");
     } catch (error) {
       setRawError(error);
@@ -6334,8 +6460,7 @@
 
   function renderInitialAnalysisResult(report) {
     renderTabs();
-    renderSummary(report);
-    renderTargetProfile(report);
+    renderSidePanel(report);
     renderDetails();
   }
 
@@ -6461,7 +6586,7 @@
     state.openLinksInSteamClient = !state.openLinksInSteamClient;
     saveState();
     renderOpenLinksClientButton();
-    renderTargetProfile(lastReport);
+    renderSidePanel(lastReport);
     renderDetailsPreserveScroll();
     renderCompareDialogIfOpen();
     setStatus(state.openLinksInSteamClient ? t("openLinksInClientEnabled") : t("openLinksInClientDisabled"), "ok");
@@ -7672,7 +7797,7 @@
         shareabilityProgressUiState.timer = 0;
       }
       refreshReportMetrics();
-      renderSummary(lastReport);
+      renderSidePanel(lastReport);
       renderDetailsPreserveScroll();
       startLazyOriginalPriceLoading();
       setStatus(t("completedAdded", { count: lastReport.metrics.newCount }), "ok");
@@ -8135,7 +8260,7 @@
   }
 
   function scheduleVisiblePriceLoads() {
-    if (rateLimitState.active || !lastReport || priceLoadState.pendingMap.size === 0) {
+    if (rateLimitState.active || !canLoadPricesForCurrentContext() || priceLoadState.pendingMap.size === 0) {
       return;
     }
     window.clearTimeout(priceLoadState.scheduled);
@@ -8334,10 +8459,14 @@
   }
 
   function scheduleBackgroundPriceLoads() {
-    if (rateLimitState.active || !lastReport || priceLoadState.pendingMap.size === 0) {
+    if (rateLimitState.active || !canLoadPricesForCurrentContext() || priceLoadState.pendingMap.size === 0) {
       return;
     }
     enqueueOriginalPriceLoads(Array.from(priceLoadState.pendingMap.keys()), false);
+  }
+
+  function canLoadPricesForCurrentContext() {
+    return Boolean(lastReport || currentTab === "family");
   }
 
   function enqueueOriginalPriceLoads(appids, priority) {
@@ -8394,7 +8523,7 @@
           renderStoreCacheButton();
           if (!shareabilityFilterState.running && !lastReport?.filtering?.running) {
             refreshReportMetrics();
-            renderSummary(lastReport);
+            renderSidePanel(lastReport);
             renderDetailsAfterPriceChange();
           }
         } catch (error) {
@@ -8419,7 +8548,7 @@
           setRawError(error);
           if (!shareabilityFilterState.running && !lastReport?.filtering?.running) {
             refreshReportMetrics();
-            renderSummary(lastReport);
+            renderSidePanel(lastReport);
             renderDetailsAfterPriceChange();
           }
         } finally {
@@ -8497,7 +8626,7 @@
   }
 
   function renderDetailsAfterPriceChange() {
-    if (getListViewMode() === "table" || currentTab === "new" || currentTab === "familyNew" || currentTab === "relativeNew") {
+    if (getListViewMode() === "table" || currentTab === "family" || currentTab === "new" || currentTab === "familyNew" || currentTab === "relativeNew") {
       renderDetailsPreserveScroll();
     }
     applyVisibleCoverImages();
@@ -8957,6 +9086,251 @@
     elements.familyMeta.textContent = `${name} · ${count} · ${time}`;
   }
 
+  function renderSidePanel(report = lastReport) {
+    const isFamilySidePanel = currentTab === "family";
+    elements.summary?.classList.toggle("is-family-summary", isFamilySidePanel);
+    elements.profile?.classList.toggle("is-family-contribution", isFamilySidePanel);
+    if (currentTab === "family") {
+      renderFamilyLibrarySummary();
+      renderFamilyLibraryProfile();
+      return;
+    }
+    renderSummary(report);
+    renderTargetProfile(report);
+  }
+
+  function renderFamilyLibrarySummary() {
+    const metrics = buildFamilyLibraryMetrics();
+    elements.summary.innerHTML = `
+      <div class="sffa-family-data-list">
+        ${familyDataRowHtml(t("tabs.family"), metrics.familyName, metrics.familyId)}
+        ${familyDataRowHtml(t("totalGames"), metrics.gameCount)}
+        ${familyDataRowHtml(t("familyMemberCount"), metrics.memberCount)}
+        ${familyDataRowHtml(getFamilyLibraryValueLabel(), formatMoney(metrics.totalValue, metrics.currency), getPriceLabel())}
+        ${familyDataRowHtml(getFamilyFilteredValueLabel(), formatMoney(metrics.filteredValue, metrics.currency), getPriceLabel())}
+        ${familyDataRowHtml(t("familyUpdatedAt"), metrics.updatedAtText)}
+      </div>
+    `;
+  }
+
+  function renderFamilyLibraryProfile() {
+    const view = buildFamilyContributionView();
+    elements.profile.innerHTML = renderFamilyContributionChartHtml(view);
+  }
+
+  function familyDataRowHtml(label, value, title = "") {
+    const titleAttr = title ? ` data-sffa-tooltip="${escapeAttr(title)}"` : "";
+    return `<div class="sffa-family-data-row"${titleAttr}><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+  }
+
+  function buildFamilyLibraryMetrics() {
+    const rows = getFamilyLibraryRows();
+    const filteredRows = filterRowsByActiveRules("family", filterRowsBySearchQuery(rows));
+    const familyMembers = getFamilyMemberRows();
+    let currency = getStoreCurrency();
+
+    rows.forEach(game => {
+      const price = resolveGamePrice(game);
+      if (price?.currency) {
+        currency = price.currency;
+      }
+    });
+
+    return {
+      familyId: String(state.familyInfo?.family_groupid || ""),
+      familyName: state.familyInfo?.family_name || t("notRefreshed"),
+      gameCount: rows.length,
+      memberCount: familyMembers.length,
+      totalValue: sumFamilyLibraryValue(rows),
+      filteredValue: sumFamilyLibraryValue(filteredRows),
+      currency,
+      updatedAtText: state.familyLibrary.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : t("noCache")
+    };
+  }
+
+  function getFamilyLibraryValueLabel() {
+    const priceLabel = getPriceLabel();
+    return UI_LOCALE === "en"
+      ? `${t("familyLibraryValue")} (${priceLabel})`
+      : `${t("familyLibraryValue")}（${priceLabel}）`;
+  }
+
+  function getFamilyFilteredValueLabel() {
+    const priceLabel = getPriceLabel();
+    return UI_LOCALE === "en"
+      ? `${t("familyFilteredValue")} (${priceLabel})`
+      : `${t("familyFilteredValue")}（${priceLabel}）`;
+  }
+
+  function sumFamilyLibraryValue(rows) {
+    return rows
+      .map(game => resolveGamePrice(game))
+      .filter(price => isCountablePrice(price) && price.initial != null)
+      .reduce((sum, price) => sum + Number(price.initial || 0), 0);
+  }
+
+  function getFamilyMemberRows() {
+    const members = Array.isArray(state.familyInfo?.family_member) ? state.familyInfo.family_member : [];
+    const names = state.familyInfo?.steamIdtoName || {};
+    if (!members.length) {
+      return Object.entries(names)
+        .map(([steamid64, name]) => ({
+          steamid64: String(steamid64 || ""),
+          name: name || steamid64
+        }))
+        .filter(member => member.steamid64);
+    }
+    return members
+      .map(member => {
+        const steamid64 = String(member?.steamid || "");
+        return {
+          steamid64,
+          name: member?.userName || names[steamid64] || steamid64
+        };
+      })
+      .filter(member => member.steamid64);
+  }
+
+  function buildFamilyContributionView() {
+    const accountById = new Map();
+    const rowsById = new Map();
+    const displayedBucketCounts = new Set();
+    const displayedGameIds = new Set();
+    const names = state.familyInfo?.steamIdtoName || {};
+
+    getFamilyMemberRows().forEach(member => {
+      upsertFamilyContributionAccount(accountById, member.steamid64, member.name);
+    });
+    getFamilyLibraryRows().forEach(game => {
+      const owners = Array.from(new Set((game.owners || []).map(String).filter(Boolean)));
+      owners.forEach(steamid64 => upsertFamilyContributionAccount(accountById, steamid64, names[steamid64] || steamid64));
+    });
+
+    accountById.forEach(account => {
+      rowsById.set(account.steamid64, {
+        ...account,
+        total: 0,
+        buckets: {},
+        bucketGames: {}
+      });
+    });
+
+    getFamilyLibraryRows().forEach(game => {
+      const owners = Array.from(new Set((game.owners || []).map(String).filter(steamid64 => rowsById.has(steamid64))));
+      if (!owners.length) {
+        return;
+      }
+      const bucketKey = String(owners.length);
+      displayedBucketCounts.add(owners.length);
+      displayedGameIds.add(String(game.appid || ""));
+      owners.forEach(steamid64 => {
+        const row = rowsById.get(steamid64);
+        row.total += 1;
+        row.buckets[bucketKey] = Number(row.buckets[bucketKey] || 0) + 1;
+        if (!Array.isArray(row.bucketGames[bucketKey])) {
+          row.bucketGames[bucketKey] = [];
+        }
+        row.bucketGames[bucketKey].push(game);
+      });
+    });
+
+    const accounts = Array.from(rowsById.values()).sort(compareGlobalContributionRows);
+    const buckets = Array.from(displayedBucketCounts)
+      .sort((left, right) => {
+        if (left === 1) {
+          return 1;
+        }
+        if (right === 1) {
+          return -1;
+        }
+        return right - left;
+      })
+      .map(count => ({
+        key: String(count),
+        count,
+        label: count === 1 ? t("globalCompareSingle") : t("globalCompareShared", { count }),
+        color: getGlobalCompareBucketColor(count)
+      }));
+    const maxTotal = Math.max(...accounts.map(row => row.total), 0);
+    const chart = getGlobalContributionChartScale(maxTotal);
+
+    return {
+      accounts,
+      buckets,
+      gameCount: displayedGameIds.size,
+      chartMax: chart.max,
+      ticks: chart.ticks
+    };
+  }
+
+  function upsertFamilyContributionAccount(accountById, steamid64, displayName) {
+    const normalizedId = String(steamid64 || "");
+    if (!normalizedId || accountById.has(normalizedId)) {
+      return;
+    }
+    accountById.set(normalizedId, {
+      steamid64: normalizedId,
+      displayName: String(displayName || normalizedId)
+    });
+  }
+
+  function renderFamilyContributionChartHtml(view) {
+    const accountCount = Math.max(1, view.accounts.length);
+    const chartMax = Math.max(1, Number(view.chartMax || 1));
+    if (!view.accounts.length || !view.gameCount) {
+      return `
+        <div class="sffa-family-contribution-head">
+          <strong>${escapeHtml(t("globalCompare"))}</strong>
+          <span>${escapeHtml(t("globalCompareGames", { count: 0 }))}</span>
+        </div>
+        <div class="sffa-global-empty">${escapeHtml(t("globalCompareNoData"))}</div>
+      `;
+    }
+    const legendHtml = view.buckets.map(bucket => `
+      <span class="sffa-global-legend-item">
+        <span class="sffa-global-legend-swatch" style="--sffa-legend-color: ${escapeAttr(bucket.color)}"></span>
+        <span>${escapeHtml(bucket.label)}</span>
+      </span>
+    `).join("");
+    const ticksHtml = view.ticks.map(value => {
+      const top = (1 - Number(value || 0) / chartMax) * 100;
+      return `<span class="sffa-global-y-tick" style="top: ${escapeAttr(top.toFixed(4))}%">${escapeHtml(String(value))}</span>`;
+    }).join("");
+    const barsHtml = view.accounts.map(row => renderGlobalContributionBarHtml(row, view.buckets, chartMax, getFamilyContributionActiveSelection())).join("");
+
+    return `
+      <div class="sffa-family-contribution-head">
+        <strong>${escapeHtml(t("globalCompare"))}</strong>
+        <span>${escapeHtml(t("globalCompareGames", { count: view.gameCount }))}</span>
+      </div>
+      <div class="sffa-global-legend">${legendHtml}</div>
+      <div class="sffa-global-content" data-sffa-family-contribution>
+        <div class="sffa-global-chart">
+          <div class="sffa-global-chart-grid" style="--sffa-global-account-count: ${escapeAttr(accountCount)}">
+            <div class="sffa-global-y-axis">${ticksHtml}</div>
+            <div class="sffa-global-plot">
+              <div class="sffa-global-bars">
+                ${barsHtml}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function getFamilyContributionActiveSelection() {
+    const ownerValues = getRuleFilterValues("owner").filter(value => value !== "all");
+    const shareCount = parseRuleFilterShareCount(getRuleFilterValue("shareCount"));
+    if (ownerValues.length !== 1 || shareCount <= 0) {
+      return null;
+    }
+    return {
+      steamid64: ownerValues[0],
+      bucketKey: String(shareCount)
+    };
+  }
+
   function renderSummary(report) {
     const metrics = report?.metrics || {
       targetCount: 0,
@@ -9109,14 +9483,17 @@
     target.selected = checkbox.checked;
     refreshReportMetrics();
     renderTabs();
-    renderSummary(lastReport);
-    renderTargetProfile(lastReport);
+    renderSidePanel(lastReport);
     renderDetails();
     renderCompareDialogIfOpen();
     scheduleAnalysisHistorySave();
   }
 
   function handleProfileActionClick(event) {
+    if (handleFamilyContributionClick(event)) {
+      return;
+    }
+
     const globalButton = event.target.closest("[data-sffa-open-global-compare]");
     if (globalButton) {
       openGlobalCompareDialog();
@@ -9128,6 +9505,41 @@
       return;
     }
     openCompareDialog();
+  }
+
+  function handleFamilyContributionClick(event) {
+    if (currentTab !== "family") {
+      return false;
+    }
+    const segmentButton = event.target.closest("[data-sffa-family-contribution] [data-sffa-global-account][data-sffa-global-bucket]");
+    if (!segmentButton) {
+      return false;
+    }
+
+    const steamid64 = String(segmentButton.dataset.sffaGlobalAccount || "");
+    const bucketKey = String(segmentButton.dataset.sffaGlobalBucket || "");
+    if (!steamid64 || !bucketKey) {
+      return true;
+    }
+    const shareCount = Number(bucketKey || 0);
+    const shareCountValue = shareCount > 0 && shareCount <= getRuleFilterShareCountMax()
+      ? `owners:${shareCount}`
+      : "all";
+    const activeOwners = getRuleFilterValues("owner").filter(value => value !== "all");
+    const sameSelection = activeOwners.length === 1 &&
+      activeOwners[0] === steamid64 &&
+      getRuleFilterValue("shareCount") === shareCountValue;
+    ruleFilterState = {
+      ...ruleFilterState,
+      owner: sameSelection ? ["all"] : [steamid64],
+      ownerMatchMode: "any",
+      shareCount: sameSelection ? "all" : shareCountValue
+    };
+    renderTabs();
+    renderSidePanel(lastReport);
+    renderDetails();
+    scheduleAnalysisHistorySave();
+    return true;
   }
 
   function isCompareDialogOpen() {
@@ -9733,7 +10145,7 @@
     `;
   }
 
-  function renderGlobalContributionBarHtml(row, buckets, chartMax) {
+  function renderGlobalContributionBarHtml(row, buckets, chartMax, activeSelection = globalCompareDrilldown) {
     const total = Number(row?.total || 0);
     const height = total > 0 ? Math.max(1, total / chartMax * 100) : 0;
     const segments = buckets.map(bucket => {
@@ -9743,7 +10155,7 @@
       }
       const segmentHeight = value / total * 100;
       const tooltip = formatGlobalContributionSegmentTooltip(row, bucket, value);
-      const active = globalCompareDrilldown?.steamid64 === row.steamid64 && globalCompareDrilldown?.bucketKey === bucket.key;
+      const active = activeSelection?.steamid64 === row.steamid64 && activeSelection?.bucketKey === bucket.key;
       return `<button class="sffa-global-segment${active ? " is-active" : ""}" type="button" style="--sffa-global-segment-height: ${escapeAttr(segmentHeight.toFixed(4))}%; --sffa-global-segment-color: ${escapeAttr(bucket.color)}" data-sffa-global-account="${escapeAttr(row.steamid64)}" data-sffa-global-bucket="${escapeAttr(bucket.key)}" data-sffa-tooltip="${escapeAttr(tooltip)}" aria-label="${escapeAttr(tooltip)}"></button>`;
     }).join("");
     const summaryTooltip = formatGlobalContributionTooltip(row, buckets);
@@ -10426,6 +10838,7 @@
       priceCustomMax: "",
       owner: ["all"],
       ownerMatchMode: "any",
+      shareCount: "all",
       tag: ["all"],
       time: "all",
       timeInverted: false,
@@ -10447,6 +10860,7 @@
       isRuleFilterKindApplicable("status") && renderRuleFilterGroup("status", t("ruleFilterStatus"), getRuleFilterStatusOptions()),
       isRuleFilterKindApplicable("price") && renderRuleFilterPriceGroup(),
       isRuleFilterKindApplicable("owner") && renderRuleFilterOwnerGroup(),
+      isRuleFilterKindApplicable("shareCount") && renderRuleFilterGroup("shareCount", t("ruleFilterShareCount"), getRuleFilterShareCountOptions()),
       isRuleFilterKindApplicable("tag") && renderRuleFilterGroup("tag", t("ruleFilterTag"), getRuleFilterTagOptions()),
       isRuleFilterKindApplicable("time") && renderRuleFilterTimeGroup(),
       `<div class="sffa-rule-filter-group"><button class="sffa-list-option" type="button" role="menuitem" data-sffa-rule-filter-clear>${escapeHtml(t("ruleFilterClear"))}</button></div>`
@@ -10668,7 +11082,7 @@
   }
 
   function isRuleFilterMultiSelectKind(kind) {
-    return kind !== "time";
+    return kind !== "time" && kind !== "shareCount";
   }
 
   function normalizeOwnerMatchMode(mode) {
@@ -10704,21 +11118,27 @@
 
   function normalizeRuleFilterForCurrentTab() {
     const ownerValues = getRuleFilterValues("owner");
-    if (ownerValues.includes("all")) {
-      return;
+    if (!ownerValues.includes("all")) {
+      const ownerIds = new Set(getRuleFilterOwnerItems().map(item => item.id));
+      const nextOwners = ownerValues.filter(owner => ownerIds.has(owner));
+      if (nextOwners.length !== ownerValues.length) {
+        ruleFilterState = {
+          ...ruleFilterState,
+          owner: nextOwners.length ? nextOwners : ["all"]
+        };
+      }
     }
-    const ownerIds = new Set(getRuleFilterOwnerItems().map(item => item.id));
-    const nextOwners = ownerValues.filter(owner => ownerIds.has(owner));
-    if (nextOwners.length !== ownerValues.length) {
+    const shareCountValue = getRuleFilterValue("shareCount");
+    if (shareCountValue !== "all" && !getRuleFilterShareCountOptions().some(option => option.value === shareCountValue)) {
       ruleFilterState = {
         ...ruleFilterState,
-        owner: nextOwners.length ? nextOwners : ["all"]
+        shareCount: "all"
       };
     }
   }
 
   function getActiveRuleFilterCount() {
-    const optionCount = ["status", "price", "owner", "tag", "time"].reduce((count, kind) => {
+    const optionCount = ["status", "price", "owner", "shareCount", "tag", "time"].reduce((count, kind) => {
       if (!isRuleFilterKindApplicable(kind)) {
         return count;
       }
@@ -10751,6 +11171,9 @@
     if (kind === "time") {
       return normalizedTab === "family";
     }
+    if (kind === "shareCount") {
+      return normalizedTab === "family";
+    }
     return true;
   }
 
@@ -10780,6 +11203,25 @@
       { value: "all", label: t("ruleFilterAll") },
       ...getRuleFilterOwnerItems().map(item => ({ value: item.id, label: item.label }))
     ];
+  }
+
+  function getRuleFilterShareCountOptions() {
+    const maxCount = getRuleFilterShareCountMax();
+    const options = [{ value: "all", label: t("ruleFilterAll") }];
+    for (let count = 1; count <= maxCount; count += 1) {
+      options.push({ value: `owners:${count}`, label: t("ruleFilterShareCountOption", { count }) });
+    }
+    return options;
+  }
+
+  function getRuleFilterShareCountMax() {
+    const memberCount = Math.max(getFamilyMemberRows().length, getFamilyOwnerIds().length);
+    return Math.max(0, memberCount - 1);
+  }
+
+  function parseRuleFilterShareCount(value) {
+    const match = /^owners:(\d+)$/.exec(String(value || ""));
+    return match ? Number(match[1] || 0) : 0;
   }
 
   function getRuleFilterTagOptions() {
@@ -10984,6 +11426,7 @@
     cancelSearchRender();
     currentTab = nextTab;
     renderTabs();
+    renderSidePanel(lastReport);
     renderDetails();
     scheduleAnalysisHistorySave();
   }
@@ -11033,6 +11476,7 @@
     searchRenderTimer = window.setTimeout(() => {
       searchRenderTimer = 0;
       renderRuleFilterControl();
+      renderSidePanel(lastReport);
       renderDetails();
       scheduleAnalysisHistorySave();
     }, SEARCH_RENDER_DEBOUNCE_MS);
@@ -11147,7 +11591,7 @@
     }
 
     const kind = String(tag.dataset.sffaRuleFilterKind || "");
-    if (!["status", "price", "owner", "tag", "time"].includes(kind) || !isRuleFilterKindApplicable(kind)) {
+    if (!["status", "price", "owner", "shareCount", "tag", "time"].includes(kind) || !isRuleFilterKindApplicable(kind)) {
       return;
     }
 
@@ -11156,6 +11600,7 @@
     setRuleFilterValue(kind, tag.dataset.sffaRuleFilterValue || "all");
     closeRuleFilterMenu();
     renderRuleFilterControl();
+    renderSidePanel(lastReport);
     renderDetailsPreserveScroll();
     scheduleAnalysisHistorySave();
   }
@@ -11202,6 +11647,7 @@
     if (clearButton) {
       ruleFilterState = createDefaultRuleFilterState();
       renderRuleFilterControl();
+      renderSidePanel(lastReport);
       renderDetailsPreserveScroll();
       scheduleAnalysisHistorySave();
       return;
@@ -11211,6 +11657,7 @@
     if (ownerModeButton && elements.ruleFilterMenu?.contains(ownerModeButton)) {
       setOwnerMatchMode(ownerModeButton.dataset.sffaRuleFilterOwnerMode || "any");
       renderRuleFilterControl();
+      renderSidePanel(lastReport);
       renderDetailsPreserveScroll();
       scheduleAnalysisHistorySave();
       return;
@@ -11220,6 +11667,7 @@
     if (timeInvertButton && elements.ruleFilterMenu?.contains(timeInvertButton)) {
       toggleTimeInvertFilter();
       renderRuleFilterControl();
+      renderSidePanel(lastReport);
       renderDetailsPreserveScroll();
       scheduleAnalysisHistorySave();
       return;
@@ -11230,11 +11678,12 @@
       return;
     }
     const kind = String(option.dataset.sffaRuleFilterKind || "");
-    if (!["status", "price", "owner", "tag", "time"].includes(kind)) {
+    if (!["status", "price", "owner", "shareCount", "tag", "time"].includes(kind)) {
       return;
     }
     setRuleFilterValue(kind, option.dataset.sffaRuleFilterValue || "all");
     renderRuleFilterControl();
+    renderSidePanel(lastReport);
     renderDetailsPreserveScroll();
     scheduleAnalysisHistorySave();
   }
@@ -11244,6 +11693,7 @@
     if (timeInput && elements.ruleFilterMenu?.contains(timeInput)) {
       setCustomTimeFilterValue(timeInput.dataset.sffaRuleFilterCustomTime, timeInput.value);
       renderRuleFilterControl();
+      renderSidePanel(lastReport);
       renderDetailsPreserveScroll();
       scheduleAnalysisHistorySave();
       return;
@@ -11253,6 +11703,7 @@
     if (priceInput && elements.ruleFilterMenu?.contains(priceInput)) {
       setCustomPriceFilterValue(priceInput.dataset.sffaRuleFilterCustomPrice, priceInput.value);
       renderRuleFilterControl();
+      renderSidePanel(lastReport);
       renderDetailsPreserveScroll();
       scheduleAnalysisHistorySave();
     }
@@ -11761,6 +12212,7 @@
     return isGameMatchedByStatusFilter(tab, game)
       && isGameMatchedByPriceFilter(game)
       && isGameMatchedByOwnerFilter(tab, game)
+      && isGameMatchedByShareCountFilter(tab, game)
       && isGameMatchedByTagFilter(tab, game)
       && isGameMatchedByTimeFilter(tab, game, context);
   }
@@ -11835,6 +12287,18 @@
       return true;
     }
     return ownerSet.size === selectedOwnerSet.size;
+  }
+
+  function isGameMatchedByShareCountFilter(tab, game) {
+    if (!isRuleFilterKindApplicable("shareCount", tab)) {
+      return true;
+    }
+    const shareCount = parseRuleFilterShareCount(getRuleFilterValue("shareCount"));
+    if (!shareCount) {
+      return true;
+    }
+    const ownerCount = new Set((game.owners || []).map(String).filter(Boolean)).size;
+    return ownerCount === shareCount;
   }
 
   function isGameMatchedByTagFilter(tab, game) {
@@ -12737,8 +13201,7 @@
   function renderRestoredAnalysis() {
     refreshReportMetrics();
     renderTabs();
-    renderSummary(lastReport);
-    renderTargetProfile(lastReport);
+    renderSidePanel(lastReport);
     renderDetailsPreserveScroll();
     renderCurrentStatusText();
   }

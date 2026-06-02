@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.7
+// @version      0.2.8
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -58,6 +58,17 @@
   const PRICE_SOURCE_ORIGINAL = "original";
   const PRICE_SOURCE_CURRENT = "current";
   const PRICE_SOURCE_ITAD_STORE_LOW = "itadStoreLow";
+  const DEFAULT_SEARCH_URL_TEMPLATE = "https://www.baidu.com/s?wd={query}";
+  const DEFAULT_SEARCH_PRESETS = Object.freeze([
+    { name: "百度", urlTemplate: "https://www.baidu.com/s?wd={query}", searchOriginalName: false },
+    { name: "Google", urlTemplate: "https://www.google.com/search?q={query}", searchOriginalName: false },
+    { name: "Bing", urlTemplate: "https://www.bing.com/search?q={query}", searchOriginalName: false },
+    { name: "Steam", urlTemplate: "https://store.steampowered.com/search/?term={query}", searchOriginalName: false },
+    { name: "Steam 客户端", urlTemplate: "steam://openurl/https://store.steampowered.com/search/?term={query}", searchOriginalName: false },
+    { name: "SteamDB", urlTemplate: "https://steamdb.info/search/?a=app&q={query}", searchOriginalName: false },
+    { name: "PCGamingWiki", urlTemplate: "https://www.pcgamingwiki.com/w/index.php?search={query}", searchOriginalName: true },
+    { name: "IsThereAnyDeal", urlTemplate: "https://isthereanydeal.com/search/?q={query}", searchOriginalName: true }
+  ]);
   // 家庭共享支持性检测每批 App 的数量；调大可更快，调小可更稳。
   const SHAREABILITY_BATCH_SIZE = 150;
   // 家庭封面图导出时每行显示的卡片数量；调大更密，调小更疏。
@@ -227,6 +238,27 @@
       openLinksInClientOff: "调用客户端：关",
       openLinksInClientEnabled: "已启用 Steam 客户端打开链接",
       openLinksInClientDisabled: "已改为浏览器打开链接",
+      searchSettings: "搜索配置",
+      searchSettingsTitle: "搜索配置",
+      searchSettingsHint: "配置右键搜索预设，使用 {query} 作为游戏名占位符。",
+      searchPresetName: "名称",
+      searchPresetNamePlaceholder: "例如：SteamDB",
+      searchPresetUrl: "链接",
+      searchPresetOriginalName: "搜索原名",
+      searchUrlTemplatePlaceholder: "例如：https://www.baidu.com/s?wd={query}",
+      searchPresetAdd: "添加预设",
+      searchPresetRemove: "删除预设",
+      searchSettingsSave: "保存",
+      searchSettingsReset: "重置",
+      searchSettingsSaved: "搜索配置已保存",
+      searchSettingsResetDone: "搜索配置已重置",
+      gameContextOpenLink: "打开链接",
+      gameContextOpenSteam: "跳转 Steam",
+      gameContextCopyName: "复制名称",
+      gameContextCopyId: "复制 ID",
+      gameContextReloadCover: "重载封面",
+      gameContextSearch: "搜索",
+      gameCoverReloaded: "封面已重载",
       priceSettings: "价格配置",
       priceSettingsTitle: "价格配置",
       priceSettingsHint: "选择本次统计、排序、复制和展示使用的价格口径。",
@@ -525,6 +557,27 @@
       openLinksInClientOff: "Open in client: off",
       openLinksInClientEnabled: "Steam client links enabled",
       openLinksInClientDisabled: "Browser links enabled",
+      searchSettings: "Search settings",
+      searchSettingsTitle: "Search settings",
+      searchSettingsHint: "Configure right-click search presets. Use {query} as the game-name placeholder.",
+      searchPresetName: "Name",
+      searchPresetNamePlaceholder: "Example: SteamDB",
+      searchPresetUrl: "URL",
+      searchPresetOriginalName: "Original name",
+      searchUrlTemplatePlaceholder: "Example: https://www.baidu.com/s?wd={query}",
+      searchPresetAdd: "Add preset",
+      searchPresetRemove: "Remove preset",
+      searchSettingsSave: "Save",
+      searchSettingsReset: "Reset",
+      searchSettingsSaved: "Search settings saved",
+      searchSettingsResetDone: "Search settings reset",
+      gameContextOpenLink: "Open link",
+      gameContextOpenSteam: "Open in Steam",
+      gameContextCopyName: "Copy name",
+      gameContextCopyId: "Copy ID",
+      gameContextReloadCover: "Reload cover",
+      gameContextSearch: "Search",
+      gameCoverReloaded: "Cover reloaded",
       priceSettings: "Price settings",
       priceSettingsTitle: "Price settings",
       priceSettingsHint: "Choose the price basis used for statistics, sorting, copying, and display.",
@@ -816,6 +869,39 @@
     };
   }
 
+  function normalizeSearchUrlTemplate(value) {
+    const template = String(value || "").trim();
+    return template || DEFAULT_SEARCH_URL_TEMPLATE;
+  }
+
+  function cloneDefaultSearchPresets() {
+    return DEFAULT_SEARCH_PRESETS.map(preset => ({ ...preset }));
+  }
+
+  function normalizeSearchPresets(presets) {
+    const rawPresets = Array.isArray(presets) && presets.length
+      ? presets
+      : cloneDefaultSearchPresets();
+    const normalized = rawPresets
+      .map((preset, index) => {
+        const urlTemplate = String(preset?.urlTemplate || preset?.url || "").trim();
+        if (!urlTemplate) {
+          return null;
+        }
+        return {
+          name: String(preset?.name || `Search ${index + 1}`).trim() || `Search ${index + 1}`,
+          urlTemplate: normalizeSearchUrlTemplate(urlTemplate),
+          searchOriginalName: preset?.searchOriginalName === true
+        };
+      })
+      .filter(Boolean);
+    return normalized.length ? normalized : cloneDefaultSearchPresets();
+  }
+
+  function getSearchPresets() {
+    return normalizeSearchPresets(state.searchPresets);
+  }
+
   function getPriceMode() {
     return normalizePriceMode(state.priceConfig?.mode);
   }
@@ -1023,6 +1109,7 @@
     storeCache: {},
     autoFamilyRefreshEnabled: true,
     openLinksInSteamClient: false,
+    searchPresets: cloneDefaultSearchPresets(),
     lastAutoFamilyRefreshAttemptAt: 0,
     appLocaleMode: APP_LOCALE,
     priceConfig: {
@@ -1033,6 +1120,7 @@
   });
 
   let state = cloneDefaultState();
+  let resolvedSteamSession = null;
   let currentTab = "all";
   let tableSortByTab = {};
   let lastReport = null;
@@ -1048,6 +1136,7 @@
   let comparePriceRangeByTarget = {};
   let globalCompareFilter = "all";
   let globalCompareDrilldown = null;
+  let activeGameContext = null;
   let ruleFilterState = createDefaultRuleFilterState();
   let analysisHistorySaveTimer = 0;
   let analysisInputHistoryCache = null;
@@ -1107,7 +1196,7 @@
     initializePanelView();
     const restoredAnalysis = restoreAnalysisHistory();
     autoFillTargetInputFromProfilePage();
-    const session = getSteamSession();
+    const session = await getSteamSessionWithFallback();
     if (!syncBootstrapSession(session, restoredAnalysis)) {
       return;
     }
@@ -1152,6 +1241,7 @@
         pointer-events: none;
         color: #dbe8f3;
         font-family: Motiva Sans, Arial, Helvetica, sans-serif;
+        font-size: 12px;
       }
       #sffa-root, #sffa-root * {
         box-sizing: border-box;
@@ -1616,6 +1706,53 @@
         cursor: wait;
         opacity: 0.58;
       }
+      .sffa-game-context-menu {
+        position: fixed;
+        right: auto;
+        top: auto;
+        min-width: 156px;
+        display: grid;
+        gap: 4px;
+        pointer-events: auto;
+        z-index: 30;
+      }
+      .sffa-game-context-menu[hidden] {
+        display: none;
+      }
+      .sffa-game-context-group {
+        position: relative;
+      }
+      .sffa-menu-item.has-submenu {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .sffa-menu-item.has-submenu::after {
+        content: "›";
+        color: #8fd1ff;
+        font-size: 12px;
+        line-height: 1;
+      }
+      .sffa-game-context-submenu {
+        left: 100%;
+        right: auto;
+        top: var(--sffa-context-submenu-top, 0px);
+        min-width: 180px;
+        max-width: min(260px, calc(100vw - 24px));
+        max-height: min(320px, calc(100vh - 24px));
+        overflow-y: auto;
+        z-index: 31;
+      }
+      .sffa-game-context-menu.is-submenu-left .sffa-game-context-submenu {
+        left: auto;
+        right: 100%;
+      }
+      .sffa-game-context-group:hover .sffa-game-context-submenu,
+      .sffa-game-context-group.is-open .sffa-game-context-submenu {
+        display: grid;
+        gap: 4px;
+      }
       .sffa-body {
         min-height: 0;
         flex: 1 1 auto;
@@ -1714,6 +1851,51 @@
         width: 100%;
         padding-right: 68px;
       }
+      .sffa-history-wrap.is-tokenized .sffa-input {
+        color: transparent;
+        caret-color: transparent;
+      }
+      .sffa-target-token-view {
+        position: absolute;
+        left: 10px;
+        right: 68px;
+        top: 50%;
+        min-width: 0;
+        min-height: 28px;
+        display: block;
+        line-height: 28px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        transform: translateY(-50%);
+        cursor: text;
+        z-index: 1;
+      }
+      .sffa-target-token-view[hidden] {
+        display: none;
+      }
+      .sffa-target-token {
+        min-width: 0;
+        max-width: 148px;
+        display: inline-flex;
+        align-items: center;
+        vertical-align: middle;
+        min-height: 22px;
+        margin: 0 2px;
+        padding: 0 9px;
+        border: 1px solid rgba(102, 192, 244, 0.24);
+        border-radius: 999px;
+        background: rgba(102, 192, 244, 0.14);
+        color: #dbe8f3;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sffa-target-token-raw {
+        color: #dbe8f3;
+        white-space: pre;
+      }
       .sffa-history-wrap .sffa-search-clear {
         right: 34px;
       }
@@ -1754,50 +1936,50 @@
         overflow: auto;
         z-index: 5;
       }
-      .sffa-history-wrap .sffa-list-option {
-        min-height: 44px;
-        padding: 6px 10px;
-      }
       .sffa-history-option {
-        position: relative;
-      }
-      .sffa-history-option .sffa-list-option {
-        width: 100%;
         min-width: 0;
-        padding-right: 40px;
-      }
-      .sffa-history-option:hover .sffa-list-option {
-        background: rgba(102, 192, 244, 0.14);
+        max-width: 100%;
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        border: 1px solid rgba(102, 192, 244, 0.2);
+        border-radius: 999px;
+        background: rgba(102, 192, 244, 0.12);
+        overflow: hidden;
       }
       .sffa-history-option-main {
-        display: block;
+        min-width: 0;
+        max-width: 160px;
+        min-height: 24px;
+        padding: 0 8px 0 10px;
+        border: 0;
+        background: transparent;
+        color: #dbe8f3;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        text-align: left;
+        white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        color: #f2f7fb;
       }
-      .sffa-history-option-sub {
-        display: block;
-        margin-top: 2px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        color: #8fa6b8;
-        font-size: 11px;
+      .sffa-history-option:hover {
+        background: rgba(102, 192, 244, 0.18);
+        border-color: rgba(143, 209, 255, 0.34);
       }
       .sffa-history-delete {
-        position: absolute;
-        right: 6px;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 30px;
-        min-height: 30px;
+        width: 22px;
+        min-width: 22px;
+        min-height: 24px;
         display: grid;
         place-items: center;
         padding: 0;
         border: 0;
-        border-radius: 3px;
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
         background: transparent;
         color: #8fa6b8;
         cursor: pointer;
+        font: inherit;
       }
       .sffa-history-delete:hover {
         color: #ffb6c2;
@@ -2867,6 +3049,7 @@
         overflow: hidden;
       }
       #sffa-root.is-price-settings-open .sffa-price-overlay,
+      #sffa-root.is-search-settings-open .sffa-search-settings-overlay,
       #sffa-root.is-family-poster-open .sffa-family-poster-overlay,
       #sffa-root.is-global-compare-open .sffa-global-compare-overlay {
         opacity: 1;
@@ -2926,6 +3109,19 @@
       .sffa-price-overlay.sffa-modal-overlay .sffa-modal-backdrop {
         background: rgba(8, 12, 18, 0.58);
       }
+      .sffa-search-settings-overlay.sffa-modal-overlay .sffa-modal-backdrop {
+        background: rgba(8, 12, 18, 0.58);
+      }
+      .sffa-search-settings-shell.is-anchor-top-right {
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        width: min(560px, calc(100vw - 24px));
+        max-height: calc(100vh - 92px);
+        overflow: hidden;
+      }
+      .sffa-search-settings-shell .sffa-price-body {
+        min-height: 0;
+        overflow: hidden;
+      }
       .sffa-price-body {
         display: grid;
         gap: 14px;
@@ -2984,6 +3180,49 @@
       .sffa-price-input:focus {
         border-color: #66c0f4;
         box-shadow: 0 0 0 2px rgba(102, 192, 244, 0.12);
+      }
+      .sffa-search-preset-list {
+        display: grid;
+        gap: 8px;
+        max-height: min(420px, calc(100vh - 220px));
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+      .sffa-search-preset-row {
+        display: grid;
+        grid-template-columns: minmax(86px, 0.32fr) minmax(0, 1fr) auto 30px;
+        gap: 8px;
+        align-items: center;
+      }
+      .sffa-search-preset-original {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 30px;
+        color: #c2d4df;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .sffa-search-preset-original input {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        accent-color: #66c0f4;
+      }
+      .sffa-search-preset-remove {
+        width: 30px;
+        height: 30px;
+        border: 0;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffd0d0;
+        cursor: pointer;
+        font: inherit;
+        font-size: 14px;
+        line-height: 1;
+      }
+      .sffa-search-preset-remove:hover {
+        background: rgba(225, 92, 92, 0.18);
       }
       .sffa-price-help {
         position: relative;
@@ -3308,6 +3547,13 @@
         display: grid;
         gap: 4px;
       }
+      .sffa-history-wrap.is-open .sffa-list-menu {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 6px;
+      }
       .sffa-sort-wrap .sffa-list-select {
         min-width: 118px;
       }
@@ -3536,6 +3782,27 @@
       .sffa-tab[data-tab="family"] {
         margin-left: auto;
       }
+      .sffa-refresh-family-btn {
+        width: 30px;
+        min-width: 30px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+      }
+      .sffa-refresh-family-btn svg {
+        width: 16px;
+        height: 16px;
+      }
+      .sffa-refresh-family-btn.is-attention {
+        background: linear-gradient(180deg, rgba(255, 199, 96, 0.95) 0%, rgba(218, 146, 45, 0.95) 100%);
+        border-color: rgba(255, 218, 128, 0.72);
+        color: #15110a;
+        box-shadow: 0 0 0 1px rgba(255, 236, 166, 0.18) inset, 0 0 0 2px rgba(255, 199, 96, 0.16);
+      }
+      .sffa-refresh-family-btn.is-attention:hover:not(:disabled) {
+        background: linear-gradient(180deg, rgba(255, 213, 119, 0.98) 0%, rgba(230, 157, 55, 0.98) 100%);
+        border-color: rgba(255, 230, 150, 0.86);
+      }
       .sffa-copy-list-btn {
         width: 30px;
         height: 30px;
@@ -3683,6 +3950,7 @@
         border-color: #66c0f4;
       }
       .sffa-table-wrap {
+        position: relative;
         min-height: 0;
         overflow: hidden;
         border: 1px solid rgba(255, 255, 255, 0.07);
@@ -4343,6 +4611,7 @@
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
               <button class="sffa-menu-item" type="button" data-sffa-open-links-client aria-pressed="false"></button>
               <button class="sffa-menu-item" type="button" data-sffa-price-settings>${escapeHtml(t("priceSettings"))}</button>
+              <button class="sffa-menu-item" type="button" data-sffa-search-settings>${escapeHtml(t("searchSettings"))}</button>
               <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-raw>${escapeHtml(t("rawData"))}</button>
             </div>
@@ -4354,6 +4623,7 @@
             <div class="sffa-control-primary">
               <div class="sffa-list-wrap sffa-history-wrap" data-sffa-history-wrap>
                 <input class="sffa-input" data-sffa-target placeholder="${escapeAttr(t("targetPlaceholder"))}" autocomplete="off" aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(t("analysisHistory"))}">
+                <div class="sffa-target-token-view" data-sffa-target-token-view hidden></div>
                 <button class="sffa-search-clear" type="button" data-sffa-target-clear data-sffa-tooltip="${escapeAttr(t("clear"))}" aria-label="${escapeAttr(t("clear"))}">
                   <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                     <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -4374,9 +4644,6 @@
                   <button class="sffa-rate-btn" type="button" data-sffa-rate-check hidden>${escapeHtml(t("rateCheck"))}</button>
                 </div>
               </div>
-            </div>
-            <div class="sffa-control-actions">
-              <button class="sffa-btn secondary" type="button" data-sffa-refresh>${escapeHtml(t("refreshFamily"))}</button>
             </div>
           </div>
           <div class="sffa-content">
@@ -4423,6 +4690,11 @@
                   <button class="sffa-price-quick-btn" type="button" data-sffa-price-quick-mode="${PRICE_MODE_HISTORY_LOW}">${escapeHtml(t("priceModeHistoryLow"))}</button>
                 </div>
                 <button class="sffa-tab" type="button" data-tab="family">${escapeHtml(t("tabs.family"))}</button>
+                <button class="sffa-tab sffa-refresh-family-btn" type="button" data-sffa-refresh data-sffa-tooltip="${escapeAttr(t("refreshFamily"))}" aria-label="${escapeAttr(t("refreshFamily"))}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <path d="M12.7 5.2A5 5 0 0 0 3.4 4.1M3.3 4.1H6M3.3 4.1V1.4M3.3 10.8a5 5 0 0 0 9.3 1.1m.1 0H10m2.7 0v2.7" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
                 <div class="sffa-copy-list-wrap" data-sffa-copy-list-wrap>
                   <button class="sffa-tab sffa-copy-list-btn" type="button" data-sffa-copy-list-btn aria-expanded="false" aria-label="${escapeAttr(t("more"))}">⋯</button>
                   <div class="sffa-menu sffa-copy-list-menu" data-sffa-copy-list-menu>
@@ -4505,6 +4777,27 @@
           `
       })}
       ${renderModalHtml({
+        name: "search-settings",
+        overlayAttrs: "data-sffa-search-settings-overlay",
+        backdropAttrs: "data-sffa-search-settings-backdrop",
+        closeAttrs: "data-sffa-search-settings-close",
+        titleAttrs: "data-sffa-search-settings-title",
+        hintAttrs: "data-sffa-search-settings-hint",
+        title: t("searchSettingsTitle"),
+        hint: t("searchSettingsHint", { query: "{query}" }),
+        shellClass: "is-anchor-top-right",
+        bodyClass: "sffa-price-body",
+        bodyHtml: `
+            <div class="sffa-search-preset-list" data-sffa-search-preset-list></div>
+          `,
+        actionsHtml: `
+            <button class="sffa-btn secondary" type="button" data-sffa-search-preset-add>${escapeHtml(t("searchPresetAdd"))}</button>
+            <button class="sffa-btn secondary" type="button" data-sffa-search-settings-reset>${escapeHtml(t("searchSettingsReset"))}</button>
+            <button class="sffa-btn secondary" type="button" data-sffa-search-settings-cancel>${escapeHtml(t("familyPosterCancel"))}</button>
+            <button class="sffa-btn" type="button" data-sffa-search-settings-confirm>${escapeHtml(t("searchSettingsSave"))}</button>
+          `
+      })}
+      ${renderModalHtml({
         name: "family-poster",
         overlayAttrs: "data-sffa-family-poster-overlay",
         backdropAttrs: "data-sffa-family-poster-backdrop",
@@ -4540,6 +4833,7 @@
             <button class="sffa-btn" type="button" data-sffa-family-poster-confirm>${escapeHtml(t("familyPosterConfirm"))}</button>
           `
       })}
+      <div class="sffa-menu sffa-game-context-menu" data-sffa-game-context-menu hidden></div>
       <div class="sffa-tooltip" data-sffa-tooltip-box role="tooltip" hidden></div>
     `;
     return root;
@@ -4602,6 +4896,7 @@
       historyWrap: root.querySelector("[data-sffa-history-wrap]"),
       historyMenu: root.querySelector("[data-sffa-history-menu]"),
       targetInput: root.querySelector("[data-sffa-target]"),
+      targetTokenView: root.querySelector("[data-sffa-target-token-view]"),
       targetClearBtn: root.querySelector("[data-sffa-target-clear]"),
       listWrap: root.querySelector("[data-sffa-list-wrap]"),
       listSelect: root.querySelector("[data-sffa-list-select]"),
@@ -4626,6 +4921,7 @@
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
       openLinksClientBtn: root.querySelector("[data-sffa-open-links-client]"),
       priceSettingsBtn: root.querySelector("[data-sffa-price-settings]"),
+      searchSettingsBtn: root.querySelector("[data-sffa-search-settings]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
       saveFamilyPosterBtn: root.querySelector("[data-sffa-save-family-poster]"),
       saveListPosterBtn: root.querySelector("[data-sffa-save-list-poster]"),
@@ -4661,6 +4957,17 @@
       itadHelpTip: root.querySelector("[data-sffa-itad-help-tip]"),
       priceCancelBtn: root.querySelector("[data-sffa-price-cancel]"),
       priceConfirmBtn: root.querySelector("[data-sffa-price-confirm]"),
+      searchSettingsOverlay: root.querySelector("[data-sffa-search-settings-overlay]"),
+      searchSettingsBackdrop: root.querySelector("[data-sffa-search-settings-backdrop]"),
+      searchSettingsCloseBtn: root.querySelector("[data-sffa-search-settings-close]"),
+      searchSettingsTitle: root.querySelector("[data-sffa-search-settings-title]"),
+      searchSettingsHint: root.querySelector("[data-sffa-search-settings-hint]"),
+      searchPresetList: root.querySelector("[data-sffa-search-preset-list]"),
+      searchPresetAddBtn: root.querySelector("[data-sffa-search-preset-add]"),
+      searchSettingsResetBtn: root.querySelector("[data-sffa-search-settings-reset]"),
+      searchSettingsCancelBtn: root.querySelector("[data-sffa-search-settings-cancel]"),
+      searchSettingsConfirmBtn: root.querySelector("[data-sffa-search-settings-confirm]"),
+      gameContextMenu: root.querySelector("[data-sffa-game-context-menu]"),
       familyPosterOverlay: root.querySelector("[data-sffa-family-poster-overlay]"),
       familyPosterBackdrop: root.querySelector("[data-sffa-family-poster-backdrop]"),
       familyPosterCloseBtn: root.querySelector("[data-sffa-family-poster-close]"),
@@ -4698,6 +5005,7 @@
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
     elements.openLinksClientBtn?.addEventListener("click", toggleOpenLinksInSteamClient);
     elements.priceSettingsBtn?.addEventListener("click", openPriceSettingsDialog);
+    elements.searchSettingsBtn?.addEventListener("click", openSearchSettingsDialog);
     elements.copyBtn.addEventListener("click", copyReportSummary);
     elements.saveFamilyPosterBtn?.addEventListener("click", openFamilyPosterDialog);
     elements.reloadCoversBtn.addEventListener("click", reloadCovers);
@@ -4723,6 +5031,13 @@
     elements.priceModeButtons.forEach(button => {
       button.addEventListener("click", () => selectPriceSettingsMode(button.dataset.sffaPriceModeOption));
     });
+    elements.searchSettingsBackdrop?.addEventListener("click", closeSearchSettingsDialog);
+    elements.searchSettingsCloseBtn?.addEventListener("click", closeSearchSettingsDialog);
+    elements.searchSettingsCancelBtn?.addEventListener("click", closeSearchSettingsDialog);
+    elements.searchSettingsConfirmBtn?.addEventListener("click", confirmSearchSettingsDialog);
+    elements.searchSettingsResetBtn?.addEventListener("click", resetSearchSettingsDialog);
+    elements.searchPresetAddBtn?.addEventListener("click", addSearchPresetRow);
+    elements.searchPresetList?.addEventListener("click", handleSearchPresetListClick);
     elements.familyPosterBackdrop?.addEventListener("click", closeFamilyPosterDialog);
     elements.familyPosterCloseBtn?.addEventListener("click", closeFamilyPosterDialog);
     elements.familyPosterCancelBtn?.addEventListener("click", closeFamilyPosterDialog);
@@ -4733,13 +5048,21 @@
     elements.compareSummary?.addEventListener("scroll", () => scheduleVisibleCoverLoads());
     elements.globalCompareBody?.addEventListener("click", handleGlobalCompareClick);
     elements.tableWrap.addEventListener("scroll", handleDetailsScroll, true);
+    elements.tableWrap.addEventListener("contextmenu", handleGameContextMenu);
+    elements.gameContextMenu?.addEventListener("click", handleGameContextMenuAction);
     elements.tableWrap.addEventListener("click", handleTableFilterTagClick);
     elements.tableWrap.addEventListener("click", handleTableHeaderClick);
     elements.profile.addEventListener("change", handleTargetSelectionChange);
     elements.profile.addEventListener("click", handleProfileActionClick);
     elements.historyMenu?.addEventListener("click", handleAnalysisHistoryClick);
     elements.targetInput.addEventListener("click", handleAnalysisHistoryInputClick);
-    elements.targetInput.addEventListener("input", renderTargetClearButton);
+    elements.targetInput.addEventListener("focus", handleAnalysisHistoryInputFocus);
+    elements.targetInput.addEventListener("blur", scheduleTargetTokenViewRender);
+    elements.targetInput.addEventListener("input", () => {
+      showTargetInputRawView();
+      renderTargetClearButton();
+    });
+    elements.targetTokenView?.addEventListener("click", restoreTargetInputFromTokenView);
     elements.targetInput.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         closeAnalysisHistoryMenu();
@@ -4751,6 +5074,7 @@
         return;
       }
       elements.targetInput.value = "";
+      showTargetInputRawView();
       closeAnalysisHistoryMenu();
       renderTargetClearButton();
       elements.targetInput.focus();
@@ -4794,15 +5118,25 @@
         closeSortMenu();
         currentTab = tab.dataset.tab;
         renderTabs();
-        renderSidePanel(lastReport);
-        renderDetails();
-        scheduleAnalysisHistorySave();
+        renderDetails({ showLoading: true });
+        scheduleAfterDetailsLoadingPaint(() => {
+          renderSidePanel(lastReport);
+          scheduleAnalysisHistorySave();
+        });
       });
     });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {
         if (elements.root?.classList.contains("is-price-settings-open")) {
           closePriceSettingsDialog();
+          return;
+        }
+        if (elements.root?.classList.contains("is-search-settings-open")) {
+          closeSearchSettingsDialog();
+          return;
+        }
+        if (elements.gameContextMenu && !elements.gameContextMenu.hidden) {
+          closeGameContextMenu();
           return;
         }
         if (elements.root?.classList.contains("is-family-poster-open")) {
@@ -4847,6 +5181,9 @@
       }
       if (!elements.copyListWrap?.contains(event.target)) {
         closeCopyListMenu();
+      }
+      if (!elements.gameContextMenu?.contains(event.target)) {
+        closeGameContextMenu();
       }
     });
     window.addEventListener("beforeunload", () => {
@@ -5225,6 +5562,7 @@
 
   function initializePanelView() {
     renderSidePanel(null);
+    renderRefreshFamilyButton();
     renderAutoFamilyRefreshButton();
     renderOpenLinksClientButton();
     renderStoreCacheButton();
@@ -5682,6 +6020,11 @@
     openAnalysisHistoryMenu();
   }
 
+  function handleAnalysisHistoryInputFocus() {
+    showTargetInputRawView();
+    openAnalysisHistoryMenu();
+  }
+
   function closeAnalysisHistoryMenu() {
     elements.historyWrap?.classList.remove("is-open");
     elements.targetInput?.setAttribute("aria-expanded", "false");
@@ -5701,25 +6044,122 @@
       return;
     }
 
-    const inputValue = option.dataset.sffaHistoryOption || "";
-    if (!inputValue) {
+    const steamid64 = option.dataset.sffaHistoryOption || "";
+    if (!steamid64) {
       return;
     }
 
-    elements.targetInput.value = inputValue;
+    appendAnalysisHistoryAccountToInput(steamid64);
     renderTargetClearButton();
-    closeAnalysisHistoryMenu();
-    analyzeTarget();
   }
 
-  function deleteAnalysisHistoryEntry(inputValue) {
-    const normalizedInput = String(inputValue || "").trim();
-    if (!normalizedInput) {
+  function appendAnalysisHistoryAccountToInput(steamid64) {
+    const accountId = String(steamid64 || "").trim();
+    if (!accountId) {
+      return;
+    }
+    showTargetInputRawView();
+    const parts = String(elements.targetInput?.value || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.includes(accountId)) {
+      parts.push(accountId);
+    }
+    elements.targetInput.value = parts.length ? `${parts.join(" ")} ` : "";
+    elements.targetInput.focus();
+    const end = elements.targetInput.value.length;
+    elements.targetInput.setSelectionRange(end, end);
+  }
+
+  function scheduleTargetTokenViewRender() {
+    window.setTimeout(() => {
+      if (document.activeElement === elements.targetInput || elements.historyWrap?.contains(document.activeElement)) {
+        return;
+      }
+      renderTargetTokenView();
+    }, 0);
+  }
+
+  function renderTargetTokenView() {
+    if (!elements.targetTokenView || !elements.targetInput) {
+      return;
+    }
+    const segments = getTargetInputHistorySegments(elements.targetInput.value);
+    if (!segments.some(segment => segment.type === "token")) {
+      showTargetInputRawView();
+      return;
+    }
+    elements.targetTokenView.innerHTML = segments
+      .map(segment => {
+        if (segment.type === "token") {
+          return `<span class="sffa-target-token" data-sffa-tooltip="${escapeAttr(segment.steamid64)}">${escapeHtml(segment.displayName)}</span>`;
+        }
+        return `<span class="sffa-target-token-raw">${escapeHtml(segment.text)}</span>`;
+      })
+      .join("");
+    elements.targetTokenView.hidden = false;
+    elements.historyWrap?.classList.add("is-tokenized");
+    normalizeNativeTooltipAttributes(elements.targetTokenView);
+  }
+
+  function showTargetInputRawView() {
+    elements.historyWrap?.classList.remove("is-tokenized");
+    if (elements.targetTokenView) {
+      elements.targetTokenView.hidden = true;
+      elements.targetTokenView.innerHTML = "";
+    }
+  }
+
+  function restoreTargetInputFromTokenView() {
+    showTargetInputRawView();
+    elements.targetInput?.focus();
+    const end = elements.targetInput?.value.length || 0;
+    elements.targetInput?.setSelectionRange(end, end);
+  }
+
+  function getTargetInputHistorySegments(value) {
+    const parts = String(value || "").match(/\s+|\S+/g) || [];
+    if (!parts.length) {
+      return [];
+    }
+    const accountMap = getAnalysisHistoryAccountMap();
+    return parts
+      .map(part => {
+        if (/^\d{17}$/.test(part) && accountMap.has(part)) {
+          return {
+            type: "token",
+            steamid64: part,
+            displayName: accountMap.get(part) || part
+          };
+        }
+        return {
+          type: "raw",
+          text: part
+        };
+      });
+  }
+
+  function getAnalysisHistoryAccountMap(history = loadAnalysisInputHistory()) {
+    const accountMap = new Map();
+    (history.entries || []).forEach(entry => {
+      if (/^\d{17}$/.test(String(entry.steamid64 || ""))) {
+        accountMap.set(String(entry.steamid64), entry.displayName || String(entry.steamid64));
+      }
+    });
+    Object.entries(history.accountNameCache || {}).forEach(([steamid64, name]) => {
+      if (/^\d{17}$/.test(String(steamid64)) && String(name || "").trim()) {
+        accountMap.set(String(steamid64), String(name).trim());
+      }
+    });
+    return accountMap;
+  }
+
+  function deleteAnalysisHistoryEntry(steamid64) {
+    const normalizedSteamId = String(steamid64 || "").trim();
+    if (!normalizedSteamId) {
       return;
     }
 
     const saved = loadAnalysisInputHistory();
-    const nextEntries = saved.entries.filter(entry => entry.inputValue !== normalizedInput);
+    const nextEntries = saved.entries.filter(entry => entry.steamid64 !== normalizedSteamId);
     if (nextEntries.length === saved.entries.length) {
       return;
     }
@@ -5727,7 +6167,6 @@
     const nextHistory = {
       ...saved,
       entries: nextEntries,
-      lastInputValue: saved.lastInputValue === normalizedInput ? "" : saved.lastInputValue,
       updatedAt: Date.now()
     };
     saveAnalysisInputHistory(nextHistory);
@@ -5829,7 +6268,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.targetClearBtn, "title", t("clear")], [elements.refreshBtn, "textContent", t("refreshFamily")], [elements.analyzeBtn, "title", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.targetClearBtn, "title", t("clear")], [elements.refreshBtn, "title", t("refreshFamily")], [elements.analyzeBtn, "title", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => {
       if (!element) {
         return;
@@ -5842,6 +6281,7 @@
     });
     [
       [elements.priceSettingsBtn, "textContent", t("priceSettings")],
+      [elements.searchSettingsBtn, "textContent", t("searchSettings")],
       [elements.priceTitle, "textContent", t("priceSettingsTitle")],
       [elements.priceHint, "textContent", t("priceSettingsHint")],
       [elements.priceModeLabel, "textContent", t("priceMode")],
@@ -5850,7 +6290,14 @@
       [elements.itadHelpTip, "textContent", t("itadApiHelp")],
       [elements.priceCancelBtn, "textContent", t("familyPosterCancel")],
       [elements.priceConfirmBtn, "textContent", t("priceSettingsSave")],
-      [elements.priceCloseBtn, "title", t("close")]
+      [elements.priceCloseBtn, "title", t("close")],
+      [elements.searchSettingsTitle, "textContent", t("searchSettingsTitle")],
+      [elements.searchSettingsHint, "textContent", t("searchSettingsHint", { query: "{query}" })],
+      [elements.searchPresetAddBtn, "textContent", t("searchPresetAdd")],
+      [elements.searchSettingsResetBtn, "textContent", t("searchSettingsReset")],
+      [elements.searchSettingsCancelBtn, "textContent", t("familyPosterCancel")],
+      [elements.searchSettingsConfirmBtn, "textContent", t("searchSettingsSave")],
+      [elements.searchSettingsCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => {
       if (!element) {
         return;
@@ -5862,9 +6309,9 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.targetClearBtn, "aria-label", t("clear")], [elements.analyzeBtn, "aria-label", t("analyzeAccount")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.targetClearBtn, "aria-label", t("clear")], [elements.refreshBtn, "aria-label", t("refreshFamily")], [elements.analyzeBtn, "aria-label", t("analyzeAccount")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
-    [[elements.priceCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
+    [[elements.priceCloseBtn, "aria-label", t("close")], [elements.searchSettingsCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
     normalizeNativeTooltipAttributes(elements.root);
     elements.listOptions.forEach(option => { option.textContent = getMainTabLabel(option.dataset.sffaListOption); });
@@ -5884,7 +6331,7 @@
     renderFamilyPosterDialog();
     renderCompareDialogIfOpen();
     renderGlobalCompareDialogIfOpen();
-    [registerScriptMenuCommands, renderFamilyMeta, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
+    [registerScriptMenuCommands, renderFamilyMeta, renderRefreshFamilyButton, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
     renderSidePanel(lastReport);
     [renderTabs, renderDetailsPreserveScroll, renderCurrentStatusText].forEach(fn => fn());
   }
@@ -5904,7 +6351,7 @@
       return;
     }
 
-    const session = getSteamSession();
+    const session = getBestKnownSteamSession();
     if (!session.isLoggedIn) {
       setStatus(t("signInFirst"), "warn");
     } else if (state.activeSteamId && state.activeSteamId !== session.steamid) {
@@ -5970,6 +6417,7 @@
 
   function openPriceSettingsDialog() {
     closeMenu();
+    closeSearchSettingsDialog();
     renderPriceSettingsDialog();
     elements.root?.classList.add("is-price-settings-open");
     window.setTimeout(() => elements.itadApiKeyInput?.focus(), 0);
@@ -5977,6 +6425,88 @@
 
   function closePriceSettingsDialog() {
     elements.root?.classList.remove("is-price-settings-open");
+  }
+
+  function openSearchSettingsDialog() {
+    closeMenu();
+    closePriceSettingsDialog();
+    renderSearchSettingsDialog();
+    elements.root?.classList.add("is-search-settings-open");
+    window.setTimeout(() => elements.searchPresetList?.querySelector("[data-sffa-search-preset-name]")?.focus(), 0);
+  }
+
+  function closeSearchSettingsDialog() {
+    elements.root?.classList.remove("is-search-settings-open");
+  }
+
+  function renderSearchSettingsDialog() {
+    if (elements.searchPresetList) {
+      elements.searchPresetList.innerHTML = getSearchPresets().map(renderSearchPresetRowHtml).join("");
+    }
+  }
+
+  function confirmSearchSettingsDialog() {
+    const presets = readSearchPresetRows();
+    state.searchPresets = normalizeSearchPresets(presets);
+    saveState();
+    closeSearchSettingsDialog();
+    setStatus(t("searchSettingsSaved"), "ok");
+  }
+
+  function resetSearchSettingsDialog() {
+    state.searchPresets = cloneDefaultSearchPresets();
+    saveState();
+    renderSearchSettingsDialog();
+    setStatus(t("searchSettingsResetDone"), "ok");
+    elements.searchPresetList?.querySelector("[data-sffa-search-preset-name]")?.focus();
+  }
+
+  function addSearchPresetRow() {
+    if (!elements.searchPresetList) {
+      return;
+    }
+    elements.searchPresetList.insertAdjacentHTML("beforeend", renderSearchPresetRowHtml({
+      name: "",
+      urlTemplate: DEFAULT_SEARCH_URL_TEMPLATE,
+      searchOriginalName: false
+    }));
+    elements.searchPresetList.lastElementChild?.querySelector("[data-sffa-search-preset-name]")?.focus();
+  }
+
+  function handleSearchPresetListClick(event) {
+    const removeBtn = event.target?.closest?.("[data-sffa-search-preset-remove]");
+    if (!removeBtn || !elements.searchPresetList?.contains(removeBtn)) {
+      return;
+    }
+    const row = removeBtn.closest("[data-sffa-search-preset-row]");
+    row?.remove();
+    if (!elements.searchPresetList.querySelector("[data-sffa-search-preset-row]")) {
+      addSearchPresetRow();
+    }
+  }
+
+  function renderSearchPresetRowHtml(preset = {}) {
+    return `
+      <div class="sffa-search-preset-row" data-sffa-search-preset-row>
+        <input class="sffa-price-input" type="text" autocomplete="off" spellcheck="false" data-sffa-search-preset-name aria-label="${escapeAttr(t("searchPresetName"))}" placeholder="${escapeAttr(t("searchPresetNamePlaceholder"))}" value="${escapeAttr(preset.name || "")}">
+        <input class="sffa-price-input" type="text" autocomplete="off" spellcheck="false" data-sffa-search-preset-url aria-label="${escapeAttr(t("searchPresetUrl"))}" placeholder="${escapeAttr(t("searchUrlTemplatePlaceholder", { query: "{query}" }))}" value="${escapeAttr(preset.urlTemplate || "")}">
+        <label class="sffa-search-preset-original">
+          <input type="checkbox" data-sffa-search-preset-original${preset.searchOriginalName ? " checked" : ""}>
+          <span>${escapeHtml(t("searchPresetOriginalName"))}</span>
+        </label>
+        <button class="sffa-search-preset-remove" type="button" data-sffa-search-preset-remove data-sffa-tooltip="${escapeAttr(t("searchPresetRemove"))}" aria-label="${escapeAttr(t("searchPresetRemove"))}">×</button>
+      </div>
+    `;
+  }
+
+  function readSearchPresetRows() {
+    return Array.from(elements.searchPresetList?.querySelectorAll("[data-sffa-search-preset-row]") || [])
+      .map((row, index) => ({
+        name: row.querySelector("[data-sffa-search-preset-name]")?.value.trim() || `Search ${index + 1}`,
+        urlTemplate: row.querySelector("[data-sffa-search-preset-url]")?.value.trim(),
+        searchOriginalName: row.querySelector("[data-sffa-search-preset-original]")?.checked === true
+      }))
+      .filter(preset => preset.urlTemplate);
   }
 
   function renderPriceSettingsDialog() {
@@ -6028,12 +6558,14 @@
     const changed = previousConfig.mode !== nextConfig.mode || previousConfig.itadApiKey !== nextConfig.itadApiKey;
 
     state.priceConfig = nextConfig;
-    saveState();
     closePriceSettingsDialog();
     setStatus(nextConfig.mode === PRICE_MODE_HISTORY_LOW && !nextConfig.itadApiKey ? t("historyLowNeedsApiKey") : t("priceSettingsSaved"), nextConfig.mode === PRICE_MODE_HISTORY_LOW && !nextConfig.itadApiKey ? "warn" : "ok");
     if (changed) {
-      refreshPricesAfterPriceConfigChange();
+      renderPriceQuickToggle();
+      showDetailsPricePendingTransition();
+      schedulePriceConfigRefreshAfterUiPaint();
     } else {
+      saveState();
       renderPriceQuickToggle();
     }
   }
@@ -6052,15 +6584,16 @@
       ...previousConfig,
       mode: nextMode
     });
-    saveState();
     renderPriceQuickToggle();
     renderPriceSettingsDialog();
+    renderSearchSettingsDialog();
     if (nextMode === PRICE_MODE_HISTORY_LOW && !state.priceConfig.itadApiKey) {
       setStatus(t("historyLowNeedsApiKey"), "warn");
     } else {
       setStatus(t("priceSettingsSaved"), "ok");
     }
-    refreshPricesAfterPriceConfigChange();
+    showDetailsPricePendingTransition();
+    schedulePriceConfigRefreshAfterUiPaint();
   }
 
   function openItadApiPage(event) {
@@ -6073,6 +6606,7 @@
   }
 
   function refreshPricesAfterPriceConfigChange() {
+    const renderedAppids = getRenderedDetailsPriceAppids();
     priceLoadState = createPriceLoadState();
     renderPriceQuickToggle();
     if (lastReport?.games) {
@@ -6081,8 +6615,21 @@
     }
     renderSidePanel(lastReport);
     renderTabs();
-    renderDetailsPreserveScroll();
+    const rows = getCurrentListRows(currentTab);
+    if (canPatchDetailsPriceOnly(renderedAppids, rows)) {
+      prepareOriginalPricesForMissingRows(rows);
+      renderDetailsPriceOnly(rows);
+    } else {
+      renderDetailsPreserveScroll();
+    }
     scheduleVisiblePriceLoads();
+  }
+
+  function schedulePriceConfigRefreshAfterUiPaint() {
+    scheduleAfterNextPaint(() => {
+      saveState();
+      refreshPricesAfterPriceConfigChange();
+    });
   }
 
   function openFamilyPosterDialog() {
@@ -6304,13 +6851,15 @@
     try {
       openDialog();
       setBusy(true);
-      const session = prepareFamilyRefreshSession();
+      const session = await prepareFamilyRefreshSession();
       const familyLibrary = await updateFamilyLibraryCache(session);
       renderFamilyMeta();
       renderAutoFamilyRefreshButton();
-      renderSidePanel(lastReport);
       if (currentTab === "family") {
-        renderDetailsPreserveScroll();
+        renderDetailsPreserveScroll({ showLoading: true });
+        scheduleAfterDetailsLoadingPaint(() => renderSidePanel(lastReport));
+      } else {
+        renderSidePanel(lastReport);
       }
       setStatus(t("refreshedCount", { count: familyLibrary.appidSet.length }), "ok");
     } catch (error) {
@@ -6320,10 +6869,10 @@
     }
   }
 
-  function prepareFamilyRefreshSession() {
+  async function prepareFamilyRefreshSession() {
     resetRawData("refresh-family-library");
     setStatus(t("refreshing"), "warn");
-    const session = getSteamSession();
+    const session = await getSteamSessionWithFallback();
     if (!session.isLoggedIn || !session.accessToken || !session.steamid) {
       throw new Error(t("notLoggedInOrExpired"));
     }
@@ -6343,6 +6892,9 @@
   async function maybeAutoRefreshFamilyLibrary(session) {
     if (!state.autoFamilyRefreshEnabled || autoFamilyRefreshRunning) {
       return;
+    }
+    if (session?.isLoggedIn && (!session.accessToken || !session.steamid)) {
+      session = await getSteamSessionWithFallback();
     }
     if (!session?.isLoggedIn || !session.accessToken || !session.steamid) {
       return;
@@ -6460,8 +7012,8 @@
 
   function renderInitialAnalysisResult(report) {
     renderTabs();
-    renderSidePanel(report);
-    renderDetails();
+    renderDetails({ showLoading: true });
+    scheduleAfterDetailsLoadingPaint(() => renderSidePanel(report));
   }
 
   function startAnalysisBackgroundWork(analysisId, targetProfile, comparison) {
@@ -6545,6 +7097,281 @@
       setStatus(t("copiedGames"), "ok");
     } catch (error) {
       setStatus(t("copyFailed"), "err");
+    }
+  }
+
+  function handleGameContextMenu(event) {
+    const context = getGameContextFromEvent(event);
+    if (!context) {
+      closeGameContextMenu();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    openGameContextMenu(context, event.clientX, event.clientY);
+  }
+
+  function getGameContextFromEvent(event) {
+    const node = event.target?.closest?.("[data-price-appid], [data-sffa-cover-appid], a[href*='/app/']");
+    if (!node || !elements.tableWrap?.contains(node)) {
+      return null;
+    }
+    const row = node.closest?.("[data-price-appid]");
+    const appid = extractAppidFromContextNode(node) || extractAppidFromContextNode(row);
+    if (!/^\d+$/.test(appid)) {
+      return null;
+    }
+    const game = getCurrentListRows().find(rowGame => String(rowGame?.appid || "") === appid) || null;
+    const name = game ? getGameLocalizedDisplayName(game) : getGameNameFromContextNode(node, appid);
+    const originalName = game ? getGameOriginalName(game) : name;
+    return {
+      appid,
+      game,
+      name,
+      originalName,
+      url: getSteamStoreAppUrl(appid)
+    };
+  }
+
+  function extractAppidFromContextNode(node) {
+    if (!node) {
+      return "";
+    }
+    const datasetAppid = String(node.dataset?.priceAppid || node.dataset?.sffaCoverAppid || "").trim();
+    if (datasetAppid) {
+      return datasetAppid;
+    }
+    const href = String(node.getAttribute?.("href") || "");
+    const match = href.match(/\/app\/(\d+)\//);
+    return match ? match[1] : "";
+  }
+
+  function getGameNameFromContextNode(node, appid) {
+    const container = node?.closest?.("[data-price-appid], .sffa-cover-card, .sffa-poster-card") || node;
+    return String(
+      container?.querySelector?.(".sffa-game-name-text, .sffa-cover-card-title, .sffa-poster-title")?.textContent ||
+      container?.getAttribute?.("aria-label") ||
+      node?.getAttribute?.("aria-label") ||
+      `App ${appid}`
+    ).trim();
+  }
+
+  function openGameContextMenu(context, clientX, clientY) {
+    activeGameContext = context;
+    closeMenu();
+    closeCopyListMenu();
+    closeListMenu();
+    closeSortMenu();
+    closeRuleFilterMenu();
+    closeAnalysisHistoryMenu();
+    renderGameContextMenu();
+    positionGameContextMenu(clientX, clientY);
+  }
+
+  function renderGameContextMenu() {
+    if (!elements.gameContextMenu) {
+      return;
+    }
+    const actions = [
+      ["open-link", "gameContextOpenLink"],
+      ["open-steam", "gameContextOpenSteam"],
+      ["copy-name", "gameContextCopyName"],
+      ["copy-id", "gameContextCopyId"],
+      ["reload-cover", "gameContextReloadCover"]
+    ];
+    const searchPresets = getSearchPresets();
+    const actionHtml = actions
+      .map(([action, labelKey]) => `<button class="sffa-menu-item" type="button" data-sffa-game-context-action="${escapeAttr(action)}">${escapeHtml(t(labelKey))}</button>`)
+      .join("");
+    const searchHtml = `
+      <div class="sffa-game-context-group" data-sffa-game-context-search-group>
+        <button class="sffa-menu-item has-submenu" type="button" data-sffa-game-context-action="search-menu">${escapeHtml(t("gameContextSearch"))}</button>
+        <div class="sffa-menu sffa-game-context-submenu" data-sffa-game-context-submenu>
+          ${searchPresets.map((preset, index) => `<button class="sffa-menu-item" type="button" data-sffa-game-search-preset="${escapeAttr(index)}">${escapeHtml(preset.name)}</button>`).join("")}
+        </div>
+      </div>
+    `;
+    elements.gameContextMenu.innerHTML = `${actionHtml}${searchHtml}`;
+    elements.gameContextMenu.hidden = false;
+  }
+
+  function positionGameContextMenu(clientX, clientY) {
+    const menu = elements.gameContextMenu;
+    if (!menu) {
+      return;
+    }
+    menu.classList.remove("is-submenu-left");
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    const rect = menu.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(Math.max(clientX, margin), Math.max(margin, window.innerWidth - rect.width - margin));
+    const top = Math.min(Math.max(clientY, margin), Math.max(margin, window.innerHeight - rect.height - margin));
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+    positionGameContextSubmenu(menu, margin);
+  }
+
+  function positionGameContextSubmenu(menu, margin = 8) {
+    const group = menu?.querySelector?.("[data-sffa-game-context-search-group]");
+    const submenu = menu?.querySelector?.("[data-sffa-game-context-submenu]");
+    if (!group || !submenu) {
+      return;
+    }
+
+    const menuRect = menu.getBoundingClientRect();
+    const submenuWidth = Math.max(180, Math.min(submenu.scrollWidth || 180, 260));
+    const openLeft = menuRect.right + submenuWidth > window.innerWidth - margin && menuRect.left - submenuWidth >= margin;
+    menu.classList.toggle("is-submenu-left", openLeft);
+
+    group.classList.add("is-open");
+    submenu.style.visibility = "hidden";
+    submenu.style.setProperty("--sffa-context-submenu-top", "0px");
+    const submenuRect = submenu.getBoundingClientRect();
+    let offsetTop = 0;
+    const bottomOverflow = submenuRect.bottom - (window.innerHeight - margin);
+    if (bottomOverflow > 0) {
+      offsetTop -= bottomOverflow;
+    }
+    const adjustedTop = submenuRect.top + offsetTop;
+    if (adjustedTop < margin) {
+      offsetTop += margin - adjustedTop;
+    }
+    submenu.style.setProperty("--sffa-context-submenu-top", `${Math.round(offsetTop)}px`);
+    submenu.style.visibility = "";
+    group.classList.remove("is-open");
+  }
+
+  function closeGameContextMenu() {
+    activeGameContext = null;
+    if (!elements.gameContextMenu) {
+      return;
+    }
+    elements.gameContextMenu.hidden = true;
+    elements.gameContextMenu.classList.remove("is-submenu-left");
+    elements.gameContextMenu.innerHTML = "";
+  }
+
+  async function handleGameContextMenuAction(event) {
+    const presetButton = event.target?.closest?.("[data-sffa-game-search-preset]");
+    if (presetButton && elements.gameContextMenu?.contains(presetButton)) {
+      const context = activeGameContext;
+      const preset = getSearchPresets()[Number(presetButton.dataset.sffaGameSearchPreset)];
+      closeGameContextMenu();
+      if (context && preset) {
+        const query = preset.searchOriginalName ? context.originalName || context.name : context.name;
+        openExternalUrl(buildGameSearchUrl(query || `App ${context.appid}`, preset.urlTemplate));
+      }
+      return;
+    }
+
+    const button = event.target?.closest?.("[data-sffa-game-context-action]");
+    if (!button || !elements.gameContextMenu?.contains(button)) {
+      return;
+    }
+    const action = button.dataset.sffaGameContextAction;
+    if (action === "search-menu") {
+      button.closest("[data-sffa-game-context-search-group]")?.classList.toggle("is-open");
+      return;
+    }
+    const context = activeGameContext;
+    closeGameContextMenu();
+    if (!context) {
+      return;
+    }
+    await runGameContextMenuAction(action, context);
+  }
+
+  async function runGameContextMenuAction(action, context) {
+    if (action === "open-link") {
+      openExternalUrl(context.url);
+      return;
+    }
+    if (action === "open-steam") {
+      window.location.href = getSteamClientOpenUrl(context.url);
+      return;
+    }
+    if (action === "copy-name") {
+      await copyTextToClipboard(context.name || `App ${context.appid}`, t("copied"));
+      return;
+    }
+    if (action === "copy-id") {
+      await copyTextToClipboard(context.appid, t("copied"));
+      return;
+    }
+    if (action === "reload-cover") {
+      await reloadSingleGameCover(context.appid);
+      return;
+    }
+  }
+
+  function openExternalUrl(url) {
+    const normalized = String(url || "").trim();
+    if (!normalized) {
+      return;
+    }
+    if (isSteamClientUrl(normalized)) {
+      window.location.href = normalized;
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = normalized;
+    anchor.target = "_blank";
+    anchor.rel = "noopener";
+    anchor.click();
+  }
+
+  async function copyTextToClipboard(text, successText = t("copied")) {
+    try {
+      await navigator.clipboard.writeText(String(text || ""));
+      setStatus(successText, "ok");
+    } catch (error) {
+      setStatus(t("copyFailed"), "err");
+    }
+  }
+
+  async function reloadSingleGameCover(appid) {
+    const key = String(appid || "");
+    setBusy(true);
+    try {
+      window.clearTimeout(coverLoadState.scheduled);
+      coverLoadState.scheduled = 0;
+      coverLoadState.loadingSet.add(key);
+      clearCachedStoreCoverUrl(key);
+      await fetchCoverUrlBatch([key], `covers.single.${key}.${Date.now()}`);
+      saveState();
+      coverReloadToken = Date.now();
+      renderStoreCacheButton();
+      applyCoverImageForAppid(key);
+      setStatus(t("gameCoverReloaded"), "ok");
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        setRateLimited(error, "cover");
+      } else {
+        setRawError(error);
+        setStatus(error.message || t("networkFailed"), "err");
+      }
+    } finally {
+      coverLoadState.loadingSet.delete(key);
+      setBusy(false);
+    }
+  }
+
+  function buildGameSearchUrl(query, urlTemplate = getSearchPresets()[0]?.urlTemplate) {
+    const template = normalizeSearchUrlTemplate(urlTemplate);
+    const encodedQuery = encodeURIComponent(String(query || "").trim());
+    if (template.includes("{query}")) {
+      return template.replace(/\{query\}/g, encodedQuery);
+    }
+    if (template.includes("%s")) {
+      return template.replace(/%s/g, encodedQuery);
+    }
+    try {
+      const url = new URL(template);
+      url.searchParams.set(url.searchParams.has("wd") ? "wd" : "q", String(query || "").trim());
+      return url.toString();
+    } catch (error) {
+      return DEFAULT_SEARCH_URL_TEMPLATE.replace(/\{query\}/g, encodedQuery);
     }
   }
 
@@ -7263,19 +8090,85 @@
     const pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
     const accountId = Number(pageWindow.g_AccountID || window.g_AccountID || 0);
     const configNode = getApplicationConfigNode(pageWindow);
-    let accessToken = "";
-    let steamid = "";
+    const configSession = readSteamSessionFromConfigNode(configNode);
+    let accessToken = configSession.accessToken;
+    let steamid = configSession.steamid;
 
-    steamid = readSteamGlobalSteamId(pageWindow);
-    if (configNode) {
-      accessToken = readJsonAttribute(configNode, "data-store_user_config")?.webapi_token || "";
-      steamid = readJsonAttribute(configNode, "data-userinfo")?.steamid || steamid;
-    }
+    steamid = steamid || readSteamGlobalSteamId(pageWindow);
 
     return {
       isLoggedIn: accountId !== 0 || Boolean(accessToken && steamid) || Boolean(steamid),
       accessToken,
       steamid: steamid || getSteamCommunityProfileSteamId()
+    };
+  }
+
+  async function getSteamSessionWithFallback() {
+    const session = getSteamSession();
+    if (session.isLoggedIn && session.accessToken && session.steamid) {
+      resolvedSteamSession = session;
+      return session;
+    }
+    const fallbackSession = await fetchSteamStoreHomeSession();
+    const resolvedSession = {
+      isLoggedIn: session.isLoggedIn || fallbackSession.isLoggedIn,
+      accessToken: session.accessToken || fallbackSession.accessToken,
+      steamid: session.steamid || fallbackSession.steamid
+    };
+    if (resolvedSession.isLoggedIn && resolvedSession.steamid) {
+      resolvedSteamSession = resolvedSession;
+    }
+    return resolvedSession;
+  }
+
+  function getBestKnownSteamSession() {
+    const session = getSteamSession();
+    if (!resolvedSteamSession) {
+      return session;
+    }
+    if (session.steamid && resolvedSteamSession.steamid && session.steamid !== resolvedSteamSession.steamid) {
+      return session;
+    }
+    return {
+      isLoggedIn: session.isLoggedIn || resolvedSteamSession.isLoggedIn,
+      accessToken: session.accessToken || resolvedSteamSession.accessToken,
+      steamid: session.steamid || resolvedSteamSession.steamid
+    };
+  }
+
+  async function fetchSteamStoreHomeSession() {
+    try {
+      const html = await requestText("https://store.steampowered.com/");
+      if (isSteamSignInPage(html)) {
+        return { isLoggedIn: false, accessToken: "", steamid: "" };
+      }
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const configSession = readSteamSessionFromConfigNode(getApplicationConfigNode(null, doc));
+      setRawData("steamStoreHomeSession", {
+        hasAccessToken: Boolean(configSession.accessToken),
+        hasSteamId: Boolean(configSession.steamid),
+        htmlLength: html.length
+      });
+      return {
+        isLoggedIn: Boolean(configSession.accessToken && configSession.steamid),
+        accessToken: configSession.accessToken,
+        steamid: configSession.steamid
+      };
+    } catch (error) {
+      setRawError(error);
+      return { isLoggedIn: false, accessToken: "", steamid: "" };
+    }
+  }
+
+  function readSteamSessionFromConfigNode(configNode) {
+    if (!configNode) {
+      return { accessToken: "", steamid: "" };
+    }
+    const storeConfig = readJsonAttribute(configNode, "data-store_user_config") || {};
+    const userInfo = readJsonAttribute(configNode, "data-userinfo") || {};
+    return {
+      accessToken: String(storeConfig.webapi_token || storeConfig.loyalty_webapi_token || "").trim(),
+      steamid: normalizeSteamId(userInfo.steamid || storeConfig.steamid || "")
     };
   }
 
@@ -8117,27 +9010,38 @@
     const storeCache = getActiveStoreCache();
     const appid = String(game.appid);
     if (isHistoryLowPriceMode() && !getItadApiKey()) {
-      game.price = {
-        initial: null,
-        currency: getStoreCurrency(),
+      game.price = createUnavailablePriceForCurrentMode({
         localizedName: game.localizedName || "",
-        source: PRICE_SOURCE_ITAD_STORE_LOW,
-        isFree: false,
-        unavailable: true,
-        missingApiKey: true,
-        updatedAt: Date.now()
-      };
+        missingApiKey: true
+      });
       return;
     }
     const cached = storeCache[appid];
     const cachedPrice = getCurrentCachedPrice(cached);
-    if (isFreshStoreCacheEntry(cached) && cachedPrice) {
+    if (cachedPrice) {
       applyOriginalPriceToGame(game, cachedPrice);
+    } else if (priceLoadState.failedSet.has(appid)) {
+      game.price = createUnavailablePriceForCurrentMode({
+        localizedName: game.localizedName || ""
+      });
     } else {
       game.price = { pending: true, source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : isCurrentPriceMode() ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL };
       priceLoadState.pendingMap.set(appid, game);
     }
     renderStoreCacheButton();
+  }
+
+  function createUnavailablePriceForCurrentMode(overrides = {}) {
+    return {
+      initial: null,
+      currency: getStoreCurrency(),
+      localizedName: "",
+      source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : isCurrentPriceMode() ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
+      isFree: false,
+      unavailable: true,
+      updatedAt: Date.now(),
+      ...overrides
+    };
   }
 
   function createPriceLoadState() {
@@ -8146,6 +9050,7 @@
       loadingSet: new Set(),
       queuedSet: new Set(),
       queue: [],
+      failedSet: new Set(),
       running: false,
       scheduled: 0
     };
@@ -8370,19 +9275,45 @@
     }
     const targets = getVisibleNodesFromContainer(container, selector);
     targets.forEach(node => {
-      const appid = String(node.dataset.sffaCoverAppid || "").trim();
-      const coverUrl = node.dataset.sffaCoverKind === "poster"
-        ? withCoverReloadToken(getFamilyPosterCoverUrl(appid))
-        : getCompareGameCoverUrl(appid);
-      if (!coverUrl) {
-        return;
-      }
-      if (node.dataset.sffaAppliedCoverUrl === coverUrl) {
-        return;
-      }
-      node.style.setProperty("--sffa-cover", `url(${coverUrl})`);
-      node.dataset.sffaAppliedCoverUrl = coverUrl;
+      applyCoverImageNode(node);
     });
+  }
+
+  function applyCoverImageForAppid(appid) {
+    const key = String(appid || "").trim();
+    if (!key) {
+      return;
+    }
+    [
+      [elements.tableWrap, "[data-sffa-cover-appid]"],
+      [elements.compareSummary, ".sffa-compare-card-game[data-sffa-cover-appid]"],
+      [elements.tooltipBox, ".sffa-tooltip-cover[data-sffa-cover-appid]"]
+    ].forEach(([container, selector]) => {
+      if (!container) {
+        return;
+      }
+      Array.from(container.querySelectorAll(selector))
+        .filter(node => String(node.dataset.sffaCoverAppid || "") === key)
+        .forEach(node => {
+          node.dataset.sffaAppliedCoverUrl = "";
+          applyCoverImageNode(node);
+        });
+    });
+  }
+
+  function applyCoverImageNode(node) {
+    const appid = String(node?.dataset?.sffaCoverAppid || "").trim();
+    const coverUrl = node?.dataset?.sffaCoverKind === "poster"
+      ? withCoverReloadToken(getFamilyPosterCoverUrl(appid))
+      : getCompareGameCoverUrl(appid);
+    if (!coverUrl) {
+      return;
+    }
+    if (node.dataset.sffaAppliedCoverUrl === coverUrl) {
+      return;
+    }
+    node.style.setProperty("--sffa-cover", `url(${coverUrl})`);
+    node.dataset.sffaAppliedCoverUrl = coverUrl;
   }
 
   function ensureCoverUrlHealthy(appid, url) {
@@ -8538,11 +9469,10 @@
             if (!game) {
               return;
             }
-            game.price = {
-              unavailable: true,
-              updatedAt: Date.now(),
-              source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : isCurrentPriceMode() ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL
-            };
+            priceLoadState.failedSet.add(appid);
+            game.price = createUnavailablePriceForCurrentMode({
+              localizedName: game.localizedName || ""
+            });
             priceLoadState.pendingMap.delete(appid);
           });
           setRawError(error);
@@ -8589,11 +9519,11 @@
     priceLoadState.queue = [...restored, ...priceLoadState.queue.filter(item => !restored.includes(item))];
   }
 
-  function renderDetailsPreserveScroll() {
+  function renderDetailsPreserveScroll(options = {}) {
     const scrollElement = getDetailsScrollElement();
     const scrollTop = scrollElement?.scrollTop || 0;
     const scrollLeft = scrollElement?.scrollLeft || 0;
-    const renderToken = renderDetails();
+    const renderToken = renderDetails(options);
     pendingDetailsScrollRestore = { token: renderToken, scrollTop, scrollLeft };
     restoreDetailsScrollPosition(scrollTop, scrollLeft);
   }
@@ -8626,12 +9556,95 @@
   }
 
   function renderDetailsAfterPriceChange() {
-    if (getListViewMode() === "table" || currentTab === "family" || currentTab === "new" || currentTab === "familyNew" || currentTab === "relativeNew") {
+    const rows = getCurrentListRows(currentTab);
+    if (canPatchDetailsPriceOnly(getRenderedDetailsPriceAppids(), rows)) {
+      renderDetailsPriceOnly(rows);
+    } else if (getListViewMode() === "table" || currentTab === "family" || currentTab === "new" || currentTab === "familyNew" || currentTab === "relativeNew") {
       renderDetailsPreserveScroll();
     }
     applyVisibleCoverImages();
     scheduleVisibleCoverLoads();
     renderCompareDialogIfOpen();
+  }
+
+  function getRenderedDetailsPriceAppids() {
+    return Array.from(elements.tableWrap?.querySelectorAll("[data-price-appid]") || [])
+      .map(node => String(node.dataset.priceAppid || ""))
+      .filter(Boolean);
+  }
+
+  function canPatchDetailsPriceOnly(renderedAppids, rows) {
+    if (!renderedAppids.length) {
+      return false;
+    }
+    if (isPriceRuleFilterActiveForTab(currentTab) || isPriceSortActiveForTab(currentTab)) {
+      return false;
+    }
+    const rowAppids = rows.map(game => String(game?.appid || "")).filter(Boolean);
+    if (renderedAppids.length !== rowAppids.length) {
+      return false;
+    }
+    return renderedAppids.every((appid, index) => appid === rowAppids[index]);
+  }
+
+  function isPriceRuleFilterActiveForTab(tab = currentTab) {
+    return isRuleFilterKindApplicable("price", tab) && !getRuleFilterValues("price").includes("all");
+  }
+
+  function isPriceSortActiveForTab(tab = currentTab) {
+    const normalizedTab = normalizeMainTab(tab);
+    const sort = tableSortByTab[normalizedTab];
+    return Boolean(sort?.key === "price" && isSortAvailableForTab(sort, normalizedTab));
+  }
+
+  function renderDetailsPriceOnly(rows) {
+    const rowByAppid = new Map(rows.map(game => [String(game?.appid || ""), game]));
+    updateDetailsPriceHeader();
+    Array.from(elements.tableWrap?.querySelectorAll("[data-price-appid]") || []).forEach(node => {
+      const game = rowByAppid.get(String(node.dataset.priceAppid || ""));
+      if (game) {
+        updateDetailsPriceNode(node, resolveGamePrice(game) || {});
+      }
+    });
+  }
+
+  function showDetailsPricePendingTransition() {
+    const pendingPrice = {
+      pending: true,
+      source: isHistoryLowPriceMode() ? PRICE_SOURCE_ITAD_STORE_LOW : isCurrentPriceMode() ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL
+    };
+    updateDetailsPriceHeader();
+    Array.from(elements.tableWrap?.querySelectorAll("[data-price-appid]") || []).forEach(node => {
+      updateDetailsPriceNode(node, pendingPrice);
+    });
+  }
+
+  function updateDetailsPriceHeader() {
+    const header = elements.tableWrap?.querySelector("th[data-sort-key='price']");
+    if (!header) {
+      return;
+    }
+    const indicator = header.querySelector(".sffa-sort-indicator")?.textContent || "";
+    header.innerHTML = `${escapeHtml(getPriceLabel())}<span class="sffa-sort-indicator">${escapeHtml(indicator)}</span>`;
+  }
+
+  function updateDetailsPriceNode(node, price) {
+    if (node.matches("tr")) {
+      const cell = node.querySelector("[data-sffa-price-cell]");
+      if (cell) {
+        cell.innerHTML = formatOriginalPriceCell(price);
+      }
+      return;
+    }
+    const coverPrice = node.querySelector(".sffa-cover-card-price");
+    if (coverPrice) {
+      coverPrice.textContent = formatOriginalPriceText(price);
+      return;
+    }
+    const posterPrice = node.querySelector(".sffa-poster-price");
+    if (posterPrice) {
+      posterPrice.innerHTML = renderPosterPriceTag(price);
+    }
   }
 
   function refreshReportMetrics() {
@@ -9066,7 +10079,7 @@
   }
 
   function ensureFamilyReady() {
-    const session = getSteamSession();
+    const session = getBestKnownSteamSession();
     if (!session.isLoggedIn) {
       throw new Error(t("signInFirst"));
     }
@@ -9084,6 +10097,12 @@
     const name = state.familyInfo?.family_name || t("notRefreshed");
     const time = state.familyLibrary.updatedAt ? formatDateTime(state.familyLibrary.updatedAt) : t("noCache");
     elements.familyMeta.textContent = `${name} · ${count} · ${time}`;
+    renderRefreshFamilyButton();
+  }
+
+  function renderRefreshFamilyButton() {
+    const hasFamilyCache = Number(state.familyLibrary?.updatedAt || 0) > 0;
+    elements.refreshBtn?.classList.toggle("is-attention", !hasFamilyCache);
   }
 
   function renderSidePanel(report = lastReport) {
@@ -10729,8 +11748,16 @@
     }
   }
 
-  function renderTabs() {
+  function renderViewModeButtons() {
     const listViewMode = getListViewMode();
+    elements.viewModeButtons.forEach(button => {
+      const active = button.dataset.sffaViewMode === listViewMode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+
+  function renderTabs() {
     const isReportTab = isReportListTab(currentTab);
     const selectedReportTab = isReportTab ? currentTab : elements.listSelect.dataset.selectedTab || "all";
     elements.listSelect.dataset.selectedTab = selectedReportTab;
@@ -10745,11 +11772,7 @@
     elements.tabs.forEach(tab => {
       tab.classList.toggle("active", tab.dataset.tab === currentTab);
     });
-    elements.viewModeButtons.forEach(button => {
-      const active = button.dataset.sffaViewMode === listViewMode;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
+    renderViewModeButtons();
     renderPriceQuickToggle();
     normalizeRuleFilterForCurrentTab();
     renderSortControl();
@@ -10817,7 +11840,7 @@
     const currentSort = tableSortByTab[currentTab];
     const currentLabel = isSortAvailableForTab(currentSort) ? getSortOptionLabel(currentSort.key) : "";
     elements.sortSelect.textContent = currentLabel ? formatSortControlText(currentLabel, currentSort.direction) : t("sort");
-    elements.sortSelect.classList.toggle("is-active", Boolean(currentLabel));
+    elements.sortSelect.classList.remove("is-active");
     elements.sortMenu.innerHTML = getSortOptionsForTab()
       .flatMap(option => ["asc", "desc"].map(direction => {
         const active = currentSort?.key === option.key && currentSort.direction === direction;
@@ -11216,7 +12239,7 @@
 
   function getRuleFilterShareCountMax() {
     const memberCount = Math.max(getFamilyMemberRows().length, getFamilyOwnerIds().length);
-    return Math.max(0, memberCount - 1);
+    return Math.max(0, memberCount);
   }
 
   function parseRuleFilterShareCount(value) {
@@ -11403,9 +12426,9 @@
       return;
     }
     state.listViewMode = nextMode;
-    saveState();
-    renderTabs();
-    renderDetailsPreserveScroll();
+    renderViewModeButtons();
+    renderDetails({ showLoading: true });
+    scheduleAfterDetailsLoadingPaint(saveState);
   }
 
   function normalizeMainTab(tab) {
@@ -11426,9 +12449,11 @@
     cancelSearchRender();
     currentTab = nextTab;
     renderTabs();
-    renderSidePanel(lastReport);
-    renderDetails();
-    scheduleAnalysisHistorySave();
+    renderDetails({ showLoading: true });
+    scheduleAfterDetailsLoadingPaint(() => {
+      renderSidePanel(lastReport);
+      scheduleAnalysisHistorySave();
+    });
   }
 
   function getMainTabLabel(tab) {
@@ -11725,18 +12750,32 @@
     headScroll.scrollLeft = bodyScroll.scrollLeft;
   }
 
-  function renderDetails() {
+  function renderDetails(options = {}) {
     const renderToken = ++detailsRenderToken;
     pendingDetailsScrollRestore = null;
     startDetailsPerfTrace(renderToken);
-    elements.tableWrap.classList.toggle("is-cover-view", false);
-    elements.tableWrap.innerHTML = renderDetailsLoadingHtml();
-    scheduleDetailsRenderChunk(() => renderDetailsNow(renderToken));
+    if (options.showLoading) {
+      elements.tableWrap.classList.toggle("is-cover-view", false);
+      elements.tableWrap.innerHTML = renderDetailsLoadingHtml();
+      scheduleAfterDetailsLoadingPaint(() => scheduleDetailsRenderChunk(() => renderDetailsNow(renderToken)));
+    } else {
+      scheduleDetailsRenderChunk(() => renderDetailsNow(renderToken));
+    }
     return renderToken;
   }
 
   function renderDetailsLoadingHtml() {
     return `<div class="sffa-list-loading"><span class="sffa-spinner"></span><span>${escapeHtml(t("loading"))}</span></div>`;
+  }
+
+  function scheduleAfterDetailsLoadingPaint(callback) {
+    scheduleAfterNextPaint(callback);
+  }
+
+  function scheduleAfterNextPaint(callback) {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(callback, 0);
+    });
   }
 
   function renderDetailsNow(renderToken) {
@@ -12028,7 +13067,10 @@
   }
 
   function renderPosterPriceTag(price) {
-    if (!price || price.pending || price.unavailable || price.isFree || price.initial == null || Number(price.initial || 0) <= 0) {
+    if (price?.pending) {
+      return `<span class="sffa-table-tag is-muted"><span class="sffa-spinner" data-sffa-tooltip="${escapeAttr(t("loading"))}"></span></span>`;
+    }
+    if (!price || price.unavailable || price.isFree || price.initial == null || Number(price.initial || 0) <= 0) {
       return "";
     }
     return `<span class="sffa-table-tag ${escapeAttr(getTablePriceTagClass(price))}">${escapeHtml(formatOriginalPriceText(price || {}))}</span>`;
@@ -12631,7 +13673,7 @@
   }
 
   function priceCell(game) {
-    return buildCell(formatOriginalPriceCell(resolveGamePrice(game) || {}));
+    return buildCell(formatOriginalPriceCell(resolveGamePrice(game) || {}), " data-sffa-price-cell");
   }
 
   function timeCell(game) {
@@ -13090,8 +14132,9 @@
   function setBusy(isBusy) {
     if (isBusy) {
       closeMenu();
+      closeGameContextMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.openLinksClientBtn, elements.priceSettingsBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.openLinksClientBtn, elements.priceSettingsBtn, elements.searchSettingsBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -13126,6 +14169,7 @@
         listViewMode: normalizeListViewMode(saved.listViewMode),
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
         openLinksInSteamClient: Boolean(saved.openLinksInSteamClient),
+        searchPresets: normalizeSearchPresets(saved.searchPresets),
         appLocaleMode,
         priceConfig,
         lastAutoFamilyRefreshAttemptAt: Number(saved.lastAutoFamilyRefreshAttemptAt || 0)
@@ -13181,9 +14225,6 @@
 
   function restoreLastAnalysisInputFromHistory() {
     const saved = loadAnalysisInputHistory();
-    if (saved.lastInputValue || saved.entries.length) {
-      restoreSavedInputs({ inputValue: saved.lastInputValue || saved.entries[0]?.inputValue || "" });
-    }
     renderAnalysisHistoryMenu(saved);
   }
 
@@ -13191,6 +14232,7 @@
     if (elements.targetInput && saved.inputValue != null) {
       elements.targetInput.value = String(saved.inputValue || "");
       renderTargetClearButton();
+      renderTargetTokenView();
     }
     if (elements.searchInput && saved.searchValue != null) {
       elements.searchInput.value = String(saved.searchValue || "");
@@ -13258,7 +14300,6 @@
     return {
       version: 1,
       updatedAt: 0,
-      lastInputValue: "",
       entries: [],
       accountNameCache: {}
     };
@@ -13277,45 +14318,44 @@
       }
     });
 
-    const entries = Array.isArray(saved.entries)
-      ? saved.entries.map(normalizeAnalysisInputHistoryEntry).filter(Boolean).slice(0, MAX_ANALYSIS_HISTORY_ITEMS)
-      : [];
-    entries.forEach(entry => {
-      entry.targets.forEach(target => {
-        if (accountNameCache[target.steamid64]) {
-          target.displayName = accountNameCache[target.steamid64];
+    const seenSteamIds = new Set();
+    const entries = [];
+    if (Array.isArray(saved.entries)) {
+      saved.entries.flatMap(normalizeAnalysisInputHistoryEntriesFromSavedEntry).forEach(entry => {
+        if (seenSteamIds.has(entry.steamid64)) {
+          return;
         }
+        seenSteamIds.add(entry.steamid64);
+        if (accountNameCache[entry.steamid64]) {
+          entry.displayName = accountNameCache[entry.steamid64];
+        }
+        entries.push(entry);
       });
-      if (!entry.displayName && entry.targets.length) {
-        entry.displayName = entry.targets.map(target => target.displayName || target.steamid64).join(" + ");
-      }
-    });
+    }
+    entries.splice(MAX_ANALYSIS_HISTORY_ITEMS);
 
     return {
       ...empty,
       updatedAt: Number(saved.updatedAt || 0),
-      lastInputValue: String(saved.lastInputValue || "").trim(),
       entries,
       accountNameCache
     };
   }
 
-  function normalizeAnalysisInputHistoryEntry(entry) {
-    const inputValue = String(entry?.inputValue || "").trim();
-    if (!inputValue) {
-      return null;
+  function normalizeAnalysisInputHistoryEntriesFromSavedEntry(entry) {
+    const direct = normalizeAnalysisInputHistoryTarget(entry);
+    if (direct) {
+      return [direct];
     }
-
-    const targets = Array.isArray(entry.targets)
-      ? entry.targets.map(normalizeAnalysisInputHistoryTarget).filter(Boolean)
-      : [];
-
-    return {
-      inputValue,
-      displayName: String(entry.displayName || "").trim(),
-      targets,
-      updatedAt: Number(entry.updatedAt || 0)
-    };
+    if (Array.isArray(entry?.targets)) {
+      return entry.targets
+        .map(target => normalizeAnalysisInputHistoryTarget({
+          ...target,
+          updatedAt: target.updatedAt || entry.updatedAt
+        }))
+        .filter(Boolean);
+    }
+    return [];
   }
 
   function normalizeAnalysisInputHistoryTarget(target) {
@@ -13326,35 +14366,29 @@
     }
     return {
       steamid64,
-      displayName: displayName || steamid64
+      displayName: displayName || steamid64,
+      updatedAt: Number(target?.updatedAt || 0)
     };
   }
 
   function rememberAnalysisInput(inputValue, targetProfile, shouldRender = true) {
-    const normalizedInput = String(inputValue || "").trim();
-    if (!normalizedInput) {
-      return;
-    }
-
     const saved = loadAnalysisInputHistory();
     const targets = extractAnalysisHistoryTargets(targetProfile);
-    const displayName = getAnalysisHistoryDisplayName(targetProfile, targets);
+    if (!targets.length) {
+      return;
+    }
+    const updatedAt = Date.now();
     targets.forEach(target => {
       saved.accountNameCache[target.steamid64] = target.displayName;
+      target.updatedAt = updatedAt;
     });
 
-    const entry = {
-      inputValue: normalizedInput,
-      displayName,
-      targets,
-      updatedAt: Date.now()
-    };
+    const targetIds = new Set(targets.map(target => target.steamid64));
     saved.entries = [
-      entry,
-      ...saved.entries.filter(item => item.inputValue !== normalizedInput)
+      ...targets,
+      ...saved.entries.filter(item => !targetIds.has(item.steamid64))
     ].slice(0, MAX_ANALYSIS_HISTORY_ITEMS);
-    saved.lastInputValue = normalizedInput;
-    saved.updatedAt = entry.updatedAt;
+    saved.updatedAt = updatedAt;
     saveAnalysisInputHistory(saved);
 
     if (shouldRender) {
@@ -13367,19 +14401,11 @@
       ? targetProfile.targets
       : [targetProfile].filter(Boolean);
     return targets
-      .map(target => normalizeAnalysisInputHistoryTarget(target))
+      .map(target => normalizeAnalysisInputHistoryTarget({
+        steamid64: target?.steamid64,
+        displayName: target?.displayName
+      }))
       .filter(Boolean);
-  }
-
-  function getAnalysisHistoryDisplayName(targetProfile, targets) {
-    const displayName = String(targetProfile?.displayName || "").trim();
-    if (displayName) {
-      return displayName;
-    }
-    if (targets.length) {
-      return targets.map(target => target.displayName || target.steamid64).join(" + ");
-    }
-    return "";
   }
 
   function saveAnalysisInputHistory(history) {
@@ -13387,7 +14413,6 @@
     GM_setValue(ANALYSIS_INPUT_HISTORY_KEY, {
       version: 1,
       updatedAt: Number(analysisInputHistoryCache.updatedAt || Date.now()),
-      lastInputValue: String(analysisInputHistoryCache.lastInputValue || "").trim(),
       entries: (analysisInputHistoryCache.entries || []).slice(0, MAX_ANALYSIS_HISTORY_ITEMS),
       accountNameCache: analysisInputHistoryCache.accountNameCache || {}
     });
@@ -13405,20 +14430,16 @@
   }
 
   function renderAnalysisHistoryOptionHtml(entry) {
-    const label = entry.displayName || entry.targets.map(target => target.displayName).filter(Boolean).join(" + ") || entry.inputValue;
+    const label = entry.displayName || entry.steamid64;
     return `
-      <div class="sffa-history-option">
-        <button class="sffa-list-option" type="button" role="option" data-sffa-history-option="${escapeAttr(entry.inputValue)}" data-sffa-tooltip="${escapeAttr(entry.inputValue)}">
-          <span class="sffa-history-option-main">${escapeHtml(label)}</span>
-          <span class="sffa-history-option-sub">${escapeHtml(entry.inputValue)}</span>
-        </button>
-        <button class="sffa-history-delete" type="button" data-sffa-history-delete="${escapeAttr(entry.inputValue)}" data-sffa-tooltip="${escapeAttr(t("deleteHistory"))}" aria-label="${escapeAttr(t("deleteHistory"))}">
+      <span class="sffa-history-option" data-sffa-tooltip="${escapeAttr(entry.steamid64)}">
+        <button class="sffa-history-option-main" type="button" role="option" data-sffa-history-option="${escapeAttr(entry.steamid64)}">${escapeHtml(label)}</button>
+        <button class="sffa-history-delete" type="button" data-sffa-history-delete="${escapeAttr(entry.steamid64)}" data-sffa-tooltip="${escapeAttr(t("deleteHistory"))}" aria-label="${escapeAttr(t("deleteHistory"))}">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-            <path d="M9 4h6l1 2h4v2H4V6h4l1-2Z" fill="currentColor"></path>
-            <path d="M6 10h12l-1 10H7L6 10Zm4 2v6h2v-6h-2Zm4 0v6h2v-6h-2Z" fill="currentColor"></path>
+            <path d="M6 7h12M10 7V5h4v2m-7 3 1 10h8l1-10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
           </svg>
         </button>
-      </div>
+      </span>
     `;
   }
 
@@ -14126,12 +15147,20 @@
     return `href="${escapeAttr(href)}"${targetAttrs}`;
   }
 
+  function getSteamStoreAppUrl(appid) {
+    return `https://store.steampowered.com/app/${encodeURIComponent(String(appid || "").trim())}/`;
+  }
+
   function getSteamOpenUrl(url) {
     const normalized = String(url || "").trim();
     if (!state.openLinksInSteamClient || !isSteamWebUrl(normalized)) {
       return normalized;
     }
-    return `steam://openurl/${encodeURI(normalized)}`;
+    return getSteamClientOpenUrl(normalized);
+  }
+
+  function getSteamClientOpenUrl(url) {
+    return `steam://openurl/${encodeURI(String(url || "").trim())}`;
   }
 
   function isSteamWebUrl(url) {

@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.8
+// @version      0.2.9
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -32,6 +32,9 @@
 
   // ===== 可按需修改的脚本参数 =====
   // 改完下面这组常量后保存脚本即可生效；如果不确定含义，优先保持默认值。
+
+  const SCRIPT_VERSION = "0.2.9";
+  const PROJECT_URL = "https://github.com/iMoonDay/steam-family-fit-analyzer";
 
   // 无法从 Steam 页面识别商店地区时使用的兜底地区代码，例如 CN / US / JP。
   const FALLBACK_STORE_CC = "CN";
@@ -1545,11 +1548,30 @@
         gap: 2px;
         min-width: 0;
       }
+      .sffa-title-link {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
+        width: fit-content;
+        max-width: 100%;
+        color: inherit;
+        text-decoration: none;
+      }
+      .sffa-title-link:hover strong,
+      .sffa-title-link:focus-visible strong {
+        color: #66c0f4;
+      }
       .sffa-title strong {
         font-size: 15px;
         font-weight: 700;
         color: #ffffff;
         line-height: 1.2;
+      }
+      .sffa-title-link .sffa-title-version {
+        flex: 0 0 auto;
+        font-size: 11px;
+        color: #8fbed6;
+        white-space: nowrap;
       }
       .sffa-title span {
         font-size: 12px;
@@ -4594,7 +4616,10 @@
       <section class="sffa-shell" aria-label="${escapeAttr(t("appName"))}">
         <header class="sffa-header">
           <div class="sffa-title">
-            <strong>${escapeHtml(t("launcher"))}</strong>
+            <a class="sffa-title-link" href="${escapeAttr(PROJECT_URL)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(t("appName"))}">
+              <strong>${escapeHtml(t("launcher"))}</strong>
+              <span class="sffa-title-version">v${escapeHtml(SCRIPT_VERSION)}</span>
+            </a>
             <span data-sffa-family-meta>${escapeHtml(t("waitFamilyScan"))}</span>
           </div>
           <div class="sffa-header-actions" data-sffa-menu-wrap>
@@ -8872,18 +8897,21 @@
     const results = {};
     for (const appid of appids) {
       const item = itemById[String(appid)];
-      if (Number(item?.success) !== 1 || !Array.isArray(item?.categories?.feature_categoryids)) {
+      const featureCategoryIds = item?.categories?.feature_categoryids;
+      const price = normalizeStoreItemOriginalPrice(item);
+      if (Number(item?.success) !== 1 || !Array.isArray(featureCategoryIds) || !price) {
         const fallback = await fetchShareabilityFallback(appid);
         results[String(appid)] = {
           ...fallback,
           context: STORE_CACHE_CONTEXT,
+          ...(Array.isArray(featureCategoryIds)
+            ? { supported: featureCategoryIds.some(id => Number(id) === FAMILY_SHARING_CATEGORY_ID) }
+            : {}),
           localizedName: item?.name || fallback.localizedName || ""
         };
         continue;
       }
 
-      const featureCategoryIds = item.categories.feature_categoryids;
-      const price = normalizeStoreItemOriginalPrice(item);
       results[String(appid)] = {
         supported: Array.isArray(featureCategoryIds) && featureCategoryIds.some(id => Number(id) === FAMILY_SHARING_CATEGORY_ID),
         context: STORE_CACHE_CONTEXT,
@@ -8897,17 +8925,20 @@
   }
 
   async function fetchShareabilityFallback(appid) {
-    const url = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(appid)}&filters=categories&l=${STORE_LANG}`;
+    const url = `https://store.steampowered.com/api/appdetails?appids=${encodeURIComponent(appid)}&filters=basic,categories,price_overview&cc=${STORE_CC}&l=${STORE_LANG}`;
     const data = await requestStoreJson(url, `shareability.fallback.${appid}`);
     setRawData(`shareability.fallback.${appid}`, data);
     const item = data?.[appid];
     const categories = item?.success && item.data && !Array.isArray(item.data)
       ? item.data.categories
       : [];
+    const price = normalizeOriginalPrice(item, getPriceMode());
 
     return {
       supported: Array.isArray(categories) && categories.some(category => Number(category.id) === FAMILY_SHARING_CATEGORY_ID),
       context: STORE_CACHE_CONTEXT,
+      price,
+      localizedName: price?.localizedName || "",
       updatedAt: Date.now()
     };
   }
@@ -9651,7 +9682,7 @@
     if (!lastReport) {
       return;
     }
-    pruneZeroValueAddedGames();
+    pruneNonCountableAddedGames();
     const allGames = (lastReport.games.all || [])
       .filter(game => isGameIncludedBySelectedTargets(game, lastReport))
       .filter(game => isGameCountedInTargetMetrics(lastReport, game));
@@ -9675,8 +9706,11 @@
     scheduleAnalysisHistorySave();
   }
 
-  function pruneZeroValueAddedGames() {
+  function pruneNonCountableAddedGames() {
     const newGames = lastReport.games.new || [];
+    const familyNewCandidates = Array.isArray(lastReport.games.familyNew)
+      ? lastReport.games.familyNew
+      : [...newGames, ...(lastReport.games.alreadyOwned || [])];
     const keptGames = [];
     newGames.forEach(game => {
       if (isZeroValueOriginalPrice(resolveGamePrice(game))) {
@@ -9686,12 +9720,24 @@
       keptGames.push(game);
     });
     lastReport.games.new = keptGames;
+
+    familyNewCandidates.forEach(game => {
+      const appid = String(game.appid);
+      const status = lastReport.classificationById[appid]?.status;
+      const price = resolveGamePrice(game);
+      if (status !== "unsupported" && isZeroValueOriginalPrice(price)) {
+        lastReport.classificationById[appid] = { status: "noValue" };
+      } else if (status === "noValue" && price?.unavailable) {
+        lastReport.classificationById[appid] = { status: "new" };
+      }
+    });
   }
 
   function hasPriceOverview(item) {
     return Boolean(item?.success && item.data && !Array.isArray(item.data) && item.data.price_overview);
   }
 
+  // A missing price is not equivalent to free; delisted games can remain family-shareable.
   function isZeroValueOriginalPrice(price) {
     return Boolean(
       price &&
@@ -9703,6 +9749,10 @@
 
   function isCountablePrice(price) {
     return Boolean(price && !price.pending && !price.unavailable);
+  }
+
+  function isSteamFreeFlag(value) {
+    return value === true || value === 1 || value === "1";
   }
 
   function normalizeOriginalPrice(item, mode = getPriceMode()) {
@@ -9720,13 +9770,13 @@
         currency: priceOverview.currency || getStoreCurrency(),
         localizedName,
         source: normalizedMode === PRICE_MODE_CURRENT ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
-        isFree: data?.is_free === true || initial <= 0,
+        isFree: isSteamFreeFlag(data?.is_free) || initial <= 0,
         unavailable: false,
         updatedAt: now
       };
     }
 
-    if (data?.is_free === true) {
+    if (isSteamFreeFlag(data?.is_free)) {
       return {
         initial: 0,
         currency: getStoreCurrency(),
@@ -9754,17 +9804,35 @@
     const normalizedMode = normalizePriceMode(mode);
     const localizedName = item?.name || "";
     const purchaseOption = item?.best_purchase_option;
+    const itemIsFree = isSteamFreeFlag(item?.is_free) || isSteamFreeFlag(item?.basic_info?.is_free);
+    const originalPrice = purchaseOption?.original_price_in_cents;
+    const finalPrice = purchaseOption?.final_price_in_cents;
     const initial = normalizedMode === PRICE_MODE_CURRENT
-      ? purchaseOption?.final_price_in_cents ?? purchaseOption?.original_price_in_cents
-      : purchaseOption?.original_price_in_cents ?? purchaseOption?.final_price_in_cents;
+      ? finalPrice != null && finalPrice !== "" ? finalPrice : originalPrice
+      : originalPrice != null && originalPrice !== "" ? originalPrice : finalPrice;
     if (initial != null && initial !== "") {
       const cents = Number(initial);
+      if (!Number.isFinite(cents)) {
+        return null;
+      }
       return {
         initial: cents,
         currency: getStoreCurrency(),
         localizedName,
         source: normalizedMode === PRICE_MODE_CURRENT ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
-        isFree: cents <= 0,
+        isFree: itemIsFree || cents <= 0,
+        unavailable: false,
+        updatedAt: now
+      };
+    }
+
+    if (itemIsFree) {
+      return {
+        initial: 0,
+        currency: getStoreCurrency(),
+        localizedName,
+        source: normalizedMode === PRICE_MODE_CURRENT ? PRICE_SOURCE_CURRENT : PRICE_SOURCE_ORIGINAL,
+        isFree: true,
         unavailable: false,
         updatedAt: now
       };
@@ -13117,10 +13185,15 @@
     if (tab === "familyNew") {
       return getFamilyNewRowsForCurrentSelection(lastReport);
     }
+    if (tab === "new" && !lastReport?.filtering?.running) {
+      return getReportAccountNewGames(lastReport).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+    }
     if (tab === "relativeNew") {
       return getRelativeNewRowsForCurrentSelection(lastReport);
     }
-    return (lastReport.games[tab] || []).filter(game => isGameIncludedBySelectedTargets(game, lastReport));
+    return (lastReport.games[tab] || [])
+      .filter(game => tab !== "new" || isReportGameCountedAsFamilyNew(game, lastReport))
+      .filter(game => isGameIncludedBySelectedTargets(game, lastReport));
   }
 
   function getFamilyNewRowsForCurrentSelection(report = lastReport) {
@@ -13147,6 +13220,15 @@
     return status === "new" || status === "noValue";
   }
 
+  function isReportGameCountedAsFamilyNew(game, report = lastReport) {
+    const status = report?.classificationById?.[String(game?.appid || "")]?.status;
+    const price = resolveGamePrice(game);
+    if (status === "unsupported" || isZeroValueOriginalPrice(price)) {
+      return false;
+    }
+    return status !== "noValue" || Boolean(price?.unavailable);
+  }
+
   function getReportFamilyNewGames(report = lastReport) {
     if (!report) {
       return [];
@@ -13157,7 +13239,15 @@
         ...(report.games?.new || []),
         ...(report.games?.alreadyOwned || [])
       ];
-    return games.filter(game => report?.classificationById?.[String(game?.appid || "")]?.status !== "unsupported");
+    return games.filter(game => isReportGameCountedAsFamilyNew(game, report));
+  }
+
+  function getReportAccountNewGames(report = lastReport) {
+    if (!report) {
+      return [];
+    }
+    const alreadyOwnedIds = new Set((report.games?.alreadyOwned || []).map(game => String(game?.appid || "")));
+    return getReportFamilyNewGames(report).filter(game => !alreadyOwnedIds.has(String(game?.appid || "")));
   }
 
   function getRelativeNewRowsForCurrentSelection(report = lastReport) {
@@ -13949,7 +14039,7 @@
     return Boolean(
       isFreshStoreCacheEntry(cached) &&
       cached.localizedName &&
-      (!cached.supported || cachedPrice)
+      (cached.supported === false || (cached.supported === true && cachedPrice && !cachedPrice.unavailable))
     );
   }
 

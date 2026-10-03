@@ -8,6 +8,8 @@
 // @author       iMoonDay
 // @homepageURL  https://github.com/iMoonDay/steam-family-fit-analyzer
 // @supportURL   https://github.com/iMoonDay/steam-family-fit-analyzer/issues
+// @updateURL    https://raw.githubusercontent.com/iMoonDay/steam-family-fit-analyzer/main/script.user.js
+// @downloadURL  https://raw.githubusercontent.com/iMoonDay/steam-family-fit-analyzer/main/script.user.js
 // @match        https://store.steampowered.com/*
 // @match        https://steamcommunity.com/profiles/*
 // @match        https://steamcommunity.com/id/*

@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.3.0
+// @version      0.3.1
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -35,7 +35,7 @@
   // ===== 可按需修改的脚本参数 =====
   // 改完下面这组常量后保存脚本即可生效；如果不确定含义，优先保持默认值。
 
-  const SCRIPT_VERSION = "0.3.0";
+  const SCRIPT_VERSION = "0.3.1";
   const PROJECT_URL = "https://github.com/iMoonDay/steam-family-fit-analyzer";
 
   // 无法从 Steam 页面识别商店地区时使用的兜底地区代码，例如 CN / US / JP。
@@ -172,6 +172,8 @@
       clearStoreCacheWithCount: "清除商店缓存 ({count})",
       rawData: "查看原始数据",
       close: "关闭",
+      sidebarCollapse: "收起侧栏",
+      sidebarExpand: "展开侧栏",
       clear: "清空",
       languageTitle: "语言",
       languageAutoWithLocale: "自动（{locale}）",
@@ -519,6 +521,8 @@
       clearStoreCacheWithCount: "Clear store cache ({count})",
       rawData: "View raw data",
       close: "Close",
+      sidebarCollapse: "Collapse sidebar",
+      sidebarExpand: "Expand sidebar",
       clear: "Clear",
       languageTitle: "Language",
       languageAutoWithLocale: "Auto ({locale})",
@@ -1152,6 +1156,7 @@
     version: 1,
     activeSteamId: "",
     launcherVisible: true,
+    sidebarCollapsed: false,
     listViewMode: "table",
     familyPosterSettings: {
       columns: FAMILY_POSTER_COLUMNS,
@@ -4836,6 +4841,90 @@
           justify-self: start;
         }
       }
+
+      /* ===== 侧栏收起（右侧整列手柄） ===== */
+      .sffa-content {
+        transition: grid-template-columns 0.26s cubic-bezier(0.2, 0.7, 0.2, 1);
+      }
+      .sffa-side {
+        position: relative;
+        padding-right: 26px;
+        transition: padding 0.26s ease;
+      }
+      .sffa-side-handle {
+        position: absolute;
+        right: 0;
+        top: 6px;
+        bottom: 6px;
+        width: 18px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: rgba(159, 179, 194, 0.45);
+        font: inherit;
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease, width 0.26s ease;
+      }
+      .sffa-side-handle:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #dbe8f3;
+      }
+      .sffa-side .sffa-summary,
+      .sffa-side .sffa-profile {
+        transition: opacity 0.16s ease;
+      }
+      .sffa-content.is-side-collapsed {
+        grid-template-columns: 36px minmax(0, 1fr);
+      }
+      .sffa-side.is-collapsed {
+        padding: 4px;
+      }
+      .sffa-side.is-collapsed .sffa-summary,
+      .sffa-side.is-collapsed .sffa-profile {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .sffa-side.is-collapsed .sffa-profile {
+        overflow: hidden;
+      }
+      .sffa-side.is-collapsed .sffa-side-handle {
+        right: 4px;
+        top: 4px;
+        bottom: 4px;
+        width: calc(100% - 8px);
+      }
+      @media (max-width: 680px) {
+        .sffa-content.is-side-collapsed {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto minmax(0, 1fr);
+        }
+        .sffa-side.is-collapsed {
+          min-height: 34px;
+          padding: 3px 4px;
+        }
+        .sffa-side.is-collapsed .sffa-summary,
+        .sffa-side.is-collapsed .sffa-profile {
+          display: none;
+        }
+        .sffa-side.is-collapsed .sffa-side-handle {
+          top: 3px;
+          bottom: 3px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sffa-content,
+        .sffa-side,
+        .sffa-side-handle,
+        .sffa-side .sffa-summary,
+        .sffa-side .sffa-profile {
+          transition: none;
+        }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -4954,10 +5043,11 @@
               </div>
             </div>
           </div>
-          <div class="sffa-content">
-            <div class="sffa-side">
+          <div class="sffa-content" data-sffa-content>
+            <div class="sffa-side" data-sffa-side>
             <div class="sffa-summary" data-sffa-summary></div>
             <div class="sffa-profile" data-sffa-profile></div>
+            <button class="sffa-side-handle" type="button" data-sffa-side-toggle aria-expanded="true" aria-label="${escapeAttr(t("sidebarCollapse"))}" data-sffa-tooltip="${escapeAttr(t("sidebarCollapse"))}">«</button>
             </div>
             <div class="sffa-main">
               <div class="sffa-tabs" data-sffa-tabs>
@@ -5202,6 +5292,9 @@
       status: root.querySelector("[data-sffa-status]"),
       summary: root.querySelector("[data-sffa-summary]"),
       profile: root.querySelector("[data-sffa-profile]"),
+      contentWrap: root.querySelector("[data-sffa-content]"),
+      sidePanel: root.querySelector("[data-sffa-side]"),
+      sideToggleBtn: root.querySelector("[data-sffa-side-toggle]"),
       tableWrap: root.querySelector("[data-sffa-table-wrap]"),
       backdrop: root.querySelector("[data-sffa-backdrop]"),
       closeBtn: root.querySelector("[data-sffa-close]"),
@@ -5338,6 +5431,7 @@
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
     elements.openLinksClientBtn?.addEventListener("click", toggleOpenLinksInSteamClient);
     elements.paginationToggleBtn?.addEventListener("click", togglePaginationMode);
+    elements.sideToggleBtn?.addEventListener("click", toggleSidePanelCollapsed);
     elements.paginationPrevBtn?.addEventListener("click", goToPaginationPrevPage);
     elements.paginationNextBtn?.addEventListener("click", goToPaginationNextPage);
     elements.paginationJumpInput?.addEventListener("change", handlePaginationJumpChange);
@@ -5914,6 +6008,7 @@
     renderAutoFamilyRefreshButton();
     renderOpenLinksClientButton();
     renderPaginationToggleButton();
+    renderSidePanelCollapsedState();
     renderStoreCacheButton();
     renderRateLimitControls();
     renderAnalysisHistoryMenu();
@@ -6704,7 +6799,7 @@
     renderFamilyPosterDialog();
     renderCompareDialogIfOpen();
     renderGlobalCompareDialogIfOpen();
-    [registerScriptMenuCommands, renderFamilyMeta, renderRefreshFamilyButton, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderPaginationToggleButton, renderStoreCacheButton, renderRateLimitControls, renderSearchSettingsDialog].forEach(fn => fn());
+    [registerScriptMenuCommands, renderFamilyMeta, renderRefreshFamilyButton, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderPaginationToggleButton, renderSidePanelCollapsedState, renderStoreCacheButton, renderRateLimitControls, renderSearchSettingsDialog].forEach(fn => fn());
     renderSidePanel(lastReport);
     [renderTabs, renderDetailsPreserveScroll, renderCurrentStatusText].forEach(fn => fn());
   }
@@ -12167,6 +12262,26 @@
     elements.openLinksClientBtn.setAttribute("aria-pressed", String(enabled));
   }
 
+  function toggleSidePanelCollapsed() {
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+    saveState();
+    renderSidePanelCollapsedState();
+  }
+
+  function renderSidePanelCollapsedState() {
+    const collapsed = Boolean(state.sidebarCollapsed);
+    elements.contentWrap?.classList.toggle("is-side-collapsed", collapsed);
+    elements.sidePanel?.classList.toggle("is-collapsed", collapsed);
+    if (!elements.sideToggleBtn) {
+      return;
+    }
+    elements.sideToggleBtn.textContent = collapsed ? "»" : "«";
+    elements.sideToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+    const label = collapsed ? t("sidebarExpand") : t("sidebarCollapse");
+    elements.sideToggleBtn.setAttribute("aria-label", label);
+    setTooltipText(elements.sideToggleBtn, label);
+  }
+
   function isPaginationEnabled() {
     return Boolean(state.paginationEnabled);
   }
@@ -15156,6 +15271,7 @@
         },
         storeCache: normalizeSavedStoreCache(saved.storeCache || {}),
         launcherVisible: saved.launcherVisible !== false,
+        sidebarCollapsed: Boolean(saved.sidebarCollapsed),
         listViewMode: normalizeListViewMode(saved.listViewMode),
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
         openLinksInSteamClient: Boolean(saved.openLinksInSteamClient),

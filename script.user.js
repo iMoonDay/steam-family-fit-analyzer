@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.2.9
+// @version      0.3.0
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -35,7 +35,7 @@
   // ===== 可按需修改的脚本参数 =====
   // 改完下面这组常量后保存脚本即可生效；如果不确定含义，优先保持默认值。
 
-  const SCRIPT_VERSION = "0.2.9";
+  const SCRIPT_VERSION = "0.3.0";
   const PROJECT_URL = "https://github.com/iMoonDay/steam-family-fit-analyzer";
 
   // 无法从 Steam 页面识别商店地区时使用的兜底地区代码，例如 CN / US / JP。
@@ -65,11 +65,11 @@
   const PRICE_SOURCE_ITAD_STORE_LOW = "itadStoreLow";
   const DEFAULT_SEARCH_URL_TEMPLATE = "https://www.baidu.com/s?wd={query}";
   const DEFAULT_SEARCH_PRESETS = Object.freeze([
-    { name: "百度", urlTemplate: "https://www.baidu.com/s?wd={query}", searchOriginalName: false },
+    { nameKey: "searchPresetBaidu", urlTemplate: "https://www.baidu.com/s?wd={query}", searchOriginalName: false },
     { name: "Google", urlTemplate: "https://www.google.com/search?q={query}", searchOriginalName: false },
     { name: "Bing", urlTemplate: "https://www.bing.com/search?q={query}", searchOriginalName: false },
     { name: "Steam", urlTemplate: "https://store.steampowered.com/search/?term={query}", searchOriginalName: false },
-    { name: "Steam 客户端", urlTemplate: "steam://openurl/https://store.steampowered.com/search/?term={query}", searchOriginalName: false },
+    { nameKey: "searchPresetSteamClient", urlTemplate: "steam://openurl/https://store.steampowered.com/search/?term={query}", searchOriginalName: false },
     { name: "SteamDB", urlTemplate: "https://steamdb.info/search/?a=app&q={query}", searchOriginalName: false },
     { name: "PCGamingWiki", urlTemplate: "https://www.pcgamingwiki.com/w/index.php?search={query}", searchOriginalName: true },
     { name: "IsThereAnyDeal", urlTemplate: "https://isthereanydeal.com/search/?q={query}", searchOriginalName: true }
@@ -169,18 +169,25 @@
       more: "更多",
       copyReport: "复制报告",
       clearStoreCache: "清除商店缓存",
+      clearStoreCacheWithCount: "清除商店缓存 ({count})",
       rawData: "查看原始数据",
       close: "关闭",
       clear: "清空",
       languageTitle: "语言",
-      languageAuto: "自动",
+      languageAutoWithLocale: "自动（{locale}）",
       languageChinese: "中文",
       languageEnglish: "English",
+      labelValueFormat: "{label}：{value}",
       targetPlaceholder: "SteamID64、好友码、主页链接或自定义 ID，多个用空格分隔",
       analysisHistory: "分析历史",
       deleteHistory: "删除历史记录",
+      analysisCleared: "已清除当前账号数据",
       refreshFamily: "刷新家庭库",
       analyzeAccount: "分析账号",
+      paste: "粘贴",
+      pasted: "已粘贴到账号输入框",
+      pasteEmpty: "剪贴板为空",
+      pasteFailed: "无法读取剪贴板，请手动粘贴",
       continue: "继续",
       rateCheck: "限流检测",
       account: "账号",
@@ -195,6 +202,7 @@
       },
       searchPlaceholder: "搜索游戏名或 AppID",
       ruleFilter: "筛选",
+      ruleFilterWithCount: "筛选 ({count})",
       ruleFilterClear: "清除筛选",
       ruleFilterStatus: "状态",
       ruleFilterPrice: "价格",
@@ -229,6 +237,8 @@
       ruleFilterTimeYears: "{count}年内",
       copyList: "复制列表",
       originalName: "原名",
+      localizedNameWithOriginal: "{localizedName} ({originalName})",
+      listSeparator: "、",
       initialEmpty: "输入账号后分析",
       signInFirst: "请先登录",
       accountSwitched: "账号已切换，请刷新",
@@ -253,6 +263,9 @@
       searchUrlTemplatePlaceholder: "例如：https://www.baidu.com/s?wd={query}",
       searchPresetAdd: "添加预设",
       searchPresetRemove: "删除预设",
+      searchPresetBaidu: "百度",
+      searchPresetSteamClient: "Steam 客户端",
+      searchPresetFallback: "搜索 {index}",
       searchSettingsSave: "保存",
       searchSettingsReset: "重置",
       searchSettingsSaved: "搜索配置已保存",
@@ -346,7 +359,7 @@
       addedGames: "新增",
       duplicatedGames: "重复",
       overlapRate: "重复率",
-      addedValue: "新增价值",
+      addedValueWithPrice: "新增价值（{price}）",
       copied: "已复制",
       copyFailed: "复制失败",
       noList: "暂无列表",
@@ -371,7 +384,8 @@
       currentAccountUnsupported: "不能分析当前登录账号，请输入另一个公开 Steam 账号",
       missingVanity: "缺少自定义 ID",
       missingApiKey: "缺少 API Key",
-      resolveVanityFailed: "无法解析自定义 ID{message}",
+      resolveVanityFailed: "无法解析自定义 ID",
+      resolveVanityFailedWithMessage: "无法解析自定义 ID：{message}",
       privateTargetLibrary: "目标库不可见",
       backgroundProgress: "后台统计：{percent}",
       done: "完成",
@@ -382,20 +396,32 @@
       noCache: "无缓存",
       targetAccount: "目标账号",
       targetAccountCount: "{count} 个账号",
-      familyLibraryValue: "家庭库价值",
-      familyFilteredValue: "当前筛选价值",
+      familyLibraryValueWithPrice: "家庭库价值（{price}）",
+      familyFilteredValueWithPrice: "当前筛选价值（{price}）",
       familyMemberCount: "成员数",
       familyUpdatedAt: "更新时间",
       targetOwners: "拥有者",
       deduped: "去重",
       progress: "统计进度",
       unknownAccount: "未知账号",
+      unknownError: "未知错误",
       time: "时间",
       link: "链接",
       openProfile: "打开主页",
       autoRefreshClose: "关闭自动刷新",
       autoRefreshOpen: "开启自动刷新",
       autoRefreshTitle: "每 24 小时刷新上次：{time}",
+      paginationModeOn: "翻页模式：开",
+      paginationModeOff: "翻页模式：关",
+      paginationEnabled: "已开启翻页模式",
+      paginationDisabled: "已关闭翻页模式",
+      paginationPrev: "上一页",
+      paginationNext: "下一页",
+      paginationPerPage: "每页",
+      paginationPerPageAuto: "自动",
+      paginationPerPageCustom: "自定义",
+      paginationJump: "跳转页码",
+      paginationCustomCount: "每页条数",
       game: "游戏",
       owners: "贡献者",
       acquiredAt: "入库时间",
@@ -405,6 +431,7 @@
       status: "状态",
       noFamilyRefresh: "请先刷新家庭库",
       tabEmpty: "{tab}为空",
+      tabLabelWithCount: "{tab} ({count})",
       searchEmpty: "输入关键词搜索",
       noMatches: "没有匹配游戏",
       unsupported: "不可共享",
@@ -472,6 +499,7 @@
       familyPosterSaved: "家庭封面图已保存",
       familyPosterEmpty: "没有可导出的家庭封面",
       familyPosterTooLarge: "家庭封面图过高，当前尺寸超出浏览器导出上限",
+      posterGameCount: "{count} 款游戏",
       preparingListPoster: "正在整理游戏海报...",
       fetchingListPoster: "正在获取游戏海报封面 {current}/{total}...",
       renderingListPoster: "正在生成游戏海报...",
@@ -488,18 +516,25 @@
       more: "More",
       copyReport: "Copy report",
       clearStoreCache: "Clear store cache",
+      clearStoreCacheWithCount: "Clear store cache ({count})",
       rawData: "View raw data",
       close: "Close",
       clear: "Clear",
       languageTitle: "Language",
-      languageAuto: "Auto",
+      languageAutoWithLocale: "Auto ({locale})",
       languageChinese: "中文",
       languageEnglish: "English",
+      labelValueFormat: "{label}: {value}",
       targetPlaceholder: "SteamID64, friend code, profile URL, or custom ID. Separate multiple with spaces",
       analysisHistory: "Analysis history",
       deleteHistory: "Delete history item",
+      analysisCleared: "Current account data cleared",
       refreshFamily: "Refresh family library",
       analyzeAccount: "Analyze account",
+      paste: "Paste",
+      pasted: "Pasted into the account input",
+      pasteEmpty: "Clipboard is empty",
+      pasteFailed: "Unable to read the clipboard, please paste manually",
       continue: "Continue",
       rateCheck: "Check rate limit",
       account: "Account",
@@ -514,6 +549,7 @@
       },
       searchPlaceholder: "Search game name or AppID",
       ruleFilter: "Filter",
+      ruleFilterWithCount: "Filter ({count})",
       ruleFilterClear: "Clear filters",
       ruleFilterStatus: "Status",
       ruleFilterPrice: "Price",
@@ -548,6 +584,8 @@
       ruleFilterTimeYears: "Past {count} years",
       copyList: "Copy list",
       originalName: "Original name",
+      localizedNameWithOriginal: "{localizedName} ({originalName})",
+      listSeparator: ", ",
       initialEmpty: "Enter an account to analyze",
       signInFirst: "Please sign in first",
       accountSwitched: "Account changed, please refresh",
@@ -572,6 +610,9 @@
       searchUrlTemplatePlaceholder: "Example: https://www.baidu.com/s?wd={query}",
       searchPresetAdd: "Add preset",
       searchPresetRemove: "Remove preset",
+      searchPresetBaidu: "Baidu",
+      searchPresetSteamClient: "Steam client",
+      searchPresetFallback: "Search {index}",
       searchSettingsSave: "Save",
       searchSettingsReset: "Reset",
       searchSettingsSaved: "Search settings saved",
@@ -665,7 +706,7 @@
       addedGames: "Added",
       duplicatedGames: "Duplicates",
       overlapRate: "Duplicate rate",
-      addedValue: "Added value",
+      addedValueWithPrice: "Added value ({price})",
       copied: "Copied",
       copyFailed: "Copy failed",
       noList: "No list yet",
@@ -690,7 +731,8 @@
       currentAccountUnsupported: "The current signed-in account cannot be analyzed. Enter another public Steam account.",
       missingVanity: "Missing custom ID",
       missingApiKey: "Missing API key",
-      resolveVanityFailed: "Unable to resolve custom ID{message}",
+      resolveVanityFailed: "Unable to resolve custom ID",
+      resolveVanityFailedWithMessage: "Unable to resolve custom ID: {message}",
       privateTargetLibrary: "Target library is private",
       backgroundProgress: "Background progress: {percent}",
       done: "Done",
@@ -701,20 +743,32 @@
       noCache: "No cache",
       targetAccount: "Target account",
       targetAccountCount: "{count} accounts",
-      familyLibraryValue: "Family value",
-      familyFilteredValue: "Filtered value",
+      familyLibraryValueWithPrice: "Family value ({price})",
+      familyFilteredValueWithPrice: "Filtered value ({price})",
       familyMemberCount: "Members",
       familyUpdatedAt: "Updated",
       targetOwners: "Owners",
       deduped: "deduped",
       progress: "Progress",
       unknownAccount: "Unknown account",
+      unknownError: "Unknown error",
       time: "Time",
       link: "Link",
       openProfile: "Open profile",
       autoRefreshClose: "Disable auto refresh",
       autoRefreshOpen: "Enable auto refresh",
       autoRefreshTitle: "Refreshes every 24 hours. Last: {time}",
+      paginationModeOn: "Paged mode: on",
+      paginationModeOff: "Paged mode: off",
+      paginationEnabled: "Paged mode enabled",
+      paginationDisabled: "Paged mode disabled",
+      paginationPrev: "Previous",
+      paginationNext: "Next",
+      paginationPerPage: "Per page",
+      paginationPerPageAuto: "Auto",
+      paginationPerPageCustom: "Custom",
+      paginationJump: "Jump to page",
+      paginationCustomCount: "Items per page",
       game: "Game",
       owners: "Owners",
       acquiredAt: "Acquired",
@@ -724,6 +778,7 @@
       status: "Status",
       noFamilyRefresh: "Refresh family library first",
       tabEmpty: "{tab} is empty",
+      tabLabelWithCount: "{tab} ({count})",
       searchEmpty: "Enter keywords to search",
       noMatches: "No matching games",
       unsupported: "Not shareable",
@@ -791,6 +846,7 @@
       familyPosterSaved: "Family cover poster saved",
       familyPosterEmpty: "No family covers available to export",
       familyPosterTooLarge: "Family cover poster is too tall to export in one image",
+      posterGameCount: "{count} games",
       preparingListPoster: "Preparing game poster...",
       fetchingListPoster: "Fetching game poster covers {current}/{total}...",
       renderingListPoster: "Rendering game poster...",
@@ -805,7 +861,7 @@
     String(rawEntries || "").split("|").filter(Boolean).forEach(entry => {
       const separatorIndex = entry.indexOf("=");
       if (separatorIndex <= 0) {
-        throw new Error(`本地化条目格式无效：${entry}`);
+        throw new Error(`Invalid i18n entry: ${entry}`);
       }
       assignI18nValue(localeMap, entry.slice(0, separatorIndex), entry.slice(separatorIndex + 1));
     });
@@ -815,7 +871,7 @@
   function assignI18nValue(target, path, value) {
     const parts = String(path || "").split(".").filter(Boolean);
     if (!parts.length) {
-      throw new Error("本地化键不能为空");
+      throw new Error("I18n key cannot be empty");
     }
     let cursor = target;
     parts.slice(0, -1).forEach(part => {
@@ -836,7 +892,7 @@
   }
 
   function labelValue(label, value) {
-    return `${label}${UI_LOCALE === "en" ? ": " : "："}${value}`;
+    return t("labelValueFormat", { label, value });
   }
 
   function getAutoUiLocale(storeLanguage) {
@@ -880,7 +936,10 @@
   }
 
   function cloneDefaultSearchPresets() {
-    return DEFAULT_SEARCH_PRESETS.map(preset => ({ ...preset }));
+    return DEFAULT_SEARCH_PRESETS.map(preset => ({
+      ...preset,
+      name: t(preset.nameKey || preset.name)
+    }));
   }
 
   function normalizeSearchPresets(presets) {
@@ -893,8 +952,9 @@
         if (!urlTemplate) {
           return null;
         }
+        const fallbackName = t("searchPresetFallback", { index: index + 1 });
         return {
-          name: String(preset?.name || `Search ${index + 1}`).trim() || `Search ${index + 1}`,
+          name: String(preset?.name || fallbackName).trim() || fallbackName,
           urlTemplate: normalizeSearchUrlTemplate(urlTemplate),
           searchOriginalName: preset?.searchOriginalName === true
         };
@@ -931,10 +991,7 @@
   }
 
   function getAddedValueLabel() {
-    const priceLabel = getPriceLabel();
-    return UI_LOCALE === "en"
-      ? `${t("addedValue")} (${priceLabel})`
-      : `${t("addedValue")}（${priceLabel}）`;
+    return t("addedValueWithPrice", { price: getPriceLabel() });
   }
 
   function getPriceCacheKeyForMode(mode = getPriceMode()) {
@@ -966,7 +1023,7 @@
     const normalizedMode = normalizeAppLocaleMode(mode);
     if (normalizedMode === "auto") {
       const locale = getLocaleName(resolveUiLocale("auto"));
-      return UI_LOCALE === "en" ? `${t("languageAuto")} (${locale})` : `${t("languageAuto")}（${locale}）`;
+      return t("languageAutoWithLocale", { locale });
     }
     return getLocaleName(normalizedMode);
   }
@@ -1114,6 +1171,9 @@
     storeCache: {},
     autoFamilyRefreshEnabled: true,
     openLinksInSteamClient: false,
+    paginationEnabled: false,
+    paginationPageSizeMode: "auto",
+    paginationCustomPageSize: 40,
     searchPresets: cloneDefaultSearchPresets(),
     lastAutoFamilyRefreshAttemptAt: 0,
     appLocaleMode: APP_LOCALE,
@@ -1144,11 +1204,21 @@
   let activeGameContext = null;
   let ruleFilterState = createDefaultRuleFilterState();
   let analysisHistorySaveTimer = 0;
+  let suppressHistoryMenuFocusOpen = false;
   let analysisInputHistoryCache = null;
   let searchRenderTimer = 0;
   let detailsRenderToken = 0;
   let pendingDetailsScrollRestore = null;
   let detailsPerfTraceByToken = new Map();
+  let paginationPage = 1;
+  let paginationStart = 0;
+  let paginationLastFitCount = 0;
+  let paginationLastRowsLength = 0;
+  let paginationPageStarts = new Map();
+  let paginationPageSizeCache = new Map();
+  let paginationListKey = "";
+  let paginationResizeTimer = 0;
+  let pendingPaginationFit = null;
   let scriptMenuCommandIds = [];
   let activePosterDialogContext = null;
   let autoFamilyRefreshRunning = false;
@@ -1203,9 +1273,19 @@
     autoFillTargetInputFromProfilePage();
     const session = await getSteamSessionWithFallback();
     if (!syncBootstrapSession(session, restoredAnalysis)) {
+      renderBootstrapEmptyView();
       return;
     }
     finalizeBootstrap(session);
+    if (!restoredAnalysis) {
+      renderBootstrapEmptyView();
+    }
+  }
+
+  function renderBootstrapEmptyView() {
+    renderTabs();
+    renderSidePanel(null);
+    renderDetails();
   }
 
   function syncBootstrapSession(session, restoredAnalysis) {
@@ -1807,6 +1887,7 @@
         background: rgba(17, 22, 29, 0.82);
       }
       .sffa-main {
+        position: relative;
         min-width: 0;
         min-height: 0;
         display: grid;
@@ -1873,7 +1954,7 @@
       }
       .sffa-history-wrap .sffa-input {
         width: 100%;
-        padding-right: 68px;
+        padding-right: 98px;
       }
       .sffa-history-wrap.is-tokenized .sffa-input {
         color: transparent;
@@ -1882,7 +1963,7 @@
       .sffa-target-token-view {
         position: absolute;
         left: 10px;
-        right: 68px;
+        right: 98px;
         top: 50%;
         min-width: 0;
         min-height: 28px;
@@ -1921,7 +2002,7 @@
         white-space: pre;
       }
       .sffa-history-wrap .sffa-search-clear {
-        right: 34px;
+        right: 64px;
       }
       .sffa-target-analyze {
         position: absolute;
@@ -1949,6 +2030,36 @@
         opacity: 0.58;
       }
       .sffa-target-analyze svg {
+        width: 15px;
+        height: 15px;
+        display: block;
+      }
+      .sffa-target-paste {
+        position: absolute;
+        top: 50%;
+        right: 34px;
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        transform: translateY(-50%);
+        border: 0;
+        border-radius: 3px;
+        background: transparent;
+        color: #9fb3c2;
+        cursor: pointer;
+        transition: color 0.12s ease, background 0.12s ease;
+      }
+      .sffa-target-paste:hover:not(:disabled) {
+        color: #dbe8f3;
+        background: rgba(102, 192, 244, 0.14);
+      }
+      .sffa-target-paste:disabled {
+        cursor: wait;
+        opacity: 0.5;
+      }
+      .sffa-target-paste svg {
         width: 15px;
         height: 15px;
         display: block;
@@ -3918,6 +4029,14 @@
         border-radius: 3px;
         padding: 0 30px 0 9px;
         outline: none;
+        appearance: none;
+        -webkit-appearance: none;
+      }
+      .sffa-search-input::-webkit-search-cancel-button,
+      .sffa-search-input::-webkit-search-decoration {
+        -webkit-appearance: none;
+        appearance: none;
+        display: none;
       }
       .sffa-search-clear {
         position: absolute;
@@ -3997,6 +4116,160 @@
       .sffa-table-wrap.is-cover-view .sffa-cover-card:hover,
       .sffa-table-wrap.is-cover-view .sffa-poster-card:hover {
         box-shadow: none;
+      }
+      .sffa-table-wrap.is-pagination-fit.is-cover-view {
+        scrollbar-gutter: stable;
+        scrollbar-width: none;
+        padding-bottom: 52px;
+      }
+      .sffa-table-wrap.is-pagination-fit.is-cover-view::-webkit-scrollbar {
+        display: none;
+      }
+      .sffa-table-wrap.is-pagination-fit.is-cover-view .sffa-cover-card,
+      .sffa-table-wrap.is-pagination-fit.is-cover-view .sffa-poster-card {
+        content-visibility: visible;
+      }
+      .sffa-table-wrap.is-pagination-fit [data-sffa-table-body-scroll] {
+        scrollbar-gutter: stable;
+        scrollbar-width: none;
+        padding-bottom: 48px;
+      }
+      .sffa-table-wrap.is-pagination-fit [data-sffa-table-body-scroll]::-webkit-scrollbar {
+        display: none;
+      }
+      .sffa-table-wrap.is-pagination-mode:not(.is-pagination-fit).is-cover-view {
+        padding-bottom: 52px;
+      }
+      .sffa-table-wrap.is-pagination-mode:not(.is-pagination-fit) [data-sffa-table-body-scroll] {
+        padding-bottom: 48px;
+      }
+      .sffa-pagination-bar {
+        position: absolute;
+        left: 50%;
+        bottom: 8px;
+        transform: translateX(-50%);
+        z-index: 6;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        max-width: calc(100% - 16px);
+        padding: 4px 10px 4px 6px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        background: rgba(16, 23, 32, 0.72);
+        backdrop-filter: blur(10px) saturate(1.2);
+        -webkit-backdrop-filter: blur(10px) saturate(1.2);
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+      }
+      .sffa-pagination-bar[hidden] {
+        display: none;
+      }
+      .sffa-pagination-btn {
+        width: 26px;
+        height: 26px;
+        min-width: 26px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: #c2d4df;
+        font: inherit;
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+      }
+      .sffa-pagination-btn:hover:not(:disabled) {
+        background: rgba(102, 192, 244, 0.2);
+        color: #ffffff;
+      }
+      .sffa-pagination-btn:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      .sffa-pagination-jump-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .sffa-pagination-jump {
+        width: 40px;
+        height: 24px;
+        padding: 0 4px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+        font: inherit;
+        font-size: 12px;
+        text-align: center;
+        color-scheme: dark;
+      }
+      .sffa-pagination-jump:focus {
+        outline: none;
+        border-color: rgba(143, 209, 255, 0.6);
+      }
+      .sffa-pagination-total {
+        min-width: 20px;
+        color: #9fb3c2;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .sffa-pagination-divider {
+        width: 1px;
+        height: 16px;
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .sffa-pagination-size-label {
+        color: #9fb3c2;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .sffa-pagination-size {
+        height: 24px;
+        padding: 0 18px 0 8px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #dbe8f3;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        outline: none;
+        color-scheme: dark;
+      }
+      .sffa-pagination-size:focus {
+        border-color: rgba(143, 209, 255, 0.6);
+      }
+      .sffa-pagination-size option {
+        background: #161d26;
+        color: #dbe8f3;
+      }
+      .sffa-pagination-custom {
+        width: 48px;
+        height: 24px;
+        padding: 0 4px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+        font: inherit;
+        font-size: 12px;
+        text-align: center;
+        color-scheme: dark;
+      }
+      .sffa-pagination-custom:focus {
+        outline: none;
+        border-color: rgba(143, 209, 255, 0.6);
+      }
+      @media (max-width: 680px) {
+        .sffa-pagination-size-label {
+          display: none;
+        }
       }
       .sffa-cover-grid {
         display: grid;
@@ -4637,6 +4910,7 @@
             <div class="sffa-menu" data-sffa-menu>
               <button class="sffa-menu-item" type="button" data-sffa-auto-family-refresh></button>
               <button class="sffa-menu-item" type="button" data-sffa-open-links-client aria-pressed="false"></button>
+              <button class="sffa-menu-item" type="button" data-sffa-pagination-toggle aria-pressed="false"></button>
               <button class="sffa-menu-item" type="button" data-sffa-price-settings>${escapeHtml(t("priceSettings"))}</button>
               <button class="sffa-menu-item" type="button" data-sffa-search-settings>${escapeHtml(t("searchSettings"))}</button>
               <button class="sffa-menu-item danger" type="button" data-sffa-clear-store-cache hidden>${escapeHtml(t("clearStoreCache"))}</button>
@@ -4660,6 +4934,13 @@
                   <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                     <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.7"/>
                     <path d="M10.4 10.4 14 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                  </svg>
+                </button>
+                <button class="sffa-target-paste" type="button" data-sffa-target-paste data-sffa-tooltip="${escapeAttr(t("paste"))}" aria-label="${escapeAttr(t("paste"))}">
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <rect x="4.1" y="3.2" width="7.8" height="10.2" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                    <path d="M6.1 3.2V2.3c0-.5.4-.9.9-.9h1.9c.5 0 .9.4.9.9v.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                    <path d="M6.3 6.7h3.4M6.3 9.1h3.4M6.3 11.4h2.1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
                   </svg>
                 </button>
                 <div class="sffa-list-menu" role="listbox" data-sffa-history-menu></div>
@@ -4699,7 +4980,7 @@
                   <div class="sffa-list-menu sffa-rule-filter-menu" role="menu" data-sffa-rule-filter-menu></div>
                 </div>
                 <div class="sffa-search-wrap" data-sffa-search-wrap>
-                  <input class="sffa-search-input" data-sffa-search placeholder="${escapeAttr(t("searchPlaceholder"))}" autocomplete="off">
+                  <input class="sffa-search-input" type="search" data-sffa-search placeholder="${escapeAttr(t("searchPlaceholder"))}" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="none" aria-autocomplete="none">
                   <button class="sffa-search-clear" type="button" data-sffa-search-clear data-sffa-tooltip="${escapeAttr(t("clear"))}" aria-label="${escapeAttr(t("clear"))}">
                     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                       <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -4735,6 +5016,18 @@
               </div>
               <div class="sffa-table-wrap" data-sffa-table-wrap>
                 <div class="sffa-empty">${escapeHtml(t("initialEmpty"))}</div>
+              </div>
+              <div class="sffa-pagination-bar" data-sffa-pagination-bar hidden>
+                <button class="sffa-pagination-btn" type="button" data-sffa-pagination-prev aria-label="${escapeAttr(t("paginationPrev"))}">‹</button>
+                <span class="sffa-pagination-jump-wrap">
+                  <input class="sffa-pagination-jump" type="number" min="1" step="1" inputmode="numeric" data-sffa-pagination-jump aria-label="${escapeAttr(t("paginationJump"))}">
+                  <span class="sffa-pagination-total" data-sffa-pagination-total></span>
+                </span>
+                <button class="sffa-pagination-btn" type="button" data-sffa-pagination-next aria-label="${escapeAttr(t("paginationNext"))}">›</button>
+                <span class="sffa-pagination-divider"></span>
+                <span class="sffa-pagination-size-label" data-sffa-pagination-size-label>${escapeHtml(t("paginationPerPage"))}</span>
+                <select class="sffa-pagination-size" data-sffa-pagination-size aria-label="${escapeAttr(t("paginationPerPage"))}"></select>
+                <input class="sffa-pagination-custom" type="number" min="1" step="1" inputmode="numeric" data-sffa-pagination-custom aria-label="${escapeAttr(t("paginationCustomCount"))}" hidden>
               </div>
             </div>
           </div>
@@ -4925,6 +5218,7 @@
       targetInput: root.querySelector("[data-sffa-target]"),
       targetTokenView: root.querySelector("[data-sffa-target-token-view]"),
       targetClearBtn: root.querySelector("[data-sffa-target-clear]"),
+      targetPasteBtn: root.querySelector("[data-sffa-target-paste]"),
       listWrap: root.querySelector("[data-sffa-list-wrap]"),
       listSelect: root.querySelector("[data-sffa-list-select]"),
       listOptions: Array.from(root.querySelectorAll("[data-sffa-list-option]")),
@@ -4943,10 +5237,21 @@
       priceQuickButtons: Array.from(root.querySelectorAll("[data-sffa-price-quick-mode]")),
       copyListWrap: root.querySelector("[data-sffa-copy-list-wrap]"),
       copyListBtn: root.querySelector("[data-sffa-copy-list-btn]"),
+      copyListItemBtn: root.querySelector("[data-sffa-copy-list]"),
+      copyGamesItemBtn: root.querySelector("[data-sffa-copy-games]"),
       refreshBtn: root.querySelector("[data-sffa-refresh]"),
       analyzeBtn: root.querySelector("[data-sffa-analyze]"),
       autoFamilyRefreshBtn: root.querySelector("[data-sffa-auto-family-refresh]"),
       openLinksClientBtn: root.querySelector("[data-sffa-open-links-client]"),
+      paginationToggleBtn: root.querySelector("[data-sffa-pagination-toggle]"),
+      paginationBar: root.querySelector("[data-sffa-pagination-bar]"),
+      paginationPrevBtn: root.querySelector("[data-sffa-pagination-prev]"),
+      paginationNextBtn: root.querySelector("[data-sffa-pagination-next]"),
+      paginationJumpInput: root.querySelector("[data-sffa-pagination-jump]"),
+      paginationTotal: root.querySelector("[data-sffa-pagination-total]"),
+      paginationSizeLabel: root.querySelector("[data-sffa-pagination-size-label]"),
+      paginationSizeSelect: root.querySelector("[data-sffa-pagination-size]"),
+      paginationCustomInput: root.querySelector("[data-sffa-pagination-custom]"),
       priceSettingsBtn: root.querySelector("[data-sffa-price-settings]"),
       searchSettingsBtn: root.querySelector("[data-sffa-search-settings]"),
       copyBtn: root.querySelector("[data-sffa-copy]"),
@@ -5029,8 +5334,23 @@
     elements.moreBtn.addEventListener("click", toggleMenu);
     elements.refreshBtn.addEventListener("click", refreshFamilyLibrary);
     elements.analyzeBtn.addEventListener("click", analyzeTarget);
+    elements.targetPasteBtn?.addEventListener("click", pasteTargetInput);
     elements.autoFamilyRefreshBtn.addEventListener("click", toggleAutoFamilyRefresh);
     elements.openLinksClientBtn?.addEventListener("click", toggleOpenLinksInSteamClient);
+    elements.paginationToggleBtn?.addEventListener("click", togglePaginationMode);
+    elements.paginationPrevBtn?.addEventListener("click", goToPaginationPrevPage);
+    elements.paginationNextBtn?.addEventListener("click", goToPaginationNextPage);
+    elements.paginationJumpInput?.addEventListener("change", handlePaginationJumpChange);
+    elements.paginationSizeSelect?.addEventListener("change", handlePaginationSizeChange);
+    elements.paginationCustomInput?.addEventListener("change", handlePaginationCustomSizeChange);
+    [elements.paginationJumpInput, elements.paginationCustomInput].forEach(input => {
+      input?.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.target.blur();
+        }
+      });
+    });
     elements.priceSettingsBtn?.addEventListener("click", openPriceSettingsDialog);
     elements.searchSettingsBtn?.addEventListener("click", openSearchSettingsDialog);
     elements.copyBtn.addEventListener("click", copyReportSummary);
@@ -5104,7 +5424,7 @@
       showTargetInputRawView();
       closeAnalysisHistoryMenu();
       renderTargetClearButton();
-      elements.targetInput.focus();
+      focusTargetInputWithoutHistoryMenu();
     });
     elements.listSelect.addEventListener("click", toggleListMenu);
     elements.listOptions.forEach(option => {
@@ -5230,6 +5550,7 @@
     elements.root.addEventListener("click", hideTooltip);
     elements.root.addEventListener("scroll", handleTooltipScroll, true);
     window.addEventListener("resize", hideTooltip);
+    window.addEventListener("resize", schedulePaginationResizeRefit);
   }
 
   function handleTooltipPointerOver(event) {
@@ -5592,6 +5913,7 @@
     renderRefreshFamilyButton();
     renderAutoFamilyRefreshButton();
     renderOpenLinksClientButton();
+    renderPaginationToggleButton();
     renderStoreCacheButton();
     renderRateLimitControls();
     renderAnalysisHistoryMenu();
@@ -5624,13 +5946,30 @@
 
   function focusTargetInput() {
     window.setTimeout(() => {
-      elements.targetInput?.focus();
-      elements.targetInput?.select();
+      if (!elements.targetInput) {
+        return;
+      }
+      suppressHistoryMenuFocusOpen = true;
+      elements.targetInput.focus();
+      elements.targetInput.select();
+      suppressHistoryMenuFocusOpen = false;
     }, 0);
+  }
+
+  function focusTargetInputWithoutHistoryMenu() {
+    if (!elements.targetInput) {
+      return;
+    }
+    suppressHistoryMenuFocusOpen = true;
+    elements.targetInput.focus();
+    suppressHistoryMenuFocusOpen = false;
   }
 
   function showRuntimeLoading() {
     elements.tableWrap?.classList.toggle("is-cover-view", false);
+    elements.tableWrap?.classList.remove("is-pagination-mode");
+    elements.tableWrap?.classList.remove("is-pagination-fit");
+    hidePaginationBar();
     if (elements.tableWrap) {
       elements.tableWrap.innerHTML = renderDetailsLoadingHtml();
     }
@@ -5658,6 +5997,7 @@
       .catch(error => {
         setRawError(error);
         setStatus(error.message || t("networkFailed"), "err");
+        renderBootstrapEmptyView();
       })
       .finally(() => {
         runtimeInitializationPromise = null;
@@ -6049,6 +6389,10 @@
 
   function handleAnalysisHistoryInputFocus() {
     showTargetInputRawView();
+    if (suppressHistoryMenuFocusOpen) {
+      closeAnalysisHistoryMenu();
+      return;
+    }
     openAnalysisHistoryMenu();
   }
 
@@ -6295,7 +6639,7 @@
   function renderLocalizedUi() {
     const compareHint = lastReport && isMultiTargetReport(lastReport) ? t("compareHint", { count: lastReport.target.targets.length }) : "";
     [
-      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.targetClearBtn, "title", t("clear")], [elements.refreshBtn, "title", t("refreshFamily")], [elements.analyzeBtn, "title", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
+      [elements.root.querySelector(".sffa-launcher span"), "textContent", t("launcher")], [elements.root.querySelector(".sffa-title strong"), "textContent", t("launcher")], [elements.localeToggleBtn, "textContent", getLocaleModeButtonText()], [elements.moreBtn, "title", t("more")], [elements.closeBtn, "title", t("close")], [elements.targetInput, "placeholder", t("targetPlaceholder")], [elements.targetClearBtn, "title", t("clear")], [elements.targetPasteBtn, "title", t("paste")], [elements.refreshBtn, "title", t("refreshFamily")], [elements.analyzeBtn, "title", t("analyzeAccount")], [elements.searchInput, "placeholder", t("searchPlaceholder")], [elements.searchClearBtn, "title", t("clear")], [elements.copyBtn, "textContent", t("copyReport")], [elements.saveListPosterBtn, "textContent", t("saveListPoster")], [elements.reloadCoversBtn, "textContent", t("reloadCovers")], [elements.rawBtn, "textContent", t("rawData")], [elements.rateContinueBtn, "textContent", t("continue")], [elements.rateCheckBtn, "textContent", t("rateCheck")], [elements.compareTitle, "textContent", t("compareTitle")], [elements.compareHint, "textContent", compareHint], [elements.compareCloseBtn, "title", t("close")], [elements.globalCompareTitle, "textContent", t("globalCompareTitle")], [elements.globalCompareHint, "textContent", t("globalCompareHint")], [elements.globalCompareCloseBtn, "title", t("close")], [elements.familyPosterTitle, "textContent", t("familyPosterTitle")], [elements.familyPosterHint, "textContent", t("familyPosterHint")], [elements.familyPosterColumnsLabel, "textContent", t("familyPosterColumns")], [elements.familyPosterSortLabel, "textContent", t("familyPosterSort")], [elements.familyPosterScaleLabel, "textContent", t("familyPosterScale")], [elements.familyPosterCancelBtn, "textContent", t("familyPosterCancel")], [elements.familyPosterConfirmBtn, "textContent", t("familyPosterConfirm")], [elements.familyPosterCloseBtn, "title", t("close")]
     ].forEach(([element, key, value]) => {
       if (!element) {
         return;
@@ -6309,6 +6653,8 @@
     [
       [elements.priceSettingsBtn, "textContent", t("priceSettings")],
       [elements.searchSettingsBtn, "textContent", t("searchSettings")],
+      [elements.copyListItemBtn, "textContent", t("copyList")],
+      [elements.copyGamesItemBtn, "textContent", t("copyGames")],
       [elements.priceTitle, "textContent", t("priceSettingsTitle")],
       [elements.priceHint, "textContent", t("priceSettingsHint")],
       [elements.priceModeLabel, "textContent", t("priceMode")],
@@ -6336,7 +6682,7 @@
       element[key] = value;
     });
     [
-      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.targetClearBtn, "aria-label", t("clear")], [elements.refreshBtn, "aria-label", t("refreshFamily")], [elements.analyzeBtn, "aria-label", t("analyzeAccount")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
+      [elements.launcherCloseBtn, "aria-label", t("hideLauncher")], [elements.listSelect, "aria-label", t("list")], [elements.sortSelect, "aria-label", t("sort")], [elements.ruleFilterSelect, "aria-label", t("ruleFilter")], [elements.moreBtn, "aria-label", t("more")], [elements.copyListBtn, "aria-label", t("more")], [elements.targetClearBtn, "aria-label", t("clear")], [elements.targetPasteBtn, "aria-label", t("paste")], [elements.refreshBtn, "aria-label", t("refreshFamily")], [elements.analyzeBtn, "aria-label", t("analyzeAccount")], [elements.searchClearBtn, "aria-label", t("clear")], [elements.compareCloseBtn, "aria-label", t("close")], [elements.globalCompareCloseBtn, "aria-label", t("close")], [elements.viewSwitch, "aria-label", t("viewMode")], [elements.priceQuickToggle, "aria-label", t("priceMode")], [elements.familyPosterCloseBtn, "aria-label", t("close")]
     ].forEach(([element, key, value]) => element.setAttribute(key, value));
     [[elements.priceCloseBtn, "aria-label", t("close")], [elements.searchSettingsCloseBtn, "aria-label", t("close")], [elements.itadHelpBtn, "aria-label", t("itadApiHelp")]].forEach(([element, key, value]) => { if (element) element.setAttribute(key, value); });
     setTooltipText(elements.itadHelpBtn, t("itadApiHelp"));
@@ -6358,7 +6704,7 @@
     renderFamilyPosterDialog();
     renderCompareDialogIfOpen();
     renderGlobalCompareDialogIfOpen();
-    [registerScriptMenuCommands, renderFamilyMeta, renderRefreshFamilyButton, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderStoreCacheButton, renderRateLimitControls].forEach(fn => fn());
+    [registerScriptMenuCommands, renderFamilyMeta, renderRefreshFamilyButton, renderAutoFamilyRefreshButton, renderOpenLinksClientButton, renderPaginationToggleButton, renderStoreCacheButton, renderRateLimitControls, renderSearchSettingsDialog].forEach(fn => fn());
     renderSidePanel(lastReport);
     [renderTabs, renderDetailsPreserveScroll, renderCurrentStatusText].forEach(fn => fn());
   }
@@ -6529,7 +6875,7 @@
   function readSearchPresetRows() {
     return Array.from(elements.searchPresetList?.querySelectorAll("[data-sffa-search-preset-row]") || [])
       .map((row, index) => ({
-        name: row.querySelector("[data-sffa-search-preset-name]")?.value.trim() || `Search ${index + 1}`,
+        name: row.querySelector("[data-sffa-search-preset-name]")?.value.trim() || t("searchPresetFallback", { index: index + 1 }),
         urlTemplate: row.querySelector("[data-sffa-search-preset-url]")?.value.trim(),
         searchOriginalName: row.querySelector("[data-sffa-search-preset-original]")?.checked === true
       }))
@@ -6962,8 +7308,13 @@
   async function analyzeTarget() {
     try {
       openDialog();
+      const rawInput = elements.targetInput.value.trim();
+      if (!rawInput) {
+        clearCurrentAnalysisData();
+        return;
+      }
+      resetRawData("analyze-target");
       setBusy(true);
-      const rawInput = prepareAnalyzeInput();
       const session = prepareAnalyzeSession();
       const targetProfile = await loadAnalyzeTargetProfile(rawInput, session);
       rememberAnalysisInput(rawInput, targetProfile);
@@ -6980,13 +7331,37 @@
     }
   }
 
-  function prepareAnalyzeInput() {
-    resetRawData("analyze-target");
-    const rawInput = elements.targetInput.value.trim();
-    if (!rawInput) {
-      throw new Error(t("enterAccount"));
+  function clearCurrentAnalysisData() {
+    const hadData = Boolean(lastReport);
+    activeAnalysisId += 1;
+    if (shareabilityProgressUiState?.timer) {
+      window.clearTimeout(shareabilityProgressUiState.timer);
     }
-    return rawInput;
+    shareabilityProgressUiState = createShareabilityProgressUiState(activeAnalysisId);
+    shareabilityFilterState = createShareabilityFilterState(activeAnalysisId, 0, 0, 0);
+    priceLoadState = createPriceLoadState();
+    if (analysisHistorySaveTimer) {
+      window.clearTimeout(analysisHistorySaveTimer);
+      analysisHistorySaveTimer = 0;
+    }
+    GM_deleteValue(ANALYSIS_HISTORY_KEY);
+    lastReport = null;
+    comparePriceRangeByTarget = {};
+    globalCompareDrilldown = null;
+    currentTab = "all";
+    tableSortByTab = {};
+    ruleFilterState = createDefaultRuleFilterState();
+    resetPaginationNavigation();
+    resetRawData("clear-account");
+    elements.targetInput.value = "";
+    showTargetInputRawView();
+    renderTargetClearButton();
+    closeCompareDialog();
+    closeGlobalCompareDialog();
+    renderTabs();
+    renderSidePanel(null);
+    renderDetails();
+    setStatus(hadData ? t("analysisCleared") : t("enterAccount"), hadData ? "ok" : "warn");
   }
 
   function prepareAnalyzeSession() {
@@ -7815,7 +8190,7 @@
     context.font = `${metrics.headerMetaFontSize}px 'Motiva Sans', Arial, sans-serif`;
     const metaY = Math.round(94 * metrics.scale);
     const stamp = formatDateTime(Date.now());
-    context.fillText(`${gameCount} ${UI_LOCALE === "en" ? "games" : "款游戏"}`, metrics.padding, metaY);
+    context.fillText(t("posterGameCount", { count: gameCount }), metrics.padding, metaY);
     context.fillText(stamp, width - metrics.padding - context.measureText(stamp).width, metaY);
   }
 
@@ -8530,8 +8905,8 @@
     setRawData(getRawDataPath(rawDataPrefix, "resolveVanityUrl"), data);
     const response = data.response || {};
     if (Number(response.success) !== 1 || !/^\d{17}$/.test(String(response.steamid || ""))) {
-      const message = response.message ? `：${response.message}` : "";
-      throw new Error(t("resolveVanityFailed", { message }));
+      const message = String(response.message || "").trim();
+      throw new Error(message ? t("resolveVanityFailedWithMessage", { message }) : t("resolveVanityFailed"));
     }
 
     return {
@@ -10238,17 +10613,11 @@
   }
 
   function getFamilyLibraryValueLabel() {
-    const priceLabel = getPriceLabel();
-    return UI_LOCALE === "en"
-      ? `${t("familyLibraryValue")} (${priceLabel})`
-      : `${t("familyLibraryValue")}（${priceLabel}）`;
+    return t("familyLibraryValueWithPrice", { price: getPriceLabel() });
   }
 
   function getFamilyFilteredValueLabel() {
-    const priceLabel = getPriceLabel();
-    return UI_LOCALE === "en"
-      ? `${t("familyFilteredValue")} (${priceLabel})`
-      : `${t("familyFilteredValue")}（${priceLabel}）`;
+    return t("familyFilteredValueWithPrice", { price: getPriceLabel() });
   }
 
   function sumFamilyLibraryValue(rows) {
@@ -11798,6 +12167,173 @@
     elements.openLinksClientBtn.setAttribute("aria-pressed", String(enabled));
   }
 
+  function isPaginationEnabled() {
+    return Boolean(state.paginationEnabled);
+  }
+
+  function normalizePaginationPageSizeMode(mode) {
+    return ["auto", "10", "20", "30", "50", "100", "custom"].includes(String(mode)) ? String(mode) : "auto";
+  }
+
+  function normalizePaginationCustomPageSize(value) {
+    const number = Number.parseInt(value, 10);
+    return Number.isFinite(number) && number >= 1 ? Math.min(1000, number) : 40;
+  }
+
+  function getPaginationPageSize() {
+    const mode = state.paginationPageSizeMode;
+    if (mode === "custom") {
+      return normalizePaginationCustomPageSize(state.paginationCustomPageSize);
+    }
+    if (mode === "auto") {
+      return 0;
+    }
+    const number = Number.parseInt(mode, 10);
+    return Number.isFinite(number) && number >= 1 ? number : 0;
+  }
+
+  function isPaginationAutoFitMode() {
+    return getPaginationPageSize() === 0;
+  }
+
+  function renderPaginationToggleButton() {
+    if (!elements.paginationToggleBtn) {
+      return;
+    }
+    const enabled = isPaginationEnabled();
+    elements.paginationToggleBtn.textContent = enabled ? t("paginationModeOn") : t("paginationModeOff");
+    elements.paginationToggleBtn.classList.toggle("is-active", enabled);
+    elements.paginationToggleBtn.setAttribute("aria-pressed", String(enabled));
+  }
+
+  function togglePaginationMode() {
+    closeMenu();
+    state.paginationEnabled = !state.paginationEnabled;
+    saveState();
+    resetPaginationNavigation();
+    renderPaginationToggleButton();
+    if (isPaginationEnabled()) {
+      renderDetails({ showLoading: true });
+    } else {
+      renderDetailsPreserveScroll();
+    }
+    setStatus(isPaginationEnabled() ? t("paginationEnabled") : t("paginationDisabled"), "ok");
+  }
+
+  function resetPaginationNavigation() {
+    paginationPage = 1;
+    paginationStart = 0;
+    paginationLastFitCount = 0;
+    paginationPageStarts.clear();
+    paginationPageSizeCache.clear();
+    pendingPaginationFit = null;
+  }
+
+  function getPaginationStepSize() {
+    const fixedSize = getPaginationPageSize();
+    if (fixedSize > 0) {
+      return fixedSize;
+    }
+    return Math.max(1, paginationLastFitCount || paginationPageSizeCache.get(getPaginationLayoutKey()) || getPaginationDefaultPageSize());
+  }
+
+  function goToPaginationPrevPage() {
+    if (!isPaginationEnabled() || paginationPage <= 1) {
+      return;
+    }
+    paginationPage -= 1;
+    if (isPaginationAutoFitMode()) {
+      paginationStart = paginationPageStarts.get(paginationPage) ?? Math.max(0, paginationStart - getPaginationStepSize());
+      paginationLastFitCount = 0;
+    }
+    renderDetails();
+  }
+
+  function goToPaginationNextPage() {
+    if (!isPaginationEnabled()) {
+      return;
+    }
+    paginationPage += 1;
+    if (isPaginationAutoFitMode()) {
+      paginationStart = paginationStart + getPaginationStepSize();
+      paginationPageStarts.set(paginationPage, paginationStart);
+      paginationLastFitCount = 0;
+    }
+    renderDetails();
+  }
+
+  function jumpToPaginationPage(targetPage) {
+    if (!isPaginationEnabled()) {
+      return;
+    }
+    const page = Math.max(1, Math.floor(Number(targetPage) || 1));
+    if (!isPaginationAutoFitMode()) {
+      const fixedSize = getPaginationPageSize();
+      const totalPages = Math.max(1, Math.ceil(Math.max(1, paginationLastRowsLength) / fixedSize));
+      paginationPage = Math.min(page, totalPages);
+      paginationLastFitCount = 0;
+      renderDetails();
+      return;
+    }
+    paginationPage = page;
+    const fitCount = getPaginationStepSize();
+    const estimatedTotal = Math.max(1, Math.ceil(Math.max(1, paginationLastRowsLength) / fitCount));
+    paginationPage = Math.min(paginationPage, estimatedTotal);
+    if (paginationPageStarts.has(paginationPage)) {
+      paginationStart = paginationPageStarts.get(paginationPage);
+    } else {
+      const estimate = (paginationPage - 1) * fitCount;
+      paginationStart = Math.min(Math.max(0, paginationLastRowsLength - 1), estimate);
+      paginationPageStarts.set(paginationPage, paginationStart);
+    }
+    paginationLastFitCount = 0;
+    renderDetails();
+  }
+
+  function handlePaginationJumpChange(event) {
+    if (!isPaginationEnabled()) {
+      return;
+    }
+    jumpToPaginationPage(event.target.value);
+  }
+
+  function handlePaginationSizeChange(event) {
+    if (!isPaginationEnabled()) {
+      return;
+    }
+    state.paginationPageSizeMode = normalizePaginationPageSizeMode(event.target.value);
+    saveState();
+    resetPaginationNavigation();
+    renderDetails({ showLoading: true });
+  }
+
+  function handlePaginationCustomSizeChange(event) {
+    if (!isPaginationEnabled()) {
+      return;
+    }
+    state.paginationCustomPageSize = normalizePaginationCustomPageSize(event.target.value);
+    saveState();
+    resetPaginationNavigation();
+    renderDetails({ showLoading: true });
+  }
+
+  function schedulePaginationResizeRefit() {
+    if (!isPaginationEnabled() || !isPaginationAutoFitMode()) {
+      return;
+    }
+    if (paginationResizeTimer) {
+      window.clearTimeout(paginationResizeTimer);
+    }
+    paginationResizeTimer = window.setTimeout(() => {
+      paginationResizeTimer = 0;
+      if (!isPaginationEnabled() || !isPaginationAutoFitMode()) {
+        return;
+      }
+      paginationPageSizeCache.delete(getPaginationLayoutKey());
+      renderDetails();
+    }, 150);
+  }
+
   function metricHtml(label, value, title = "") {
     const titleAttr = title ? ` data-sffa-tooltip="${escapeAttr(title)}"` : "";
     return `<div class="sffa-metric"${titleAttr}><span>${label}</span><strong>${value}</strong></div>`;
@@ -11947,7 +12483,7 @@
 
     const hasActiveFilters = getActiveRuleFilterCount() > 0;
     const filteredGameCount = hasActiveFilters ? getCurrentRuleFilteredRowCount() : 0;
-    elements.ruleFilterSelect.textContent = hasActiveFilters ? `${t("ruleFilter")} (${filteredGameCount})` : t("ruleFilter");
+    elements.ruleFilterSelect.textContent = hasActiveFilters ? t("ruleFilterWithCount", { count: filteredGameCount }) : t("ruleFilter");
     elements.ruleFilterSelect.classList.toggle("is-active", hasActiveFilters);
     elements.ruleFilterMenu.innerHTML = [
       isRuleFilterKindApplicable("status") && renderRuleFilterGroup("status", t("ruleFilterStatus"), getRuleFilterStatusOptions()),
@@ -12537,7 +13073,7 @@
   }
 
   function getMainTabDisplayLabel(tab) {
-    return `${getMainTabLabel(tab)} (${getReportListCount(tab)})`;
+    return t("tabLabelWithCount", { tab: getMainTabLabel(tab), count: getReportListCount(tab) });
   }
 
   function getReportListCount(tab) {
@@ -12562,6 +13098,28 @@
 
   function renderTargetClearButton() {
     elements.historyWrap?.classList.toggle("has-value", Boolean(elements.targetInput?.value));
+  }
+
+  async function pasteTargetInput() {
+    if (!navigator.clipboard?.readText) {
+      setStatus(t("pasteFailed"), "warn");
+      return;
+    }
+    try {
+      const text = String(await navigator.clipboard.readText() || "").trim();
+      if (!text) {
+        setStatus(t("pasteEmpty"), "warn");
+        return;
+      }
+      const current = String(elements.targetInput?.value || "").trim();
+      showTargetInputRawView();
+      elements.targetInput.value = current ? `${current} ${text}` : text;
+      renderTargetClearButton();
+      scheduleTargetTokenViewRender();
+      setStatus(t("pasted"), "ok");
+    } catch (error) {
+      setStatus(t("pasteFailed"), "warn");
+    }
   }
 
   function scheduleSearchRender() {
@@ -12826,6 +13384,9 @@
     startDetailsPerfTrace(renderToken);
     if (options.showLoading) {
       elements.tableWrap.classList.toggle("is-cover-view", false);
+      elements.tableWrap.classList.remove("is-pagination-mode");
+      elements.tableWrap.classList.remove("is-pagination-fit");
+      hidePaginationBar();
       elements.tableWrap.innerHTML = renderDetailsLoadingHtml();
       scheduleAfterDetailsLoadingPaint(() => scheduleDetailsRenderChunk(() => renderDetailsNow(renderToken)));
     } else {
@@ -12853,6 +13414,11 @@
       return;
     }
     elements.tableWrap.classList.toggle("is-cover-view", getListViewMode() !== "table");
+    const listKey = getPaginationListKey();
+    if (listKey !== paginationListKey) {
+      paginationListKey = listKey;
+      resetPaginationNavigation();
+    }
     if (currentTab === "family") {
       const sourceRows = getFamilyLibraryRows();
       markDetailsPerfTrace(renderToken, "source", { source: sourceRows.length });
@@ -12864,15 +13430,15 @@
         return;
       }
       if (rows.length === 0) {
-        elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(sourceRows.length ? t("noMatches") : t("noFamilyRefresh"))}</div>`;
+        renderEmptyDetails(sourceRows.length ? t("noMatches") : t("noFamilyRefresh"));
         return;
       }
-      renderDetailsRows("family", rows, renderToken);
+      renderPreparedDetailsRows("family", rows, renderToken);
       return;
     }
 
     if (!lastReport) {
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(t("initialEmpty"))}</div>`;
+      renderEmptyDetails(t("initialEmpty"));
       return;
     }
 
@@ -12887,11 +13453,29 @@
     }
     if (rows.length === 0) {
       const emptyText = sourceRows.length ? t("noMatches") : t("tabEmpty", { tab: getTabLabel(currentTab) });
-      elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(emptyText)}</div>`;
+      renderEmptyDetails(emptyText);
       return;
     }
 
-    renderDetailsRows(currentTab, rows, renderToken);
+    renderPreparedDetailsRows(currentTab, rows, renderToken);
+  }
+
+  function renderEmptyDetails(emptyText) {
+    elements.tableWrap.classList.remove("is-pagination-mode");
+    elements.tableWrap.classList.remove("is-pagination-fit");
+    hidePaginationBar();
+    elements.tableWrap.innerHTML = `<div class="sffa-empty">${escapeHtml(emptyText)}</div>`;
+  }
+
+  function renderPreparedDetailsRows(tab, rows, renderToken) {
+    if (isPaginationEnabled()) {
+      renderPaginatedDetailsRows(tab, rows, renderToken);
+      return;
+    }
+    elements.tableWrap.classList.remove("is-pagination-mode");
+    elements.tableWrap.classList.remove("is-pagination-fit");
+    hidePaginationBar();
+    renderDetailsRows(tab, rows, renderToken);
   }
 
   function renderDetailsRows(tab, rows, renderToken) {
@@ -12900,6 +13484,317 @@
     markDetailsPerfTrace(renderToken, "paint", { rendered: rows.length });
     scheduleDetailsPricePreparation(tab, rows, renderToken);
     scheduleDetailsPostRender(renderToken, true);
+  }
+
+  // ===== 翻页模式 =====
+
+  function getPaginationListKey() {
+    const sort = tableSortByTab[normalizeMainTab(currentTab)] || {};
+    return [
+      currentTab,
+      getListViewMode(),
+      String(elements.searchInput?.value || ""),
+      sort.key || "",
+      sort.direction || "",
+      JSON.stringify(ruleFilterState)
+    ].join("|");
+  }
+
+  function getPaginationViewport() {
+    if (getListViewMode() === "table") {
+      return elements.tableWrap?.querySelector("[data-sffa-table-body-scroll]") || elements.tableWrap;
+    }
+    return elements.tableWrap;
+  }
+
+  function getPaginationItemSelector() {
+    if (getListViewMode() === "poster") {
+      return ".sffa-poster-card";
+    }
+    if (getListViewMode() === "cover") {
+      return ".sffa-cover-card";
+    }
+    return "tbody tr";
+  }
+
+  function getPaginationLayoutKey() {
+    const viewport = getPaginationViewport();
+    const rect = viewport?.getBoundingClientRect();
+    if (!rect || rect.height <= 0) {
+      return `${getListViewMode()}|${normalizeMainTab(currentTab)}|unknown`;
+    }
+    return `${getListViewMode()}|${normalizeMainTab(currentTab)}|${Math.round(rect.width)}x${Math.round(rect.height)}`;
+  }
+
+  function getPaginationDefaultPageSize() {
+    const view = getListViewMode();
+    const viewport = getPaginationViewport();
+    const rect = viewport?.getBoundingClientRect();
+    if (!rect || rect.height <= 0) {
+      return 20;
+    }
+    if (view === "table") {
+      return Math.max(1, Math.floor(rect.height / 58) + 2);
+    }
+    const gap = 10;
+    const minWidth = view === "poster" ? 172 : 230;
+    const columns = Math.max(1, Math.floor((rect.width + gap) / (minWidth + gap)));
+    const itemHeight = view === "poster" ? 270 : 200;
+    const rowsFit = Math.max(1, Math.floor(rect.height / itemHeight));
+    return Math.max(1, (rowsFit + 1) * columns);
+  }
+
+  function renderPaginatedDetailsRows(tab, rows, renderToken) {
+    paginationLastRowsLength = rows.length;
+    const fixedSize = getPaginationPageSize();
+    elements.tableWrap.classList.add("is-pagination-mode");
+    elements.tableWrap.classList.toggle("is-pagination-fit", fixedSize === 0);
+    if (fixedSize > 0) {
+      pendingPaginationFit = null;
+      const totalPages = Math.max(1, Math.ceil(rows.length / fixedSize));
+      paginationPage = Math.min(Math.max(1, paginationPage), totalPages);
+      paginationStart = (paginationPage - 1) * fixedSize;
+      paginationLastFitCount = Math.min(fixedSize, rows.length - paginationStart);
+      const pageRows = rows.slice(paginationStart, paginationStart + fixedSize);
+      elements.tableWrap.innerHTML = buildDetailsView(tab, pageRows);
+      resetPaginationScroll();
+      renderPaginationBar(rows, paginationLastFitCount, false, totalPages);
+      scheduleDetailsPricePreparation(tab, pageRows, renderToken);
+      scheduleDetailsPostRender(renderToken, true);
+      return;
+    }
+    if (paginationStart >= rows.length) {
+      resetPaginationNavigation();
+    }
+    const size = paginationPageSizeCache.get(getPaginationLayoutKey()) || getPaginationDefaultPageSize();
+    const pageRows = rows.slice(paginationStart, paginationStart + size);
+    paintPaginationPage(tab, pageRows, rows, renderToken);
+  }
+
+  const PAGINATION_FIT_MAX_GROW_PASSES = 8;
+
+  function paintPaginationPage(tab, pageRows, allRows, renderToken) {
+    resetPaginationScroll();
+    const fit = { token: renderToken, tab, rows: allRows, start: paginationStart, rendered: pageRows.length, pass: 0 };
+    paintPaginationSlice(fit, pageRows.length, 0);
+    renderPaginationBar(allRows, pageRows.length, true);
+  }
+
+  function paintPaginationSlice(fit, size, nextPass) {
+    const scrollElement = getDetailsScrollElement();
+    const scrollTop = scrollElement?.scrollTop || 0;
+    const scrollLeft = scrollElement?.scrollLeft || 0;
+    const pageRows = fit.rows.slice(fit.start, fit.start + size);
+    elements.tableWrap.innerHTML = buildDetailsView(fit.tab, pageRows);
+    if (scrollElement) {
+      scrollElement.scrollTop = scrollTop;
+      scrollElement.scrollLeft = scrollLeft;
+      syncTableHeaderScroll(scrollElement);
+    }
+    scheduleDetailsPricePreparation(fit.tab, pageRows, fit.token);
+    pendingPaginationFit = nextPass == null
+      ? null
+      : { token: fit.token, tab: fit.tab, rows: fit.rows, start: fit.start, rendered: size, pass: nextPass };
+    scheduleDetailsPostRender(fit.token, true);
+  }
+
+  function getPaginationGrowStep() {
+    if (getListViewMode() !== "table") {
+      const items = elements.tableWrap.querySelectorAll(getPaginationItemSelector());
+      const firstItem = items[0];
+      if (firstItem) {
+        const firstTop = firstItem.getBoundingClientRect().top;
+        let rowCount = 0;
+        for (let index = 0; index < items.length; index += 1) {
+          if (Math.abs(items[index].getBoundingClientRect().top - firstTop) < 1) {
+            rowCount += 1;
+          }
+        }
+        return Math.max(1, rowCount);
+      }
+      return 4;
+    }
+    return 5;
+  }
+
+  function runPaginationFit(fit) {
+    pendingPaginationFit = null;
+    if (!isPaginationEnabled() || fit.token !== detailsRenderToken) {
+      return;
+    }
+    const count = measurePaginationFitCount();
+    if (count == null) {
+      renderPaginationBar(fit.rows, fit.rendered);
+      return;
+    }
+    const key = getPaginationLayoutKey();
+    const remaining = fit.rows.length - fit.start;
+    if (count < fit.rendered) {
+      // 溢出：截断到实际能完整显示的数量；若底部留白超过半张卡片，则保留被截断的一行
+      const keptCount = adjustPaginationGridRowCut(count);
+      paginationLastFitCount = Math.max(1, keptCount);
+      paginationPageSizeCache.set(key, paginationLastFitCount);
+      paintPaginationSlice(fit, paginationLastFitCount, null);
+      renderPaginationBar(fit.rows, paginationLastFitCount);
+      return;
+    }
+    if (count < remaining && fit.pass < PAGINATION_FIT_MAX_GROW_PASSES) {
+      // 当前页全部放得下且还有剩余：按一行（表格按 5 行）递增继续填满
+      const grown = Math.min(remaining, fit.rendered + getPaginationGrowStep());
+      paintPaginationSlice(fit, grown, fit.pass + 1);
+      renderPaginationBar(fit.rows, fit.rendered, true);
+      return;
+    }
+    // 全部放得下（最后一页）或达到增长上限：结束
+    paginationLastFitCount = Math.max(1, count);
+    paginationPageSizeCache.set(key, paginationLastFitCount);
+    renderPaginationBar(fit.rows, paginationLastFitCount);
+  }
+
+  function adjustPaginationGridRowCut(cutIndex) {
+    if (getListViewMode() === "table" || cutIndex <= 0) {
+      return cutIndex;
+    }
+    const items = elements.tableWrap.querySelectorAll(getPaginationItemSelector());
+    if (cutIndex >= items.length) {
+      return cutIndex;
+    }
+    const viewport = getPaginationViewport();
+    if (!viewport) {
+      return cutIndex;
+    }
+    const viewportRect = viewport.getBoundingClientRect();
+    const scrollTop = viewport.scrollTop || 0;
+    const limitContent = scrollTop + getPaginationViewportContentLimit(viewport, viewportRect);
+    const lastKeptRect = items[cutIndex - 1].getBoundingClientRect();
+    const cutCardRect = items[cutIndex].getBoundingClientRect();
+    const lastKeptBottom = lastKeptRect.bottom - viewportRect.top + scrollTop;
+    const blank = limitContent - lastKeptBottom;
+    const cutRowHeight = cutCardRect.bottom - cutCardRect.top;
+    if (blank <= cutRowHeight / 2) {
+      return cutIndex;
+    }
+    // 底部留白超过半张卡片：保留刚好被截断的这一行卡片，避免大面积空白
+    const cutRowTop = cutCardRect.top;
+    let keptCount = cutIndex;
+    for (let index = cutIndex; index < items.length; index += 1) {
+      const rect = items[index].getBoundingClientRect();
+      if (Math.abs(rect.top - cutRowTop) < 1) {
+        keptCount = index + 1;
+      } else {
+        break;
+      }
+    }
+    return Math.max(1, keptCount);
+  }
+
+  function resetPaginationScroll() {
+    const bodyScroll = elements.tableWrap?.querySelector("[data-sffa-table-body-scroll]");
+    if (bodyScroll) {
+      bodyScroll.scrollTop = 0;
+      bodyScroll.scrollLeft = 0;
+    }
+    if (elements.tableWrap) {
+      elements.tableWrap.scrollTop = 0;
+      elements.tableWrap.scrollLeft = 0;
+    }
+    syncTableHeaderScroll(bodyScroll || elements.tableWrap);
+  }
+
+  function getPaginationViewportContentLimit(viewport, viewportRect) {
+    let limit = viewport.clientHeight;
+    if (viewport === elements.tableWrap) {
+      const paddingBottom = Number.parseFloat(getComputedStyle(viewport).paddingBottom || "0") || 0;
+      limit -= paddingBottom;
+    }
+    const bar = elements.paginationBar;
+    if (bar && !bar.hidden) {
+      const barTopOffset = bar.getBoundingClientRect().top - viewportRect.top;
+      if (barTopOffset > 0) {
+        limit = Math.min(limit, barTopOffset - 6);
+      }
+    }
+    return limit;
+  }
+
+  function measurePaginationFitCount() {
+    const viewport = getPaginationViewport();
+    if (!viewport) {
+      return null;
+    }
+    const viewportRect = viewport.getBoundingClientRect();
+    if (viewportRect.height <= 0) {
+      return null;
+    }
+    const items = Array.from(elements.tableWrap.querySelectorAll(getPaginationItemSelector()));
+    if (!items.length) {
+      return null;
+    }
+    const scrollTop = viewport.scrollTop || 0;
+    const limitContent = scrollTop + getPaginationViewportContentLimit(viewport, viewportRect);
+    for (let index = 0; index < items.length; index += 1) {
+      const rect = items[index].getBoundingClientRect();
+      const contentBottom = rect.bottom - viewportRect.top + scrollTop;
+      if (contentBottom > limitContent + 1) {
+        return index;
+      }
+    }
+    return items.length;
+  }
+
+  function renderPaginationBar(allRows, renderedCount, pending = false, exactTotalPages = 0) {
+    if (!elements.paginationBar) {
+      return;
+    }
+    if (!isPaginationEnabled() || !allRows.length) {
+      hidePaginationBar();
+      return;
+    }
+    elements.paginationBar.hidden = false;
+    const fixedSize = getPaginationPageSize();
+    let totalPages;
+    if (fixedSize > 0) {
+      totalPages = Math.max(1, Math.ceil(allRows.length / fixedSize));
+    } else if (exactTotalPages) {
+      totalPages = Math.max(1, exactTotalPages);
+    } else {
+      const fitCount = Math.max(1, paginationLastFitCount || renderedCount || 1);
+      const isLastPage = paginationStart + fitCount >= allRows.length;
+      const remaining = Math.max(0, allRows.length - paginationStart - fitCount);
+      totalPages = isLastPage
+        ? paginationPage
+        : paginationPage + Math.max(1, Math.ceil(remaining / fitCount));
+    }
+    elements.paginationPrevBtn.setAttribute("aria-label", t("paginationPrev"));
+    elements.paginationNextBtn.setAttribute("aria-label", t("paginationNext"));
+    elements.paginationJumpInput.setAttribute("aria-label", t("paginationJump"));
+    elements.paginationSizeSelect.setAttribute("aria-label", t("paginationPerPage"));
+    elements.paginationCustomInput.setAttribute("aria-label", t("paginationCustomCount"));
+    elements.paginationPrevBtn.disabled = paginationPage <= 1;
+    elements.paginationNextBtn.disabled = pending || paginationPage >= totalPages;
+    elements.paginationJumpInput.value = String(paginationPage);
+    elements.paginationJumpInput.max = String(totalPages);
+    elements.paginationTotal.textContent = `/ ${totalPages}`;
+    elements.paginationSizeLabel.textContent = t("paginationPerPage");
+    elements.paginationSizeSelect.innerHTML = [
+      ["auto", t("paginationPerPageAuto")],
+      ["10", "10"],
+      ["20", "20"],
+      ["30", "30"],
+      ["50", "50"],
+      ["100", "100"],
+      ["custom", t("paginationPerPageCustom")]
+    ].map(([value, label]) => `<option value="${escapeAttr(value)}"${value === state.paginationPageSizeMode ? " selected" : ""}>${escapeHtml(label)}</option>`).join("");
+    elements.paginationCustomInput.hidden = state.paginationPageSizeMode !== "custom";
+    if (state.paginationPageSizeMode === "custom") {
+      elements.paginationCustomInput.value = String(getPaginationPageSize());
+    }
+  }
+
+  function hidePaginationBar() {
+    if (elements.paginationBar) {
+      elements.paginationBar.hidden = true;
+    }
   }
 
   function scheduleDetailsPricePreparation(tab, rows, renderToken) {
@@ -12985,6 +13880,9 @@
         if (finalPass) {
           pendingDetailsScrollRestore = null;
         }
+      }
+      if (pendingPaginationFit?.token === renderToken) {
+        runPaginationFit(pendingPaginationFit);
       }
       applyVisibleCoverImages();
       scheduleVisibleCoverLoads();
@@ -13892,7 +14790,7 @@
     if (!localizedName || normalizeGameName(localizedName) === normalizeGameName(originalName)) {
       return originalName;
     }
-    return `${localizedName} (${originalName})`;
+    return t("localizedNameWithOriginal", { localizedName, originalName });
   }
 
   function getGameLocalizedDisplayName(game) {
@@ -13980,7 +14878,7 @@
     }
     const count = getStoreCacheCount();
     elements.clearStoreCacheBtn.hidden = count === 0;
-    elements.clearStoreCacheBtn.textContent = `${t("clearStoreCache")} (${count})`;
+    elements.clearStoreCacheBtn.textContent = t("clearStoreCacheWithCount", { count });
   }
 
   // ===== 状态、限流与持久化 =====
@@ -14216,7 +15114,7 @@
 
   function setRawError(error) {
     lastRawData.meta.error = {
-      message: error?.message || String(error || "未知错误")
+      message: error?.message || String(error || t("unknownError"))
     };
     lastRawData.meta.updatedAt = new Date().toISOString();
   }
@@ -14226,7 +15124,7 @@
       closeMenu();
       closeGameContextMenu();
     }
-    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.openLinksClientBtn, elements.priceSettingsBtn, elements.searchSettingsBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
+    [elements.refreshBtn, elements.analyzeBtn, elements.moreBtn, elements.localeToggleBtn, elements.autoFamilyRefreshBtn, elements.openLinksClientBtn, elements.paginationToggleBtn, elements.paginationJumpInput, elements.paginationSizeSelect, elements.paginationCustomInput, elements.targetPasteBtn, elements.priceSettingsBtn, elements.searchSettingsBtn, elements.copyBtn, elements.saveFamilyPosterBtn, elements.saveListPosterBtn, elements.reloadCoversBtn, elements.copyListBtn, elements.clearStoreCacheBtn, elements.rawBtn].forEach(button => {
       if (!button) {
         return;
       }
@@ -14261,6 +15159,9 @@
         listViewMode: normalizeListViewMode(saved.listViewMode),
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
         openLinksInSteamClient: Boolean(saved.openLinksInSteamClient),
+        paginationEnabled: Boolean(saved.paginationEnabled),
+        paginationPageSizeMode: normalizePaginationPageSizeMode(saved.paginationPageSizeMode),
+        paginationCustomPageSize: normalizePaginationCustomPageSize(saved.paginationCustomPageSize),
         searchPresets: normalizeSearchPresets(saved.searchPresets),
         appLocaleMode,
         priceConfig,
@@ -14983,7 +15884,7 @@
     }
     return items
       .map(item => item.label)
-      .join(UI_LOCALE === "en" ? ", " : "、");
+      .join(t("listSeparator"));
   }
 
   function formatTargetOwners(owners) {
@@ -14994,7 +15895,7 @@
 
     return items
       .map(item => item.label)
-      .join(UI_LOCALE === "en" ? ", " : "、");
+      .join(t("listSeparator"));
   }
 
   function getOwnerTagItems(owners, nameById) {

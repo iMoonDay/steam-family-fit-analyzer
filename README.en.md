@@ -14,6 +14,7 @@ A Tampermonkey userscript that analyzes a public Steam account against the Steam
 - Also reads the signed-in account's personal library to avoid counting already-owned games that are missing from the Family shared library as added games.
 - Provides All, Family library, Added, Relatively added, and Duplicates lists with search, sorting, rule filters, list copying, and raw data viewing.
 - Provides table, grid, and poster views with covers, localized names, original-name tooltips, prices, status, owners, and acquisition time.
+- Supports paged mode: a floating page bar that auto-fits each page to the viewport or uses a fixed 10/20/30/50/100/custom size per page, with page jumping. Toggle it from the top-right menu.
 - Supports original price, current price, and historical low price modes. Current prices and historical lows use separate caches; historical lows require an IsThereAnyDeal API key.
 - Provides a global contribution comparison chart for target accounts and family members, with drill-down details.
 - Supports analysis history, history deletion, profile-page auto-fill, and automatic family library refresh every 24 hours.

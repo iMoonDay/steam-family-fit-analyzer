@@ -2,7 +2,7 @@
 // @name         Steam Family Library Analyzer
 // @name:zh-CN   Steam 家庭库分析器
 // @namespace    https://tampermonkey.net/
-// @version      0.3.1
+// @version      0.3.2
 // @description  Analyze a public Steam account against your current Steam Family shared library for added games, duplicates, and added original value.
 // @description:zh-CN 基于当前 Steam 家庭组共享库，分析指定公开 Steam 账户加入后可带来的新增游戏、重复游戏和新增库价值
 // @author       iMoonDay
@@ -35,7 +35,7 @@
   // ===== 可按需修改的脚本参数 =====
   // 改完下面这组常量后保存脚本即可生效；如果不确定含义，优先保持默认值。
 
-  const SCRIPT_VERSION = "0.3.1";
+  const SCRIPT_VERSION = "0.3.2";
   const PROJECT_URL = "https://github.com/iMoonDay/steam-family-fit-analyzer";
 
   // 无法从 Steam 页面识别商店地区时使用的兜底地区代码，例如 CN / US / JP。
@@ -97,6 +97,8 @@
   // Steam 商店分类中“家庭共享”特性的分类 ID。
   const FAMILY_SHARING_CATEGORY_ID = 62;
   const LIST_RENDER_SLOW_LOG_MS = 24;
+  const LIST_CARD_BASE_WIDTHS = Object.freeze({ cover: 230, poster: 172 });
+  const LIST_CARD_SCALE = Object.freeze({ min: 60, max: 140, step: 20, default: 100 });
   // 普通用户 SteamID64 = 该基数 + Steam 好友码 / 账号 ID（accountid）。
   const STEAMID64_INDIVIDUAL_BASE = 76561197960265728n;
   const MAX_STEAM_ACCOUNT_ID = 4294967295n;
@@ -455,6 +457,12 @@
       viewTable: "表格",
       viewCover: "网格",
       viewPoster: "海报",
+      cardSize: "卡片尺寸",
+      cardSizeMinimum: "最小",
+      cardSizeSmall: "小",
+      cardSizeDefault: "默认",
+      cardSizeLarge: "大",
+      cardSizeMaximum: "最大",
       sort: "排序",
       sortName: "名称",
       sortId: "ID",
@@ -804,6 +812,12 @@
       viewTable: "Table",
       viewCover: "Grid",
       viewPoster: "Poster",
+      cardSize: "Card size",
+      cardSizeMinimum: "Smallest",
+      cardSizeSmall: "Small",
+      cardSizeDefault: "Default",
+      cardSizeLarge: "Large",
+      cardSizeMaximum: "Largest",
       sort: "Sort",
       sortName: "Name",
       sortId: "ID",
@@ -1158,6 +1172,7 @@
     launcherVisible: true,
     sidebarCollapsed: false,
     listViewMode: "table",
+    listCardScale: LIST_CARD_SCALE.default,
     familyPosterSettings: {
       columns: FAMILY_POSTER_COLUMNS,
       sortMode: "data",
@@ -1213,6 +1228,7 @@
   let analysisInputHistoryCache = null;
   let searchRenderTimer = 0;
   let detailsRenderToken = 0;
+  let detailsVisibilityState = null;
   let pendingDetailsScrollRestore = null;
   let detailsPerfTraceByToken = new Map();
   let paginationPage = 1;
@@ -1223,6 +1239,11 @@
   let paginationPageSizeCache = new Map();
   let paginationListKey = "";
   let paginationResizeTimer = 0;
+  let listCardScaleFrame = 0;
+  let listCardScaleAnimate = false;
+  let listCardScaleInputVersion = 0;
+  const listCardScaleAnimations = new Map();
+  let listCardResizeObserver = null;
   let pendingPaginationFit = null;
   let scriptMenuCommandIds = [];
   let activePosterDialogContext = null;
@@ -1896,6 +1917,7 @@
         min-width: 0;
         min-height: 0;
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         grid-template-rows: auto minmax(0, 1fr);
         gap: 8px;
         overflow: hidden;
@@ -3627,6 +3649,7 @@
       }
       .sffa-tabs {
         display: flex;
+        flex-wrap: wrap;
         gap: 6px;
         min-height: 30px;
         align-items: center;
@@ -3974,6 +3997,87 @@
         border-radius: 3px;
         background: #18222c;
       }
+      .sffa-card-size-control {
+        --sffa-card-scale-progress: 50%;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 10px;
+        border: 1px solid rgba(102, 192, 244, 0.18);
+        border-radius: 999px;
+        background: #101820;
+        color: #9fb3c2;
+        font-size: 11px;
+      }
+      .sffa-card-size-control[hidden] {
+        display: none;
+      }
+      .sffa-card-size-track {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .sffa-card-size-track::after {
+        content: "";
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        top: calc(50% + 6px);
+        height: 3px;
+        background: linear-gradient(to right, #9fb3c2 1px, transparent 1px) left top / 25% 100% repeat-x;
+        border-right: 1px solid #9fb3c2;
+        pointer-events: none;
+      }
+      .sffa-card-size-range {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 112px;
+        height: 24px;
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+      .sffa-card-size-range::-webkit-slider-runnable-track {
+        height: 4px;
+        border-radius: 999px;
+        background: linear-gradient(to right, #66c0f4 var(--sffa-card-scale-progress), #293c4c var(--sffa-card-scale-progress));
+      }
+      .sffa-card-size-range::-moz-range-track {
+        height: 4px;
+        border-radius: 999px;
+        background: linear-gradient(to right, #66c0f4 var(--sffa-card-scale-progress), #293c4c var(--sffa-card-scale-progress));
+      }
+      .sffa-card-size-range::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 12px;
+        height: 12px;
+        margin-top: -4px;
+        border: 1px solid #b9e5ff;
+        border-radius: 50%;
+        background: #66c0f4;
+      }
+      .sffa-card-size-range::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        border: 1px solid #b9e5ff;
+        border-radius: 50%;
+        background: #66c0f4;
+      }
+      .sffa-card-size-range:focus-visible {
+        outline: 2px solid #66c0f4;
+        outline-offset: 2px;
+        border-radius: 999px;
+      }
+      .sffa-card-size-value {
+        min-width: 2em;
+        color: #dbe8f3;
+        white-space: nowrap;
+        text-align: center;
+      }
       .sffa-view-btn {
         height: 24px;
         padding: 0 9px;
@@ -4276,10 +4380,11 @@
           display: none;
         }
       }
-      .sffa-cover-grid {
+      .sffa-cover-grid,
+      .sffa-poster-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-        gap: 10px;
+        grid-template-columns: repeat(var(--sffa-card-columns), minmax(0, 1fr));
+        gap: var(--sffa-card-column-gap);
       }
       .sffa-cover-card {
         display: grid;
@@ -4418,11 +4523,6 @@
         font-size: 11px;
         line-height: 1.35;
         overflow-wrap: anywhere;
-      }
-      .sffa-poster-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
-        gap: 10px;
       }
       .sffa-poster-card {
         position: relative;
@@ -4788,13 +4888,9 @@
         .sffa-table-wrap.is-cover-view {
           padding: 8px;
         }
-        .sffa-cover-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-        }
+        .sffa-cover-grid,
         .sffa-poster-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
+          row-gap: 8px;
         }
         .sffa-cover-card {
           grid-template-rows: auto auto;
@@ -5082,6 +5178,12 @@
                   <button class="sffa-view-btn" type="button" data-sffa-view-mode="cover">${escapeHtml(t("viewCover"))}</button>
                   <button class="sffa-view-btn" type="button" data-sffa-view-mode="poster">${escapeHtml(t("viewPoster"))}</button>
                 </div>
+                <div class="sffa-card-size-control" data-sffa-card-size-control role="group" aria-label="${escapeAttr(t("cardSize"))}" hidden>
+                  <span class="sffa-card-size-track">
+                    <input class="sffa-card-size-range" type="range" min="${LIST_CARD_SCALE.min}" max="${LIST_CARD_SCALE.max}" step="${LIST_CARD_SCALE.step}" value="${LIST_CARD_SCALE.default}" data-sffa-card-scale aria-label="${escapeAttr(t("cardSize"))}">
+                  </span>
+                  <output class="sffa-card-size-value" data-sffa-card-scale-value>${escapeHtml(t("cardSizeDefault"))}</output>
+                </div>
                 <div class="sffa-price-quick-toggle" data-sffa-price-quick-toggle aria-label="${escapeAttr(t("priceMode"))}">
                   <button class="sffa-price-quick-btn" type="button" data-sffa-price-quick-mode="${PRICE_MODE_ORIGINAL}">${escapeHtml(t("priceModeOriginal"))}</button>
                   <button class="sffa-price-quick-btn" type="button" data-sffa-price-quick-mode="${PRICE_MODE_CURRENT}">${escapeHtml(t("priceModeCurrent"))}</button>
@@ -5325,6 +5427,9 @@
       searchInput: root.querySelector("[data-sffa-search]"),
       searchClearBtn: root.querySelector("[data-sffa-search-clear]"),
       viewSwitch: root.querySelector("[data-sffa-view-switch]"),
+      cardSizeControl: root.querySelector("[data-sffa-card-size-control]"),
+      cardScaleInput: root.querySelector("[data-sffa-card-scale]"),
+      cardScaleValue: root.querySelector("[data-sffa-card-scale-value]"),
       priceQuickToggle: root.querySelector("[data-sffa-price-quick-toggle]"),
       viewModeButtons: Array.from(root.querySelectorAll("[data-sffa-view-mode]")),
       priceQuickButtons: Array.from(root.querySelectorAll("[data-sffa-price-quick-mode]")),
@@ -5488,7 +5593,7 @@
     elements.compareSummary?.addEventListener("click", handleCompareSummaryClick);
     elements.compareSummary?.addEventListener("scroll", () => scheduleVisibleCoverLoads());
     elements.globalCompareBody?.addEventListener("click", handleGlobalCompareClick);
-    elements.tableWrap.addEventListener("scroll", handleDetailsScroll, true);
+    elements.tableWrap.addEventListener("scroll", handleDetailsScroll, { capture: true, passive: true });
     elements.tableWrap.addEventListener("contextmenu", handleGameContextMenu);
     elements.gameContextMenu?.addEventListener("click", handleGameContextMenuAction);
     elements.tableWrap.addEventListener("click", handleTableFilterTagClick);
@@ -5550,6 +5655,10 @@
     elements.viewModeButtons.forEach(button => {
       button.addEventListener("click", () => setListViewMode(button.dataset.sffaViewMode));
     });
+    elements.cardScaleInput.addEventListener("input", handleListCardScaleInput);
+    elements.cardScaleInput.addEventListener("change", handleListCardScaleChange);
+    listCardResizeObserver = new ResizeObserver(scheduleListCardScalePreview);
+    listCardResizeObserver.observe(elements.tableWrap);
     elements.priceQuickButtons.forEach(button => {
       button.addEventListener("click", () => setPriceModeFromQuickToggle(button.dataset.sffaPriceQuickMode));
     });
@@ -8469,6 +8578,9 @@
     if (!container) {
       return [];
     }
+    if (container === elements.tableWrap) {
+      return getVisibleDetailsNodes(selector);
+    }
     const nodes = container.querySelectorAll(selector);
     if (!nodes.length) {
       return [];
@@ -8487,6 +8599,58 @@
       }
     }
     return visibleNodes.length ? visibleNodes : Array.from(nodes).slice(0, fallbackLimit);
+  }
+
+  function resetDetailsVisibility() {
+    if (!detailsVisibilityState) {
+      return;
+    }
+    detailsVisibilityState.observer.disconnect();
+    window.cancelAnimationFrame(detailsVisibilityState.frame);
+    detailsVisibilityState = null;
+  }
+
+  function getVisibleDetailsNodes(selector) {
+    const content = elements.tableWrap.firstElementChild;
+    if (detailsVisibilityState?.content !== content) {
+      resetDetailsVisibility();
+      if (!content) {
+        return [];
+      }
+      // 只观察行或整张卡片，避免读取屏幕外子元素的位置而强制展开 content-visibility。
+      const visibility = { content, visibleItems: new Set(), observer: null, frame: 0 };
+      visibility.observer = new IntersectionObserver(entries => {
+        if (detailsVisibilityState !== visibility || elements.tableWrap.firstElementChild !== content) {
+          return;
+        }
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            visibility.visibleItems.add(entry.target);
+          } else {
+            visibility.visibleItems.delete(entry.target);
+          }
+        }
+        if (!visibility.frame) {
+          visibility.frame = window.requestAnimationFrame(() => {
+            visibility.frame = 0;
+            applyVisibleCoverImages();
+          });
+        }
+        scheduleVisibleCoverLoads();
+        scheduleVisiblePriceLoads();
+      }, { root: getDetailsScrollElement(), rootMargin: "240px 0px" });
+      detailsVisibilityState = visibility;
+      content.querySelectorAll("[data-price-appid]").forEach(item => visibility.observer.observe(item));
+    }
+    const nodes = [];
+    for (const item of detailsVisibilityState.visibleItems) {
+      if (item.matches(selector)) {
+        nodes.push(item);
+      } else {
+        nodes.push(...item.querySelectorAll(selector));
+      }
+    }
+    return nodes;
   }
 
   function extractAppidFromNode(node) {
@@ -9668,11 +9832,11 @@
   }
 
   function scheduleVisiblePriceLoads() {
-    if (rateLimitState.active || !canLoadPricesForCurrentContext() || priceLoadState.pendingMap.size === 0) {
+    if (rateLimitState.active || !canLoadPricesForCurrentContext() || priceLoadState.pendingMap.size === 0 || priceLoadState.scheduled) {
       return;
     }
-    window.clearTimeout(priceLoadState.scheduled);
     priceLoadState.scheduled = window.setTimeout(() => {
+      priceLoadState.scheduled = 0;
       const visibleAppids = getVisiblePriceAppids();
       if (visibleAppids.length > 0) {
         enqueueOriginalPriceLoads(visibleAppids, true);
@@ -9697,10 +9861,9 @@
   }
 
   function scheduleVisibleCoverLoads() {
-    if (rateLimitState.active || !shouldProcessVisibleCovers()) {
+    if (rateLimitState.active || !shouldProcessVisibleCovers() || coverLoadState.scheduled) {
       return;
     }
-    window.clearTimeout(coverLoadState.scheduled);
     coverLoadState.scheduled = window.setTimeout(runVisibleCoverLoads, 80);
   }
 
@@ -12476,6 +12639,21 @@
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    renderListCardSizeControl();
+  }
+
+  function renderListCardSizeControl() {
+    const scale = getListCardScale();
+    const valueText = getListCardSizeLabel(scale);
+    elements.cardSizeControl.hidden = getListViewMode() === "table";
+    elements.cardSizeControl.setAttribute("aria-label", t("cardSize"));
+    elements.cardScaleInput.setAttribute("aria-label", t("cardSize"));
+    elements.cardScaleInput.setAttribute("aria-valuetext", valueText);
+    elements.cardScaleInput.value = String(scale);
+    elements.cardScaleValue.textContent = valueText;
+    setTooltipText(elements.cardScaleValue, valueText);
+    const progress = (scale - LIST_CARD_SCALE.min) / (LIST_CARD_SCALE.max - LIST_CARD_SCALE.min) * 100;
+    elements.cardSizeControl.style.setProperty("--sffa-card-scale-progress", `${progress}%`);
   }
 
   function renderTabs() {
@@ -13156,6 +13334,135 @@
     return [...REPORT_LIST_TABS, "family"].includes(tab) ? tab : "all";
   }
 
+  function normalizeListCardScale(value) {
+    const scale = Number(value ?? LIST_CARD_SCALE.default);
+    return Number.isFinite(scale)
+      ? Math.min(LIST_CARD_SCALE.max, Math.max(LIST_CARD_SCALE.min, LIST_CARD_SCALE.min + Math.round((scale - LIST_CARD_SCALE.min) / LIST_CARD_SCALE.step) * LIST_CARD_SCALE.step))
+      : LIST_CARD_SCALE.default;
+  }
+
+  function getListCardScale() {
+    return normalizeListCardScale(state.listCardScale);
+  }
+
+  function getListCardSizeLabel(scale = getListCardScale()) {
+    const index = (normalizeListCardScale(scale) - LIST_CARD_SCALE.min) / LIST_CARD_SCALE.step;
+    return t(["cardSizeMinimum", "cardSizeSmall", "cardSizeDefault", "cardSizeLarge", "cardSizeMaximum"][index]);
+  }
+
+  function getListCardLayout(view = getListViewMode()) {
+    const viewport = elements.tableWrap;
+    const style = getComputedStyle(viewport);
+    const width = viewport.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+    const compact = window.matchMedia("(max-width: 680px)").matches;
+    const baseGap = compact ? 8 : 10;
+    const defaultColumns = compact ? 2 : Math.max(1, Math.floor((width + baseGap) / (LIST_CARD_BASE_WIDTHS[view] + baseGap)));
+    const defaultWidth = (width - baseGap * (defaultColumns - 1)) / defaultColumns;
+    const scale = getListCardScale() / 100;
+    const gap = Math.max(6, baseGap * scale);
+    const targetWidth = defaultWidth * scale;
+    // 保持紧凑间距，选取最接近目标尺寸的列数，再让卡片均分整行宽度。
+    const columns = Math.max(1, Math.round((width + gap) / (targetWidth + gap)));
+    const cardWidth = Math.max(1, (width - gap * (columns - 1)) / columns);
+    return { width, gap, cardWidth, columns };
+  }
+
+  function handleListCardScaleInput() {
+    listCardScaleInputVersion += 1;
+    state.listCardScale = normalizeListCardScale(elements.cardScaleInput.value);
+    renderListCardSizeControl();
+    scheduleListCardScalePreview(true);
+  }
+
+  function handleListCardScaleChange() {
+    handleListCardScaleInput();
+    const inputVersion = listCardScaleInputVersion;
+    const renderToken = detailsRenderToken;
+    scheduleAfterNextPaint(() => {
+      saveState();
+      if (!isPaginationEnabled()) {
+        return;
+      }
+      // 等预览过渡结束再重绘分页，避免松手时替换节点打断动画。
+      const animations = Array.from(listCardScaleAnimations.values(), animation => animation.finished);
+      Promise.allSettled(animations).then(() => {
+        if (inputVersion === listCardScaleInputVersion && renderToken === detailsRenderToken && isPaginationEnabled()) {
+          renderDetails();
+        }
+      });
+    });
+  }
+
+  function scheduleListCardScalePreview(animate = false) {
+    listCardScaleAnimate = listCardScaleAnimate || animate === true;
+    if (listCardScaleFrame) {
+      return;
+    }
+    listCardScaleFrame = window.requestAnimationFrame(() => {
+      listCardScaleFrame = 0;
+      const shouldAnimate = listCardScaleAnimate;
+      listCardScaleAnimate = false;
+      applyListCardScale(shouldAnimate);
+    });
+  }
+
+  function applyListCardScale(animate = false) {
+    const grid = elements.tableWrap.querySelector(".sffa-cover-grid, .sffa-poster-grid");
+    if (!grid) {
+      return;
+    }
+    const scale = getListCardScale();
+    const layout = getListCardLayout();
+    const layoutKey = `${scale}|${layout.columns}|${layout.cardWidth}|${layout.gap}`;
+    if (grid.dataset.sffaCardLayout === layoutKey) {
+      return;
+    }
+    const targets = animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? getVisibleDetailsNodes("[data-price-appid]")
+      : [];
+    // 批量读取视觉位置，连续拖动时从动画当前进度衔接。
+    const positions = targets.map(node => ({ node, bounds: node.getBoundingClientRect() }));
+    cancelListCardScaleAnimations();
+    grid.dataset.sffaCardScale = String(scale);
+    grid.dataset.sffaCardLayout = layoutKey;
+    grid.style.setProperty("--sffa-card-width", `${layout.cardWidth}px`);
+    grid.style.setProperty("--sffa-card-columns", String(layout.columns));
+    grid.style.setProperty("--sffa-card-column-gap", `${layout.gap}px`);
+    const moves = positions.map(({ node, bounds }) => ({ node, before: bounds, after: node.getBoundingClientRect() }));
+    moves.forEach(({ node, before, after }) => {
+      if (!before.width || !before.height || !after.width || !after.height) {
+        return;
+      }
+      const dx = before.left - after.left;
+      const dy = before.top - after.top;
+      const sx = before.width / after.width;
+      const sy = before.height / after.height;
+      const distance = Math.abs(dx) + Math.abs(dy) + Math.abs(before.width - after.width) + Math.abs(before.height - after.height);
+      if (0.1 > distance) {
+        return;
+      }
+      const animation = node.animate([
+        { translate: `${dx}px ${dy}px`, scale: `${sx} ${sy}`, transformOrigin: "top left" },
+        { translate: "0px 0px", scale: "1 1", transformOrigin: "top left" }
+      ], { duration: 160, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)", fill: "both" });
+      listCardScaleAnimations.set(node, animation);
+      const clear = () => {
+        if (listCardScaleAnimations.get(node) === animation) {
+          listCardScaleAnimations.delete(node);
+        }
+      };
+      animation.finished.then(() => {
+        clear();
+        animation.cancel();
+      }, clear);
+    });
+  }
+
+  function cancelListCardScaleAnimations() {
+    listCardScaleAnimations.forEach(animation => animation.cancel());
+    listCardScaleAnimations.clear();
+  }
+
   function isReportListTab(tab) {
     return REPORT_LIST_TABS.includes(tab);
   }
@@ -13481,8 +13788,6 @@
     if (event.target?.dataset?.sffaTableBodyScroll != null) {
       syncTableHeaderScroll(event.target);
     }
-    scheduleVisiblePriceLoads();
-    scheduleVisibleCoverLoads();
   }
 
   function syncTableHeaderScroll(bodyScroll) {
@@ -13490,11 +13795,15 @@
     if (!headScroll || !bodyScroll) {
       return;
     }
-    headScroll.scrollLeft = bodyScroll.scrollLeft;
+    if (headScroll.scrollLeft !== bodyScroll.scrollLeft) {
+      headScroll.scrollLeft = bodyScroll.scrollLeft;
+    }
   }
 
   function renderDetails(options = {}) {
     const renderToken = ++detailsRenderToken;
+    cancelListCardScaleAnimations();
+    resetDetailsVisibility();
     pendingDetailsScrollRestore = null;
     startDetailsPerfTrace(renderToken);
     if (options.showLoading) {
@@ -13608,6 +13917,7 @@
     return [
       currentTab,
       getListViewMode(),
+      getListCardScale(),
       String(elements.searchInput?.value || ""),
       sort.key || "",
       sort.direction || "",
@@ -13636,9 +13946,9 @@
     const viewport = getPaginationViewport();
     const rect = viewport?.getBoundingClientRect();
     if (!rect || rect.height <= 0) {
-      return `${getListViewMode()}|${normalizeMainTab(currentTab)}|unknown`;
+      return `${getListViewMode()}|${getListCardScale()}|${normalizeMainTab(currentTab)}|unknown`;
     }
-    return `${getListViewMode()}|${normalizeMainTab(currentTab)}|${Math.round(rect.width)}x${Math.round(rect.height)}`;
+    return `${getListViewMode()}|${getListCardScale()}|${normalizeMainTab(currentTab)}|${Math.round(rect.width)}x${Math.round(rect.height)}`;
   }
 
   function getPaginationDefaultPageSize() {
@@ -13651,10 +13961,8 @@
     if (view === "table") {
       return Math.max(1, Math.floor(rect.height / 58) + 2);
     }
-    const gap = 10;
-    const minWidth = view === "poster" ? 172 : 230;
-    const columns = Math.max(1, Math.floor((rect.width + gap) / (minWidth + gap)));
-    const itemHeight = view === "poster" ? 270 : 200;
+    const { columns, cardWidth } = getListCardLayout(view);
+    const itemHeight = view === "poster" ? cardWidth * 1.5 : cardWidth * 215 / 460 + 90;
     const rowsFit = Math.max(1, Math.floor(rect.height / itemHeight));
     return Math.max(1, (rowsFit + 1) * columns);
   }
@@ -13990,6 +14298,7 @@
       if (renderToken !== detailsRenderToken) {
         return;
       }
+      applyListCardScale();
       if (pendingDetailsScrollRestore?.token === renderToken) {
         restoreDetailsScrollPosition(pendingDetailsScrollRestore.scrollTop, pendingDetailsScrollRestore.scrollLeft);
         if (finalPass) {
@@ -14044,11 +14353,13 @@
   }
 
   function buildDetailsCoverGrid(tab, rows) {
-    return `<div class="sffa-cover-grid">${renderDetailsCoverCards(tab, rows)}</div>`;
+    const layout = getListCardLayout("cover");
+    return `<div class="sffa-cover-grid" data-sffa-card-scale="${getListCardScale()}" style="--sffa-card-width: ${layout.cardWidth}px; --sffa-card-columns: ${layout.columns}; --sffa-card-column-gap: ${layout.gap}px">${renderDetailsCoverCards(tab, rows)}</div>`;
   }
 
   function buildDetailsPosterGrid(tab, rows) {
-    return `<div class="sffa-poster-grid">${renderDetailsPosterCards(tab, rows)}</div>`;
+    const layout = getListCardLayout("poster");
+    return `<div class="sffa-poster-grid" data-sffa-card-scale="${getListCardScale()}" style="--sffa-card-width: ${layout.cardWidth}px; --sffa-card-columns: ${layout.columns}; --sffa-card-column-gap: ${layout.gap}px">${renderDetailsPosterCards(tab, rows)}</div>`;
   }
 
   function renderDetailsCoverCards(tab, rows) {
@@ -15273,6 +15584,7 @@
         launcherVisible: saved.launcherVisible !== false,
         sidebarCollapsed: Boolean(saved.sidebarCollapsed),
         listViewMode: normalizeListViewMode(saved.listViewMode),
+        listCardScale: normalizeListCardScale(saved.listCardScale),
         autoFamilyRefreshEnabled: saved.autoFamilyRefreshEnabled !== false,
         openLinksInSteamClient: Boolean(saved.openLinksInSteamClient),
         paginationEnabled: Boolean(saved.paginationEnabled),
